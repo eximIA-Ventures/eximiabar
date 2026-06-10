@@ -15,6 +15,7 @@ public enum CoreLog {
         public static let planner = "planner"
         public static let http = "http"
         public static let keychain = "keychain"
+        public static let cli = "cli"
     }
 
     public static func logger(_ category: String) -> Logger {

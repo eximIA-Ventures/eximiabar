@@ -5,21 +5,25 @@ import Foundation
 /// a fetch is in flight, at most one additional fetch is queued to run after — fetches are
 /// never stacked.
 ///
-/// In P0/P1 scope only the OAuth source is wired here; `.cli` lands in EXB-1.6 and `.web`
-/// is explicitly out of scope. The pipeline guards against executing `.web`.
+/// OAuth is always wired; `.cli` is wired when the caller supplies a `cliFetch` closure (EXB-1.6).
+/// `.web` is explicitly out of scope (P2) — the pipeline guards against executing it.
 public actor FetchPipeline {
     /// Fetches a snapshot for one OAuth source — supplied by the caller (the credentials
     /// store + usage fetcher). Returns a snapshot or throws a `UsageError`.
     public typealias OAuthFetch = @Sendable (_ mode: FetchMode) async throws -> UsageSnapshot
+    /// Fetches a snapshot from the `claude` CLI (EXB-1.6). `nil` → CLI source is skipped.
+    public typealias CLIFetch = @Sendable (_ mode: FetchMode) async throws -> UsageSnapshot
 
     private let oauthFetch: OAuthFetch
+    private let cliFetch: CLIFetch?
     private let log = CoreLog.logger(CoreLog.Category.planner)
 
     private var inFlight: Task<Result<UsageSnapshot, UsageError>, Never>?
     private var pending = false
 
-    public init(oauthFetch: @escaping OAuthFetch) {
+    public init(oauthFetch: @escaping OAuthFetch, cliFetch: CLIFetch? = nil) {
         self.oauthFetch = oauthFetch
+        self.cliFetch = cliFetch
     }
 
     /// Runs the pipeline for the given plan. Coalesces concurrent calls: a second call
@@ -42,8 +46,9 @@ public actor FetchPipeline {
         }
 
         let oauthFetch = self.oauthFetch
+        let cliFetch = self.cliFetch
         let task = Task<Result<UsageSnapshot, UsageError>, Never> {
-            await Self.execute(plan: plan, mode: mode, oauthFetch: oauthFetch)
+            await Self.execute(plan: plan, mode: mode, oauthFetch: oauthFetch, cliFetch: cliFetch)
         }
         self.inFlight = task
         let result = await task.value
@@ -54,7 +59,8 @@ public actor FetchPipeline {
     private static func execute(
         plan: [FetchStrategy],
         mode: FetchMode,
-        oauthFetch: OAuthFetch) async -> Result<UsageSnapshot, UsageError>
+        oauthFetch: OAuthFetch,
+        cliFetch: CLIFetch?) async -> Result<UsageSnapshot, UsageError>
     {
         var lastError: UsageError = .networkError("No source available")
         for strategy in plan where strategy.isPlausiblyAvailable {
@@ -75,8 +81,19 @@ public actor FetchPipeline {
                     continue
                 }
             case .cli:
-                // CLI source wires in EXB-1.6; skip in P0/P1 OAuth-only scope.
-                continue
+                // CLI fallback (EXB-1.6). Only runs when the caller wired a `cliFetch` closure;
+                // otherwise the source is skipped (e.g. OAuth-only builds / tests).
+                guard let cliFetch else { continue }
+                do {
+                    let snapshot = try await cliFetch(mode)
+                    return .success(snapshot)
+                } catch let error as UsageError {
+                    lastError = error
+                    continue
+                } catch {
+                    lastError = .networkError(error.localizedDescription)
+                    continue
+                }
             case .web:
                 // Web is out of scope (P2). Planner may return it; pipeline never runs it.
                 continue

@@ -16,6 +16,24 @@ private final class PromptPolicyHolder: Sendable {
     func set(_ policy: PromptPolicy) { lock.withLock { $0 = policy } }
 }
 
+/// Thread-safe holder for the configured `claude` binary path override (EXB-1.6).
+///
+/// The CLI fallback resolves the binary off-MainActor on every fetch: the holder stores the user's
+/// optional Settings override; the resolver (`CLISession.resolveBinaryPath`) maps an override or the
+/// default name `"claude"` to an executable, returning `nil` when none is on PATH (→ `cliNotFound`).
+private final class ClaudeBinaryHolder: Sendable {
+    private let lock = OSAllocatedUnfairLock<String?>(initialState: nil)
+
+    /// The user override, or `nil` to fall back to a PATH search for `"claude"`.
+    func set(_ override: String?) { lock.withLock { $0 = override } }
+
+    /// Resolves to an executable path, or `nil` when no `claude` binary can be found.
+    func resolve() -> String? {
+        let override = lock.withLock { $0 }
+        return CLISession.resolveBinaryPath(override ?? "claude")
+    }
+}
+
 /// Application entry point.
 ///
 /// exímIABar is an `LSUIElement` agent (no Dock icon, no app menu — see `Info.plist`). It uses the
@@ -47,8 +65,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let launchManager = LaunchAtLoginManager()
     /// Shared policy source read by `CredentialsStore` off-MainActor (AC11).
     private let promptPolicyHolder = PromptPolicyHolder()
+    /// Shared `claude` binary source read by the CLI fallback off-MainActor (EXB-1.6).
+    private let claudeBinaryHolder = ClaudeBinaryHolder()
     private lazy var provider = LiveUsageProvider(
-        promptPolicyProvider: { [promptPolicyHolder] in promptPolicyHolder.get() })
+        promptPolicyProvider: { [promptPolicyHolder] in promptPolicyHolder.get() },
+        claudeBinaryProvider: { [claudeBinaryHolder] in claudeBinaryHolder.resolve() })
     private let notificationPoster = SystemNotificationPoster()
     private lazy var appState = AppState(
         fetch: provider.makeFetch(),
@@ -71,6 +92,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the policy holder from the loaded settings (AC11).
         settings.launchAtLogin = launchManager.isEnabled
         promptPolicyHolder.set(settings.corePromptPolicy)
+        // EXB-1.6: seed the off-MainActor CLI binary holder from the persisted override.
+        claudeBinaryHolder.set(settings.claudeBinaryPath)
 
         // EXB-1.5: build the settings window controller (opened from the menu action / ⌘,).
         settingsWindowController = SettingsWindowController(
@@ -88,6 +111,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         settings.onKeychainPolicyChange = { [promptPolicyHolder] policy in
             promptPolicyHolder.set(policy)
+        }
+        // EXB-1.6: keep the off-MainActor CLI binary holder in lock-step with the live setting.
+        settings.onClaudeBinaryChange = { [claudeBinaryHolder] override in
+            claudeBinaryHolder.set(override)
         }
 
         // EXB-1.3: build the popover (NSPanel) and wire its actions. The card reads the live

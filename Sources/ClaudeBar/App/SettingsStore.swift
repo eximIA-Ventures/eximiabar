@@ -185,7 +185,13 @@ final class SettingsStore {
     }
 
     /// Optional override for the `claude` binary path used for CLI/debug (AC4).
-    var claudeBinaryPath: String? { didSet { scheduleSaveIfChanged(claudeBinaryPath, oldValue) } }
+    var claudeBinaryPath: String? {
+        didSet {
+            guard claudeBinaryPath != oldValue else { return }
+            onClaudeBinaryChange?(claudeBinaryPath)
+            scheduleSave()
+        }
+    }
 
     // MARK: - Display (AC5)
 
@@ -227,6 +233,10 @@ final class SettingsStore {
     /// Invoked when `keychainPromptPolicy` changes so the off-MainActor policy holder stays in
     /// lock-step with the live setting (AC11). Carries the mapped Core policy.
     var onKeychainPolicyChange: (@MainActor (PromptPolicy) -> Void)?
+
+    /// Invoked when `claudeBinaryPath` changes so the off-MainActor CLI binary holder stays in
+    /// lock-step with the live setting (EXB-1.6). Carries the optional override path.
+    var onClaudeBinaryChange: (@MainActor (String?) -> Void)?
 
     // MARK: - Persistence (AC8)
 

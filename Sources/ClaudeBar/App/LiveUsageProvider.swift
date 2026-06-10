@@ -14,15 +14,23 @@ struct LiveUsageProvider: Sendable {
     private let credentials: CredentialsStore
     private let fetcher: UsageFetcher
     private let pipeline: FetchPipeline
+    /// Resolves the configured `claude` binary path (Settings override → PATH). Read per fetch so a
+    /// settings change is honoured immediately.
+    private let claudeBinaryProvider: @Sendable () -> String?
     private let log = Logger(subsystem: CoreLog.subsystem, category: "provider")
 
     init(
         credentials: CredentialsStore = CredentialsStore(),
-        fetcher: UsageFetcher = UsageFetcher())
+        fetcher: UsageFetcher = UsageFetcher(),
+        claudeBinaryProvider: @escaping @Sendable () -> String? = { nil })
     {
         self.credentials = credentials
         self.fetcher = fetcher
-        self.pipeline = Self.makePipeline(credentials: credentials, fetcher: fetcher)
+        self.claudeBinaryProvider = claudeBinaryProvider
+        self.pipeline = Self.makePipeline(
+            credentials: credentials,
+            fetcher: fetcher,
+            claudeBinaryProvider: claudeBinaryProvider)
     }
 
     /// EXB-1.5 AC11: build the provider with a live keychain-prompt-policy source. The
@@ -30,40 +38,65 @@ struct LiveUsageProvider: Sendable {
     /// settings change is honoured immediately with no memoization.
     init(
         promptPolicyProvider: @escaping @Sendable () -> PromptPolicy,
-        fetcher: UsageFetcher = UsageFetcher())
+        fetcher: UsageFetcher = UsageFetcher(),
+        claudeBinaryProvider: @escaping @Sendable () -> String? = { nil })
     {
         let credentials = CredentialsStore(promptPolicyProvider: promptPolicyProvider)
         self.credentials = credentials
         self.fetcher = fetcher
-        self.pipeline = Self.makePipeline(credentials: credentials, fetcher: fetcher)
+        self.claudeBinaryProvider = claudeBinaryProvider
+        self.pipeline = Self.makePipeline(
+            credentials: credentials,
+            fetcher: fetcher,
+            claudeBinaryProvider: claudeBinaryProvider)
     }
 
     private static func makePipeline(
         credentials: CredentialsStore,
-        fetcher: UsageFetcher) -> FetchPipeline
+        fetcher: UsageFetcher,
+        claudeBinaryProvider: @escaping @Sendable () -> String?) -> FetchPipeline
     {
+        // One long-lived CLI session (the actor serializing `claude` processes — at most one alive).
+        let cliSession = CLISession()
         // The pipeline's OAuth fetch: load credentials (honouring the active phase for keychain
         // prompts), then fetch + map a snapshot. NEVER consumes the CLI refresh token — the fetch
         // path only reads usage; token refresh is delegated by `RefreshCoordinator` in Core.
-        return FetchPipeline(oauthFetch: { mode in
-            let phase: RefreshPhase = mode == .userInitiated ? .userInitiated : RefreshContext.phase
-            let record = try await credentials.load(phase: phase)
-            return try await fetcher.fetchSnapshot(credentials: record.credentials, mode: mode)
-        })
+        return FetchPipeline(
+            oauthFetch: { mode in
+                let phase: RefreshPhase = mode == .userInitiated
+                    ? .userInitiated : RefreshContext.phase
+                let record = try await credentials.load(phase: phase)
+                return try await fetcher.fetchSnapshot(credentials: record.credentials, mode: mode)
+            },
+            cliFetch: { mode in
+                // CLI fallback (EXB-1.6). Resolve the binary fresh each call; if absent, surface
+                // `cliNotFound` so the pipeline records it and the app stays on OAuth.
+                guard let claudePath = claudeBinaryProvider() else {
+                    throw UsageError.networkError("cliNotFound: no claude binary configured")
+                }
+                let phase: RefreshPhase = mode == .userInitiated
+                    ? .userInitiated : RefreshContext.phase
+                let strategy = CLIFetchStrategy(claudePath: claudePath, session: cliSession)
+                return try await strategy.fetch(phase: phase)
+            })
     }
 
     /// The `AppState.Fetch` closure. Runs entirely off-MainActor.
     func makeFetch() -> AppState.Fetch {
         let pipeline = self.pipeline
         let credentials = self.credentials
+        let claudeBinaryProvider = self.claudeBinaryProvider
         let log = self.log
         return { phase in
-            // Plan against what is plausibly available. In S4 only OAuth is wired; CLI lands in S6.
+            // Plan against what is plausibly available: OAuth from a credential probe, CLI from a
+            // resolvable `claude` binary (Settings override → PATH). The planner orders
+            // OAuth → CLI → Web; the pipeline falls through to CLI on an OAuth auth/scope failure.
             let hasOAuth = (try? await credentials.load(phase: .background)) != nil
+            let hasCLI = claudeBinaryProvider() != nil
             let plan = SourcePlanner.plan(input: SourcePlanningInput(
                 selectedSource: nil,
                 hasOAuthCredentials: hasOAuth,
-                hasCLI: false,
+                hasCLI: hasCLI,
                 hasWebSession: false))
 
             let result = await pipeline.run(plan: plan, mode: phase.fetchMode)

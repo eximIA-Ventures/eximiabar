@@ -60,8 +60,18 @@ public actor RefreshCoordinator {
         self.transport = transport
         self.clientID = clientID
         self.fingerprintProvider = fingerprintProvider
+        // Default delegated probe (AC4): run `claude /status` through the full `CLISession` PTY +
+        // watchdog flow. This NEVER POSTs to the refresh endpoint — it only nudges the CLI to
+        // rotate its own token; success is detected by the keychain fingerprint change below.
         self.delegatedProbe = delegatedProbe ?? { timeout in
-            await PTYRunner.runClaudeStatus(timeout: timeout)
+            guard let claudePath = CLISession.resolveBinaryPath("claude") else { return false }
+            let session = CLISession()
+            do {
+                _ = try await session.fetchStatus(claudePath: claudePath, timeout: timeout)
+                return true
+            } catch {
+                return false
+            }
         }
     }
 
