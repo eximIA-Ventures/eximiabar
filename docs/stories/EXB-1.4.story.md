@@ -1,7 +1,7 @@
 # Story EXB-1.4: AppState + Refresh Loop + Notifications
 
 **ID:** EXB-1.4
-**Status:** InReview
+**Status:** InReview (QA CONCERN resolved — threshold double-crossing fixed)
 **Depends on:** EXB-1.1 (FetchPipeline, UsageSnapshot), EXB-1.2 (StatusItemController stub)
 **Epic:** EPIC-EXB
 **Executor:** @dev
@@ -86,6 +86,7 @@
   - [x] Phase propagation (AC15b) — `.userInitiated` reaches fetch + maps to gate-bypassing mode
   - [x] Threshold notifications (AC15c) — fires once on crossing, refires after recovery
   - [x] Depleted/restored (AC15d)
+  - [x] **Single-tick double-crossing (QA §4 fix)** — `80 → 15` with `[50, 20]` delivers the most-severe (20%) warning; pure-logic guard mirrors reference (`crossedThreshold → 20`)
 
 ---
 
@@ -185,6 +186,8 @@ If binary absent (S6 not yet built), `fileExists` returns false — no crash.
 - `Tests/ClaudeBarTests/AppStateTests.swift` — coalescing, phase propagation, threshold/depleted/restored notification tests
 
 **Modified:**
+- `Sources/ClaudeBar/Notifications/QuotaNotifier.swift` — **QA §4 fix:** `QuotaNotificationLogic.crossedThreshold` now returns `crossed.min()` / `eligible.min()` (most-severe threshold) to match `_reference_codexbar/.../SessionQuotaNotifications.swift`. Fixes single-tick double-crossing suppressing the critical lower warning.
+- `Tests/ClaudeBarTests/AppStateTests.swift` — **QA §4 fix:** added `singleTickDoubleCrossingFiresMostSevereThreshold` (end-to-end notifier) + `crossedThresholdReturnsMostSevereOnDoubleCrossing` (pure-logic, mirrors reference test).
 - `Sources/ClaudeBar/App/AppState.swift` — full refresh loop, coalescing, off-main fetch, notification dispatch, watchdog launch (was EXB-1.2 stub)
 - `Sources/ClaudeBar/App/DisplaySnapshot.swift` — reshaped to AC2 (13 fields, factory, refreshing helper)
 - `Sources/ClaudeBar/App/SettingsStore.swift` — added `RefreshCadence`, quota thresholds, `notificationSound`, `onRefreshCadenceChange`
@@ -211,3 +214,114 @@ If binary absent (S6 not yet built), `fileExists` returns false — no crash.
 | 2026-06-10 | 1.0 | Initial draft | @sm River |
 | 2026-06-10 | 1.1 | Validated GO (9/10) — Status: Draft → Ready. No content changes required. | @po Pax |
 | 2026-06-10 | 1.2 | Implemented all ACs. 66 tests pass (7 new). Status: Ready → InReview. | @dev Dex |
+| 2026-06-10 | 1.3 | QA gate round 1 — verdict CONCERNS (1 non-blocking threshold-firing regression). | @qa Quinn |
+| 2026-06-10 | 1.4 | QA §4 CONCERN resolved — `crossedThreshold` `.max()`→`.min()` (reference parity); added single-tick double-crossing tests. 68/68 pass, clean build. | @dev Dex |
+
+---
+
+## QA Results — rodada 1
+
+**Reviewer:** Quinn (Guardian) · Test Architect
+**Date:** 2026-06-10
+**Commit reviewed:** `ab76646` (local, not pushed)
+**Method:** Every claim re-verified against real source + independent clean build + full test run. Dev report trusted for nothing.
+
+### Verdict: CONCERNS
+
+15/15 ACs structurally implemented. Clean build (0 warnings, verified from a wiped `.build`), 66/66 tests pass (verified independently), anti-freeze contract holds, security contract airtight. **One genuine behavioral regression** in multi-threshold notification firing (non-blocking, edge-case) plus two justified spec deviations. None block the gate; the threshold bug should be fixed before release.
+
+### 1. Acceptance Criteria — line-by-line
+
+| AC | Verdict | Evidence |
+|----|---------|----------|
+| 1 — `@MainActor @Observable` AppState <300 lines, only `snapshot` public, fetch in Core | ✅ PASS | `AppState.swift` is **203 lines**; `@MainActor @Observable final class` (L16-18); sole observable `var snapshot` (L21), all others `@ObservationIgnored`; fetch logic injected via `Fetch` closure wired through `LiveUsageProvider`→Core. |
+| 2 — Immutable `DisplaySnapshot` struct, all UI fields, single assignment renders UI | ⚠️ PASS (2 justified deviations) | `DisplaySnapshot.swift` — `struct … Sendable, Equatable` with all 13 fields. **Deviation:** `plan: ClaudePlan?` (AC spec'd non-optional) and `identity` modeled as a named `Identity` struct of optionals (AC spec'd a tuple). Both are *correct*: `ClaudePlan` has a failable `init?` so plan can be unresolved at Core; forcing non-optional would invent a default (Article IV violation). Tuple→struct is required for `Equatable`. Faithful propagation, not a defect. |
+| 3 — Cancellable `Task` + `Task.sleep`, no `Timer`/`DispatchSourceTimer` on main | ✅ PASS | `startRefreshTimer()` L90-106: `Task { while !Task.isCancelled { … try? await Task.sleep(…) } }`. Grep: zero `Timer()`/`DispatchSourceTimer`/`DispatchSource.makeTimer` in `Sources/`. |
+| 4 — TaskLocal `RefreshPhase` controls prompts / 429-gate / notifications | ✅ PASS | `PromptPolicy.swift` L18-45: `enum RefreshPhase {startup,background,userInitiated}` + `RefreshContext.$phase` TaskLocal (L43-45), `fetchMode` (L27-29), `allowsNotifications` (L34-36). Bound per-fetch in `AppState.startFetch` L124. |
+| 5 — Coalescing: in-flight + 1 pending, excess dropped, no `async let` fan-out | ✅ PASS | `triggerRefresh` L78-82 (sets `pendingFetch`, returns), `completeFetch` drain L177-180 (exactly one). Core `FetchPipeline` actor adds a second coalescing layer. Grep: **zero `async let`** in repo. Test `coalescingCapsConcurrentTriggersAtTwo` passes (count ≤ 2). |
+| 6 — Triggers: launch/.startup, popover/.userInitiated, timer/.background, ⌘R/.userInitiated; user-initiated clears cooldowns+429 | ⚠️ PASS (⌘R deferred, justified) | `ClaudeBarApp.swift`: startup L68, timer L69, click→`.userInitiated` L56-58. `triggerRefresh` clears `ClaudeOAuthKeychainAccessGate.clearDenied()` + `ClaudeOAuthUsageRateLimitGate.recordSuccess()` L73-76. **⌘R literal key-equivalent deferred to EXB-1.3** (no menu/responder host until popover lands) — the user-initiated *path* is fully wired. Acceptable per dev deviation #2. |
+| 7 — Cadence from `SettingsStore` (default 5 min); manual = startup+user only | ✅ PASS | `SettingsStore.refreshCadence` default `.min5`; `RefreshCadence.intervalSeconds` maps 1/2/5/15/30; `manual`→0 → timer parks (L96-100). |
+| 8 — `isStale` when >5 min old or error | ✅ PASS | `DisplaySnapshot.isStale` L84-86 (`>300s ‖ error != nil`) + deterministic `isStale(now:)` L89-91. |
+| 9 — Quota notifications: depleted / restored / threshold anti-spam | ⚠️ PASS w/ CONCERN | Depleted/restored (`QuotaNotifier.evaluateWindow` L150-159) and copy strings exact ("Claude Session quota exhausted/restored") — verified by `depletedThenRestoredFires`. **CONCERN (see §4):** threshold firing diverges from reference on single-tick double-crossing. Single-threshold path correct. |
+| 10 — Optional `NSSound("Glass")` when sound enabled | ✅ PASS | `playSoundIfEnabled` L226-229 — `(NSSound(named:"Glass") ?? NSSound(named:"Ping"))?.play()`, gated by `settings.soundEnabled`. Matches reference fallback. |
+| 11 — `requestAuthorization([.alert,.sound])` once at launch, silent skip if denied | ✅ PASS | `SystemNotificationPoster.requestAuthorization` L310-321 with `[.alert,.sound]`; one-shot via `authorizationTask` memoization (L299-304); `post` silently returns when `!granted` L275-277. Called once in `applicationDidFinishLaunching` L49. |
+| 12 — Watchdog launch from `Contents/Helpers/ClaudeBarWatchdog`, graceful no-op | ✅ PASS | `launchWatchdogIfPresent` L187-202 — guards on `fileExists`, logs+returns if absent, try/catch on `process.run()`. No crash path. |
+| 13 — Anti-freeze: fetch off-MainActor via `Task.detached(.utility)`, single atomic assignment | ✅ PASS | `startFetch` L123 `Task.detached(priority:.utility)`; result hops back via `await self?.completeFetch(…)`; sole assignment `self.snapshot = newSnapshot` L138 on MainActor. Main thread never blocks on I/O. |
+| 14 — Timer task persisted, cancelled in deinit / on cadence change | ✅ PASS | `timerTask` property L35; `deinit` cancels `timerTask` + `fetchInFlight` L60-64; cadence change → `onRefreshCadenceChange` restarts timer L55-57. |
+| 15 — Tests: (a) coalescing ≤2, (b) phase propagation, (c) threshold fires once, (d) restored | ✅ PASS | All four in `AppStateTests.swift` + extras (`separateThresholdsFireIndependently`, `thresholdRefiresAfterRecovery`). All pass. *(Caveat: the single-tick double-crossing case that exposes §4 is NOT covered — see recommendation.)* |
+
+### 2. Build — independently verified
+
+Wiped `.build/` entirely and rebuilt from scratch:
+```
+[49/51] Linking ClaudeBar
+[50/51] Applying ClaudeBar
+Build complete! (6.10s)
+```
+**Zero warnings, zero errors.** `grep -iE "warning:|error:"` on full build output → empty. Confirms DoD "zero new warnings".
+
+### 3. Tests — independently verified
+
+```
+✔ Test run with 66 tests in 9 suites passed after 1.792 seconds.
+```
+All 7 new EXB-1.4 tests pass. Notable: the Core suite includes `claudeCLIOwnerNeverCallsRefreshEndpoint()` — a security test that passes, directly corroborating the token-safety contract.
+
+### 4. Anti-freeze — PASS
+
+- Grep for main-thread blocking I/O (`DispatchSemaphore`, `Thread.sleep`, `.wait()`, `.sync {`, sync `Data(contentsOf:http…)`) in `Sources/ClaudeBar/` → **none**. The only sleeps are `await Task.sleep` inside the off-main timer `Task`.
+- **No `NSMenu`** anywhere in `Sources/` — dropdown anti-freeze respected.
+- Single observable property + `withObservationTracking` observer (`ClaudeBarApp.swift` L83-89) → one re-render per snapshot. No incremental observable mutation. The anti-freeze keystone is genuinely intact.
+
+### 5. Security — PASS (airtight)
+
+The "NEVER consume the CLI refresh token" contract was traced end-to-end, not taken on faith:
+- The **fetch path** (`LiveUsageProvider` → `FetchPipeline.run` → `UsageFetcher.fetchUsage`) only issues `GET /api/oauth/usage` with `Authorization: Bearer <accessToken>` (`UsageFetcher.swift` L63-74). It **never** POSTs and **never** calls `RefreshCoordinator`.
+- Token refresh lives exclusively in `RefreshCoordinator.refresh()`, which for `owner == .claudeCLI` returns `delegatedRefresh()` — spawns `claude /status` in a PTY and polls the keychain fingerprint; the OAuth refresh endpoint is POSTed **only** for `owner == .claudebar` (`RefreshCoordinator.swift` L73-122). The CLI refresh token is never sent over the wire from this app. Regression #1161 cannot recur on this code path.
+- Verified by the passing `claudeCLIOwnerNeverCallsRefreshEndpoint()` test.
+
+### 6. Fidelity vs `_reference_codexbar` — 1 REGRESSION FOUND (the CONCERN)
+
+Comparing `QuotaNotifier.QuotaNotificationLogic.crossedThreshold` against the reference `SessionQuotaNotifications.swift` `QuotaWarningNotificationLogic.crossedThreshold`:
+
+| | Reference | New impl |
+|---|---|---|
+| `crossedThreshold` return | `crossed.min()` / `eligible.min()` | `crossed.max()` / `eligible.max()` |
+| `firedAfter(threshold:)` | marks `{ $0 >= threshold }` | marks `{ $0 >= threshold }` (same) |
+
+The reference fires the **most severe** (smallest %) threshold crossed in a tick and marks every higher threshold as fired. The new code fires the **largest** % threshold and only marks `>= ` that one.
+
+**Consequence (reproduced by execution):** with thresholds `[50, 20]`, if remaining plunges `80 → 15` in a **single** refresh interval (entirely plausible at a 5-min cadence):
+- **New impl:** fires only the *50%* warning (labeled "at 15% remaining"), marks `{50}`. On every subsequent tick the *20%* warning is now ineligible (`previous 15 > 20` is false) → **the critical 20% warning is never delivered.**
+- **Reference:** fires the *20%* warning and marks `{50, 20}` — user gets the most urgent signal.
+
+The existing `separateThresholdsFireIndependently` test only crosses one threshold per tick (`80→45→15`), where both strategies behave identically — so the test suite does not catch this.
+
+**Why CONCERN, not FAIL:** the depleted/restored path, single-threshold path, and gradual multi-tick path all work correctly; it is a fidelity divergence on a narrower (single-tick double-crossing) edge case, not a missing AC or a broken build. But it silently suppresses the *most important* warning, so it should be fixed before release.
+
+### Required actions (for a future round / EXB follow-up — non-blocking for this gate)
+
+1. **[CONCERN — fix recommended]** In `QuotaNotificationLogic.crossedThreshold`, change both `crossed.max()` and `eligible.max()` to `.min()` to match the reference (fire the most-severe threshold on a single-tick plunge). After the fix, `firedAfter` already marks all `>= ` thresholds, restoring reference parity.
+2. **[CONCERN — test gap]** Add a test for the single-tick double-crossing case (`80 → 15` with `[50,20]`) asserting the 20% warning is the one delivered. This locks the fix and prevents regression.
+3. **[INFO — no action]** `plan: ClaudePlan?` and the `Identity` struct are documented justified deviations from AC2's literal text; recommend the story text be reconciled (or left as-is with the deviation noted) — no code change needed.
+4. **[INFO — no action]** ⌘R literal key-equivalent correctly deferred to EXB-1.3 with the user-initiated path ready; `cost` correctly threaded as `nil` pending EXB-1.7.
+
+### Gate status
+
+Status stays **InReview**. The two CONCERN items are advisory and can be addressed in a fast-follow within this epic (they touch only the pure `QuotaNotificationLogic` + a test) — they do not gate the structural completion of EXB-1.4. No code was modified by QA; only this section was added.
+
+---
+
+## Dev Resolution — QA §4 (CONCERN)
+
+**Date:** 2026-06-10 · **Agent:** @dev (Dex)
+
+Both required actions from QA §4 resolved:
+
+1. **[Fix]** `QuotaNotificationLogic.crossedThreshold` — changed `crossed.max()` and `eligible.max()` to `.min()`, matching `_reference_codexbar/Sources/CodexBar/SessionQuotaNotifications.swift` (`crossed.min()` / `eligible.min()`). On a single-tick plunge the most-severe (smallest %) threshold now fires; `firedAfter(threshold:)` already marks every `>=` threshold, so the higher warnings are correctly suppressed without losing the critical one. Reference parity restored.
+
+2. **[Test gap]** Added two regression tests to `AppStateTests.swift`:
+   - `singleTickDoubleCrossingFiresMostSevereThreshold` — `80 → 15` with `[50, 20]` asserts the **20%** warning is delivered (`"Claude Session at 15% remaining"`) and the 50% banner is suppressed.
+   - `crossedThresholdReturnsMostSevereOnDoubleCrossing` — pure-logic guard mirroring the reference test (`previousRemaining: 80, currentRemaining: 10 → 20`; cold-start `nil → 10 → 20`).
+
+**Result:** Clean build (zero warnings). **68/68 tests pass** (66 + 2 new). Security test `claudeCLIOwnerNeverCallsRefreshEndpoint()` still green. Items §4.3 / §4.4 are INFO/no-action and remain as documented justified deviations.

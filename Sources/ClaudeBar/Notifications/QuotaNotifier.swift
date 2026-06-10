@@ -58,8 +58,14 @@ enum QuotaNotificationLogic {
     }
 
     /// The single threshold crossed *downward* on this tick (AC9c). Fires once: returns the
-    /// largest not-yet-fired threshold at or above current remaining that the previous value
-    /// was strictly above. `nil` if nothing newly crossed.
+    /// **most severe** (smallest %) not-yet-fired threshold at or above current remaining that the
+    /// previous value was strictly above. `nil` if nothing newly crossed.
+    ///
+    /// When usage plunges past several thresholds in a single tick (e.g. `80 → 15` with `[50, 20]`),
+    /// we fire the most urgent warning (20%) and `firedAfter` marks every higher threshold as fired
+    /// — matching `_reference_codexbar/Sources/CodexBar/SessionQuotaNotifications.swift`
+    /// `crossedThreshold` (returns `crossed.min()` / `eligible.min()`). Returning `.max()` here
+    /// would fire only the 50% warning and leave the critical 20% warning permanently undelivered.
     static func crossedThreshold(
         previousRemaining: Double?,
         currentRemaining: Double,
@@ -74,10 +80,10 @@ enum QuotaNotificationLogic {
         if let previousRemaining {
             // Only fire for thresholds the previous value had NOT already breached.
             let crossed = eligible.filter { previousRemaining > Double($0) }
-            return crossed.max()
+            return crossed.min()
         }
-        // No prior reading (cold start): fire the largest eligible threshold.
-        return eligible.max()
+        // No prior reading (cold start): fire the most-severe eligible threshold.
+        return eligible.min()
     }
 
     /// After firing `threshold`, mark every higher-or-equal threshold as fired too, so we don't

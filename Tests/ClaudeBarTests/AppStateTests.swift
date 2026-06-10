@@ -140,6 +140,56 @@ struct AppStateTests {
         #expect(twenty.count == 1)
     }
 
+    /// Single-tick double-crossing: when remaining plunges past two thresholds in ONE refresh
+    /// interval (`80 → 15` with `[50, 20]`), the *most severe* (20%) warning must be the one
+    /// delivered — matching the reference `crossedThreshold` (`min`) behavior. The earlier impl
+    /// fired only the 50% warning and left the critical 20% warning permanently undelivered.
+    /// Regression guard for the QA-flagged fidelity divergence (EXB-1.4 §4).
+    @Test
+    func singleTickDoubleCrossingFiresMostSevereThreshold() {
+        let poster = RecordingPoster()
+        let notifier = QuotaNotifier(poster: poster)
+        let settings = NotificationSettings(thresholds: [50, 20], soundEnabled: false)
+
+        // Baseline above both thresholds.
+        notifier.evaluate(old: nil, new: snapshot(sessionRemaining: 80), settings: settings)
+        // Plunge from 80 straight to 15 — crosses 50 and 20 in a single tick.
+        notifier.evaluate(
+            old: snapshot(sessionRemaining: 80),
+            new: snapshot(sessionRemaining: 15),
+            settings: settings)
+
+        let fifty = poster.posts.filter { $0.idPrefix.hasPrefix("threshold-session-50") }
+        let twenty = poster.posts.filter { $0.idPrefix.hasPrefix("threshold-session-20") }
+
+        // The 20% (most severe) warning is the one delivered, exactly once.
+        #expect(twenty.count == 1)
+        #expect(twenty.first?.body == "Claude Session at 15% remaining")
+        // The 50% warning is suppressed (marked fired without posting) — the user gets the
+        // single, most urgent signal rather than a stale 50% banner.
+        #expect(fifty.isEmpty)
+    }
+
+    /// Pure-logic guard mirroring the reference test (`previousRemaining: 80, currentRemaining: 10,
+    /// thresholds: [50, 20]` → `20`). Locks `crossedThreshold` to the reference `min` contract.
+    @Test
+    func crossedThresholdReturnsMostSevereOnDoubleCrossing() {
+        let crossed = QuotaNotificationLogic.crossedThreshold(
+            previousRemaining: 80,
+            currentRemaining: 10,
+            thresholds: [50, 20],
+            alreadyFired: [])
+        #expect(crossed == 20)
+
+        // Cold start (no prior reading) below both thresholds also fires the most severe.
+        let coldStart = QuotaNotificationLogic.crossedThreshold(
+            previousRemaining: nil,
+            currentRemaining: 10,
+            thresholds: [50, 20],
+            alreadyFired: [])
+        #expect(coldStart == 20)
+    }
+
     // MARK: - AC15d: Depleted / restored
 
     /// A depleted notification fires on reaching 0, and a restored one fires on recovery.
