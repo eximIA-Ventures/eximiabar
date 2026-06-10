@@ -1,7 +1,7 @@
 # Story EXB-1.5: Settings Window
 
 **ID:** EXB-1.5
-**Status:** Ready
+**Status:** InReview
 **Depends on:** EXB-1.1 (credential models), EXB-1.4 (AppState, SettingsStore stub)
 **Epic:** EPIC-EXB
 **Executor:** @dev
@@ -58,48 +58,48 @@
 
 ## Tasks
 
-- [ ] **T1 — SettingsStore** (`Sources/ClaudeBar/App/SettingsStore.swift`)
-  - [ ] `@MainActor @Observable class SettingsStore`
-  - [ ] Properties: `refreshCadence: RefreshCadence`, `launchAtLogin: Bool`, `notificationsEnabled: Bool`, `sessionThresholds: [Int]`, `weeklyThresholds: [Int]`, `costEnabled: Bool`, `costDays: Int`, `source: DataSource?` (nil = auto), `keychainPromptPolicy: KeychainPromptPolicy`, `useSecurityCLIReader: Bool`, `webExtrasEnabled: Bool`, `claudeBinaryPath: String?`, `displayMode: DisplayMode`, `showUsed: Bool`, `showAbsoluteReset: Bool`, `showWarningMarkers: Bool`, `workdayMarkers: WorkdayMarkers`, `notificationSound: Bool`
-  - [ ] Default values per AC3–AC5
-  - [ ] Persist to `UserDefaults.standard` with debounce 500 ms (`Task.sleep(for: .milliseconds(500))` pattern)
-  - [ ] `KeychainPromptPolicy: String` raw value for UserDefaults serialization
+- [x] **T1 — SettingsStore** (`Sources/ClaudeBar/App/SettingsStore.swift`)
+  - [x] `@MainActor @Observable class SettingsStore`
+  - [x] Properties: `refreshCadence: RefreshCadence`, `launchAtLogin: Bool`, `notificationsEnabled: Bool`, `sessionThresholds: [Int]`, `weeklyThresholds: [Int]`, `costEnabled: Bool`, `costDays: Int`, `source: DataSource?` (nil = auto), `keychainPromptPolicy: KeychainPromptPolicy`, `useSecurityCLIReader: Bool`, `webExtrasEnabled: Bool`, `claudeBinaryPath: String?`, `displayMode: DisplayMode`, `showUsed: Bool`, `showAbsoluteReset: Bool`, `showWarningMarkers: Bool`, `workdayMarkers: WorkdayMarkers`, `notificationSound: Bool`
+  - [x] Default values per AC3–AC5
+  - [x] Persist to `UserDefaults.standard` with debounce 500 ms (`Task.sleep(for: .milliseconds(500))` pattern)
+  - [x] `KeychainPromptPolicy: String` raw value for UserDefaults serialization
 
-- [ ] **T2 — LaunchAtLoginManager** (`Sources/ClaudeBar/App/LaunchAtLoginManager.swift`)
-  - [ ] `@MainActor class LaunchAtLoginManager`
-  - [ ] `func set(enabled: Bool) throws` — `SMAppService.mainApp.register()` / `.unregister()`
-  - [ ] `var isEnabled: Bool` — `SMAppService.mainApp.status == .enabled`
+- [x] **T2 — LaunchAtLoginManager** (`Sources/ClaudeBar/App/LaunchAtLoginManager.swift`)
+  - [x] `@MainActor class LaunchAtLoginManager`
+  - [x] `func set(enabled: Bool) throws` — `SMAppService.mainApp.register()` / `.unregister()`
+  - [x] `var isEnabled: Bool` — `SMAppService.mainApp.status == .enabled`
 
-- [ ] **T3 — General pane** (`Sources/ClaudeBar/Settings/PreferencesGeneralPane.swift`)
-  - [ ] Implement per AC3: sections with UPPERCASE headers, all controls wired to `SettingsStore`
-  - [ ] Launch at login calls `LaunchAtLoginManager.set(enabled:)` on toggle
-  - [ ] Refresh cadence picker wired to `SettingsStore.refreshCadence`
-  - [ ] Quit button: `NSApp.terminate(nil)`
+- [x] **T3 — General pane** (`Sources/ClaudeBar/Settings/PreferencesGeneralPane.swift`)
+  - [x] Implement per AC3: sections with UPPERCASE headers, all controls wired to `SettingsStore`
+  - [x] Launch at login calls `LaunchAtLoginManager.set(enabled:)` on toggle
+  - [x] Refresh cadence picker wired to `SettingsStore.refreshCadence`
+  - [x] Quit button: `NSApp.terminate(nil)`
 
-- [ ] **T4 — Claude pane** (`Sources/ClaudeBar/Settings/PreferencesClaudePane.swift`)
-  - [ ] Source picker; Web option disabled with `.disabled(true)` and tooltip `"P2 — not yet available"`
-  - [ ] Keychain prompt policy (conditional visibility — AC4)
-  - [ ] `useSecurityCLIReader` toggle wired to `SettingsStore`
-  - [ ] Web extras toggle hidden by default (show if developer mode?)
+- [x] **T4 — Claude pane** (`Sources/ClaudeBar/Settings/PreferencesClaudePane.swift`)
+  - [x] Source picker; Web option disabled (greyed) — surfaced with a "not yet available (P2)" note
+  - [x] Keychain prompt policy (conditional visibility — AC4)
+  - [x] `useSecurityCLIReader` toggle wired to `SettingsStore`
+  - [x] Web extras toggle hidden by default (inside a `DisclosureGroup("Developer")`)
 
-- [ ] **T5 — Display pane** (`Sources/ClaudeBar/Settings/PreferencesDisplayPane.swift`)
-  - [ ] All toggles and pickers per AC5
-  - [ ] Brand icon toggle updates `SettingsStore.displayMode` and immediately calls `StatusItemController.updateIcon()`
+- [x] **T5 — Display pane** (`Sources/ClaudeBar/Settings/PreferencesDisplayPane.swift`)
+  - [x] All toggles and pickers per AC5
+  - [x] Brand icon toggle updates `SettingsStore.displayMode` and immediately re-renders the status item via the `onDisplayModeChange` callback
 
-- [ ] **T6 — About pane** (`Sources/ClaudeBar/Settings/PreferencesAboutPane.swift`)
-  - [ ] App icon from `NSApp.applicationIconImage`
-  - [ ] Hover scale: `.scaleEffect(isHovered ? 1.05 : 1.0).animation(.easeInOut(duration: 0.2), value: isHovered)`
-  - [ ] Version from `Bundle.main.infoDictionary?["CFBundleShortVersionString"]`
-  - [ ] Link to GitHub repo / LICENSE
+- [x] **T6 — About pane** (`Sources/ClaudeBar/Settings/PreferencesAboutPane.swift`)
+  - [x] App icon from `NSApp.applicationIconImage`
+  - [x] Hover scale: `.scaleEffect(isHovered ? 1.05 : 1.0)` with `.easeInOut(duration: 0.2)`
+  - [x] Version from `Bundle.main` `CFBundleShortVersionString` (+ build)
+  - [x] Link to GitHub repo / LICENSE
 
-- [ ] **T7 — Shared components** (`Sources/ClaudeBar/Settings/PreferencesComponents.swift`)
-  - [ ] `PreferenceToggleRow` per AC7
-  - [ ] `SettingsSection` per AC7
+- [x] **T7 — Shared components** (`Sources/ClaudeBar/Settings/PreferencesComponents.swift`)
+  - [x] `PreferenceToggleRow` per AC7
+  - [x] `SettingsSection` per AC7 (plus `SectionHeader`, `LabelledRow`, `ThresholdPairField`, `AboutLinkRow`)
 
-- [ ] **T8 — Settings window controller** (`Sources/ClaudeBar/Settings/SettingsWindowController.swift`)
-  - [ ] `@MainActor class SettingsWindowController`
-  - [ ] `func open()`: creates/shows `NSWindow` with `TabView` content; sets activation policy to `.regular`; registers `NSWindowDelegate` to revert to `.accessory` on close
-  - [ ] Triggered from action row `Settings…` ⌘,
+- [x] **T8 — Settings window controller** (`Sources/ClaudeBar/Settings/SettingsWindowController.swift`)
+  - [x] `@MainActor class SettingsWindowController`
+  - [x] `func open()`: creates/shows `NSWindow` with `TabView` content; sets activation policy to `.regular`; registers `NSWindowDelegate` to revert to `.accessory` on close
+  - [x] Triggered from action row `Settings…` ⌘,
 
 ---
 
@@ -179,14 +179,55 @@ Default thresholds `[50, 20]` means: warn at 50% remaining AND at 20% remaining.
 
 ## Definition of Done
 
-- [ ] `swift build` succeeds with zero new warnings
-- [ ] Settings window opens at exactly 546×638 pt on ⌘,
-- [ ] All four panes render with correct labels and controls
-- [ ] `LaunchAtLogin` toggle actually registers/unregisters with `SMAppService`
-- [ ] Refresh cadence change causes timer restart within 1 s (test by changing in settings)
-- [ ] Keychain prompt policy change is read by `CredentialsStore` on next fetch
-- [ ] Settings survive app restart (persisted to UserDefaults)
-- [ ] Activation policy reverts to `.accessory` when settings window closes (no lingering Dock icon)
+- [x] `swift build` succeeds with zero new warnings
+- [x] Settings window opens at exactly 546×638 pt on ⌘, (fixed `setContentSize` + non-resizable styleMask; ⌘, routed via an installed minimal main menu)
+- [x] All four panes render with correct labels and controls
+- [x] `LaunchAtLogin` toggle actually registers/unregisters with `SMAppService` (via `LaunchAtLoginManager`)
+- [x] Refresh cadence change causes timer restart within 1 s (`onRefreshCadenceChange` → `AppState.startRefreshTimer()`, unchanged from EXB-1.4)
+- [x] Keychain prompt policy change is read by `CredentialsStore` on next fetch (runtime `promptPolicyProvider`, no memoization — `PromptPolicyTests`)
+- [x] Settings survive app restart (persisted to UserDefaults — `SettingsStoreTests.settingsSurviveRestart`)
+- [x] Activation policy reverts to `.accessory` when settings window closes (`windowWillClose`)
+
+---
+
+## Dev Agent Record
+
+### Agent
+@dev (Dex)
+
+### File List
+**New:**
+- `Sources/ClaudeBar/App/LaunchAtLoginManager.swift` — `LaunchAtLoginManager` (`SMAppService.mainApp` register/unregister + status)
+- `Sources/ClaudeBar/Settings/PreferencesComponents.swift` — `PreferenceToggleRow`, `SettingsSection`, `SectionHeader`, `LabelledRow`, `ThresholdPairField`, `AboutLinkRow`
+- `Sources/ClaudeBar/Settings/PreferencesGeneralPane.swift` — General pane (AC3)
+- `Sources/ClaudeBar/Settings/PreferencesClaudePane.swift` — Claude pane (AC4)
+- `Sources/ClaudeBar/Settings/PreferencesDisplayPane.swift` — Display pane (AC5)
+- `Sources/ClaudeBar/Settings/PreferencesAboutPane.swift` — About pane (AC6)
+- `Sources/ClaudeBar/Settings/SettingsRootView.swift` — 4-tab `TabView` (AC2)
+- `Sources/ClaudeBar/Settings/SettingsWindowController.swift` — `NSWindow` host + activation-policy dance (AC10)
+- `Tests/ClaudeBarTests/SettingsStoreTests.swift` — defaults, persistence round-trip, debounce, callbacks, policy mapping (8 tests)
+- `Tests/ClaudeBarCoreTests/PromptPolicyTests.swift` — `allowsPrompt(phase:)` semantics + runtime provider (5 tests)
+
+**Modified:**
+- `Sources/ClaudeBar/App/SettingsStore.swift` — replaced the EXB-1.2/1.4 stub with the full `@MainActor @Observable` store: all AC3–AC5 properties, `RefreshCadence.label`, new `KeychainPromptPolicy`/`WorkdayMarkers` enums, `UserDefaults` persistence with 500 ms debounced off-main writes, `flush()`, and `onDisplayModeChange`/`onKeychainPolicyChange` callbacks. `quotaThresholds` → `sessionThresholds`/`weeklyThresholds`.
+- `Sources/ClaudeBar/App/AppState.swift` — baseline-seed notifier now reads `sessionThresholds` (rename follow-through).
+- `Sources/ClaudeBar/App/LiveUsageProvider.swift` — added a `promptPolicyProvider`-based initializer; extracted `makePipeline` so both inits share the OAuth fetch closure.
+- `Sources/ClaudeBar/App/ClaudeBarApp.swift` — wired `LaunchAtLoginManager`, `SettingsWindowController`, a thread-safe `PromptPolicyHolder` (lock-free off-main policy source, AC11), `onDisplayModeChange`/`onKeychainPolicyChange` hooks, a minimal main menu providing ⌘, (AC1), launch-at-login reconciliation, and termination `flush()`. Replaced the empty-`Settings`-scene `openSettings` action with the real window.
+- `Sources/ClaudeBarCore/OAuth/PromptPolicy.swift` — added `.always` case + `allowsPrompt(phase:)` helper (AC11).
+- `Sources/ClaudeBarCore/OAuth/CredentialsStore.swift` — `promptPolicy` constant → `promptPolicyProvider` closure read on every `load` (AC11, no memoization); added a designated provider-based initializer; legacy `promptPolicy:` init delegates to it.
+- `Tests/ClaudeBarTests/AppStateTests.swift` — `SettingsStore` now constructed with an isolated `UserDefaults` suite so persistence never touches the app domain.
+
+### IDS Decisions
+- **Shared components**: ADAPTED `_reference_codexbar/.../PreferencesComponents.swift` (`PreferenceToggleRow`, `SettingsSection`, `AboutLinkRow`) for visual fidelity; CREATED `SectionHeader`/`LabelledRow`/`ThresholdPairField` (no clean reusable equivalent — `ThresholdPairField` distils the reference `QuotaWarningThresholdField` to the two-field warn-at editor AC3/AC4 need).
+- **SettingsStore**: ADAPTED the in-place EXB-1.2/1.4 stub rather than creating a parallel type (the stub is referenced by `AppState`, `StatusItemController`, tests).
+- **Keychain policy at runtime (AC11)**: ADAPTED Core `PromptPolicy` (added `.always` + `allowsPrompt`) and converted `CredentialsStore`'s stored policy to a `@Sendable` provider closure — the minimal change that satisfies "read current value, no memoization" without touching the actor's load order.
+- **Claude pane**: the 22 KB reference `PreferencesProviderDetailView.swift` is multi-provider CodexBar scaffolding; CREATED a focused Claude-only pane covering exactly the AC4 controls rather than porting that machinery.
+
+### Deviations
+1. **`.tabViewStyle(.tabBarOnly)` (AC2).** Used the default macOS `TabView`, which already renders the toolbar-style top tab picker AC2 describes. `.tabBarOnly` is an iOS-era modifier; the macOS default *is* the top tab bar. No visual difference.
+2. **⌘, routing (AC1).** An LSUIElement agent has no app menu, so a bare ⌘, key equivalent isn't delivered. Installed a minimal `NSApp.mainMenu` with a "Settings…" item bound to ⌘, that opens the window — the standard pattern for menu-bar-only apps. The popover `Settings…` action row remains the primary path.
+3. **`source: .web` (AC4).** The Web source option is rendered but the binding ignores a Web selection (P2 out of scope per epic) — surfaced as greyed with a "not yet available (P2)" note, matching the disabled-greyed AC.
+4. **Web extras / custom binary (AC4).** Both stubbed for P0/P1 per Dev Notes — the toggle/field persist their values; no extra fetch is wired (lands with the relevant later story).
 
 ---
 
@@ -196,3 +237,4 @@ Default thresholds `[50, 20]` means: warn at 50% remaining AND at 20% remaining.
 |------|---------|-------------|--------|
 | 2026-06-10 | 1.0 | Initial draft | @sm River |
 | 2026-06-10 | 1.1 | Validated GO (8/10) — Status: Draft → Ready. No content changes required. | @po Pax |
+| 2026-06-10 | 1.2 | Implemented all ACs. 98 tests pass (13 new). swift build clean (0 warnings). Status: Ready → InReview. | @dev Dex |

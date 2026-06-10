@@ -22,6 +22,12 @@ struct AppStateTests {
         }
     }
 
+    /// A throwaway, isolated `UserDefaults` so `SettingsStore` persistence never touches the real
+    /// app domain (or leaks across tests).
+    private static func ephemeralDefaults() -> UserDefaults {
+        UserDefaults(suiteName: "exb.appstate.\(UUID().uuidString)")!
+    }
+
     private func snapshot(sessionRemaining: Double, weeklyRemaining: Double = 100) -> DisplaySnapshot {
         DisplaySnapshot(
             session: RateWindow(utilization: 100 - sessionRemaining, resetsAt: nil, windowMinutes: 300),
@@ -36,7 +42,7 @@ struct AppStateTests {
     @Test
     func coalescingCapsConcurrentTriggersAtTwo() async {
         let counter = FetchCounter()
-        let settings = SettingsStore(refreshCadence: .manual)
+        let settings = SettingsStore(defaults: Self.ephemeralDefaults(), refreshCadence: .manual)
         let state = AppState(
             fetch: { _ in
                 await counter.increment()
@@ -66,7 +72,7 @@ struct AppStateTests {
     @Test
     func userInitiatedPhaseReachesFetch() async {
         let recorder = PhaseRecorder()
-        let settings = SettingsStore(refreshCadence: .manual)
+        let settings = SettingsStore(defaults: Self.ephemeralDefaults(), refreshCadence: .manual)
         let state = AppState(
             fetch: { phase in
                 await recorder.record(phase)

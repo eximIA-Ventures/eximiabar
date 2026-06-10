@@ -22,10 +22,30 @@ struct LiveUsageProvider: Sendable {
     {
         self.credentials = credentials
         self.fetcher = fetcher
+        self.pipeline = Self.makePipeline(credentials: credentials, fetcher: fetcher)
+    }
+
+    /// EXB-1.5 AC11: build the provider with a live keychain-prompt-policy source. The
+    /// `promptPolicyProvider` is read off-MainActor inside `CredentialsStore` on every fetch, so a
+    /// settings change is honoured immediately with no memoization.
+    init(
+        promptPolicyProvider: @escaping @Sendable () -> PromptPolicy,
+        fetcher: UsageFetcher = UsageFetcher())
+    {
+        let credentials = CredentialsStore(promptPolicyProvider: promptPolicyProvider)
+        self.credentials = credentials
+        self.fetcher = fetcher
+        self.pipeline = Self.makePipeline(credentials: credentials, fetcher: fetcher)
+    }
+
+    private static func makePipeline(
+        credentials: CredentialsStore,
+        fetcher: UsageFetcher) -> FetchPipeline
+    {
         // The pipeline's OAuth fetch: load credentials (honouring the active phase for keychain
         // prompts), then fetch + map a snapshot. NEVER consumes the CLI refresh token — the fetch
         // path only reads usage; token refresh is delegated by `RefreshCoordinator` in Core.
-        self.pipeline = FetchPipeline(oauthFetch: { [credentials, fetcher] mode in
+        return FetchPipeline(oauthFetch: { mode in
             let phase: RefreshPhase = mode == .userInitiated ? .userInitiated : RefreshContext.phase
             let record = try await credentials.load(phase: phase)
             return try await fetcher.fetchSnapshot(credentials: record.credentials, mode: mode)

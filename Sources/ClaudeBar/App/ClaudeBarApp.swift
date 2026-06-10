@@ -1,7 +1,20 @@
 import AppKit
 import ClaudeBarCore
+import os
 import SwiftUI
 import UserNotifications
+
+/// Thread-safe holder for the current keychain prompt policy (EXB-1.5 AC11).
+///
+/// `CredentialsStore` reads the policy off-MainActor on every fetch via a `@Sendable` closure; the
+/// MainActor `SettingsStore` writes it whenever the user changes the setting. An unfair lock keeps
+/// the read path lock-light and Swift-6 `Sendable`-clean — no actor hop on the hot path.
+private final class PromptPolicyHolder: Sendable {
+    private let lock = OSAllocatedUnfairLock(initialState: PromptPolicy.onUserAction)
+
+    func get() -> PromptPolicy { lock.withLock { $0 } }
+    func set(_ policy: PromptPolicy) { lock.withLock { $0 = policy } }
+}
 
 /// Application entry point.
 ///
@@ -31,7 +44,11 @@ struct ClaudeBarApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settings = SettingsStore()
-    private let provider = LiveUsageProvider()
+    private let launchManager = LaunchAtLoginManager()
+    /// Shared policy source read by `CredentialsStore` off-MainActor (AC11).
+    private let promptPolicyHolder = PromptPolicyHolder()
+    private lazy var provider = LiveUsageProvider(
+        promptPolicyProvider: { [promptPolicyHolder] in promptPolicyHolder.get() })
     private let notificationPoster = SystemNotificationPoster()
     private lazy var appState = AppState(
         fetch: provider.makeFetch(),
@@ -39,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notifier: QuotaNotifier(poster: notificationPoster))
     private var statusItemController: StatusItemController?
     private var panelController: UsagePanelController?
+    private var settingsWindowController: SettingsWindowController?
     private var observationTask: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -49,8 +67,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // AC11: request notification authorization once at launch — fire and forget.
         notificationPoster.requestAuthorizationOnStartup()
 
+        // EXB-1.5: reconcile persisted launch-at-login with the real `SMAppService` state, and seed
+        // the policy holder from the loaded settings (AC11).
+        settings.launchAtLogin = launchManager.isEnabled
+        promptPolicyHolder.set(settings.corePromptPolicy)
+
+        // EXB-1.5: build the settings window controller (opened from the menu action / ⌘,).
+        settingsWindowController = SettingsWindowController(
+            settings: settings,
+            launchManager: launchManager)
+
         let controller = StatusItemController(settings: settings)
         statusItemController = controller
+
+        // EXB-1.5 AC5/T5: re-render the status item the instant the display mode flips, and keep the
+        // off-MainActor policy holder in lock-step with the live keychain-prompt-policy setting.
+        settings.onDisplayModeChange = { [weak self] in
+            guard let self else { return }
+            self.statusItemController?.update(snapshot: self.appState.snapshot)
+        }
+        settings.onKeychainPolicyChange = { [promptPolicyHolder] policy in
+            promptPolicyHolder.set(policy)
+        }
 
         // EXB-1.3: build the popover (NSPanel) and wire its actions. The card reads the live
         // snapshot through the provider closure; opening it triggers a user-initiated refresh (AC6).
@@ -71,6 +109,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.update(snapshot: appState.snapshot)
         startObserving(controller: controller)
 
+        // AC1: install a minimal main menu so ⌘, routes to the settings window even though the app
+        // is an LSUIElement agent with no visible app menu.
+        installSettingsShortcutMenu()
+
         // AC6a + AC3: startup refresh, then start the repeating timer.
         appState.triggerRefresh(.startup)
         appState.startRefreshTimer()
@@ -79,6 +121,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         observationTask?.cancel()
         appState.stopRefreshTimer()
+        // AC8: persist any in-flight settings change synchronously before exit.
+        settings.flush()
+    }
+
+    /// Open the settings window — target of the ⌘, menu item (AC1).
+    @objc
+    private func openSettingsFromMenu() {
+        settingsWindowController?.open()
+    }
+
+    /// Build a minimal main menu providing the standard ⌘, "Settings…" shortcut (AC1). Without a
+    /// menu, an LSUIElement agent never receives the key equivalent.
+    private func installSettingsShortcutMenu() {
+        let mainMenu = NSMenu()
+
+        let appMenuItem = NSMenuItem()
+        mainMenu.addItem(appMenuItem)
+        let appMenu = NSMenu()
+        appMenuItem.submenu = appMenu
+
+        let settingsItem = NSMenuItem(
+            title: "Settings…",
+            action: #selector(openSettingsFromMenu),
+            keyEquivalent: ",")
+        settingsItem.target = self
+        appMenu.addItem(settingsItem)
+
+        NSApp.mainMenu = mainMenu
     }
 
     /// Build the action set the popover card triggers (AC17). Refresh routes to the user-initiated
@@ -95,11 +165,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openStatusPage: {
                 Self.open("https://status.claude.com")
             },
-            openSettings: {
-                // EXB-1.5 ships the real settings window; until then this surfaces the (empty)
-                // SwiftUI `Settings` scene. `showSettingsWindow:` is the macOS 14+ selector.
-                NSApp.activate(ignoringOtherApps: true)
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            openSettings: { [weak self] in
+                // EXB-1.5: open the real four-pane settings window (AC10 activation-policy dance is
+                // handled inside the controller).
+                self?.settingsWindowController?.open()
             },
             openRelogin: {
                 Self.open("https://claude.ai")

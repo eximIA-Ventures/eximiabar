@@ -2,13 +2,24 @@ import Foundation
 
 /// When a keychain prompt is permitted.
 ///
-/// AC4: a prompt is only triggered when `promptPolicy == .onUserAction` AND the call is
-/// user-initiated. All background reads use the no-UI keychain query.
+/// AC4: a prompt is only triggered when the policy permits it for the active phase. All other
+/// reads use the no-UI keychain query.
 public enum PromptPolicy: String, Sendable, Equatable, CaseIterable {
     /// Never raise a keychain prompt (background-only, fully silent).
     case never
     /// Raise a prompt only when the call is user-initiated.
     case onUserAction
+    /// Raise a prompt in any phase (EXB-1.5 AC11). Use with care — background polls may prompt.
+    case always
+
+    /// Whether a keychain dialog may be raised for the given refresh phase.
+    public func allowsPrompt(phase: RefreshPhase) -> Bool {
+        switch self {
+        case .never: false
+        case .onUserAction: phase == .userInitiated
+        case .always: true
+        }
+    }
 }
 
 /// The phase of a refresh / fetch — distinguishes app-launch, background polling and a user click.

@@ -150,7 +150,7 @@ final class AppState {
                     old: nil,
                     new: newSnapshot,
                     settings: NotificationSettings(
-                        thresholds: self.settingsStore.quotaThresholds,
+                        thresholds: self.settingsStore.sessionThresholds,
                         soundEnabled: false,
                         enabled: false))
             }

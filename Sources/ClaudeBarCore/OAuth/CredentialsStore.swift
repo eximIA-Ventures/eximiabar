@@ -36,7 +36,9 @@ public actor CredentialsStore {
     private let environment: [String: String]
     private let homeDirectory: URL
     private let defaults: UserDefaults
-    private let promptPolicy: PromptPolicy
+    /// Reads the *current* keychain prompt policy on every `load` (EXB-1.5 AC11). Never memoized —
+    /// a settings change is honoured on the next fetch without rebuilding the store.
+    private let promptPolicyProvider: @Sendable () -> PromptPolicy
     /// Whether the system `"Claude Code-credentials"` keychain layer (e) participates.
     /// Defaults to `true`; tests disable it to isolate the deterministic env/file/cache layers.
     private let enableSystemKeychain: Bool
@@ -54,10 +56,27 @@ public actor CredentialsStore {
         promptPolicy: PromptPolicy = .onUserAction,
         enableSystemKeychain: Bool = true)
     {
+        self.init(
+            environment: environment,
+            homeDirectory: homeDirectory,
+            defaults: defaults,
+            promptPolicyProvider: { promptPolicy },
+            enableSystemKeychain: enableSystemKeychain)
+    }
+
+    /// Designated initializer (EXB-1.5 AC11). The `promptPolicyProvider` is read on every `load`,
+    /// so a live `SettingsStore` change takes effect on the next fetch with no memoization.
+    public init(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        defaults: UserDefaults = .standard,
+        promptPolicyProvider: @escaping @Sendable () -> PromptPolicy,
+        enableSystemKeychain: Bool = true)
+    {
         self.environment = environment
         self.homeDirectory = homeDirectory
         self.defaults = defaults
-        self.promptPolicy = promptPolicy
+        self.promptPolicyProvider = promptPolicyProvider
         self.enableSystemKeychain = enableSystemKeychain
     }
 
@@ -105,7 +124,9 @@ public actor CredentialsStore {
 
         // (e) system keychain "Claude Code-credentials"
         if self.enableSystemKeychain {
-            let allowPrompt = self.promptPolicy == .onUserAction && phase == .userInitiated
+            // AC11: read the *current* policy now — never memoize. A settings change between
+            // fetches is honoured immediately.
+            let allowPrompt = self.promptPolicyProvider().allowsPrompt(phase: phase)
             if let record = try self.loadFromClaudeKeychain(allowPrompt: allowPrompt) {
                 self.storeInMemory(record)
                 self.saveToCacheKeychain(record)
