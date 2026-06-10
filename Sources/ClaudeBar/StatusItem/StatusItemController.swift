@@ -12,9 +12,12 @@ final class StatusItemController {
     private let statusItem: NSStatusItem
     private let settings: SettingsStore
 
-    /// Invoked when the user clicks the status item. The popover (`NSPanel`) implementation lands
-    /// in EXB-1.3; this story only wires the hook.
-    var onClick: (@MainActor () -> Void)?
+    /// Invoked when the user clicks the status item, passing the button to anchor the popover
+    /// (`NSPanel`) to. EXB-1.3 wires this to `UsagePanelController.toggle(near:)`.
+    var onClick: (@MainActor (NSStatusBarButton) -> Void)?
+
+    /// The status-item button, exposed so the popover can anchor to it.
+    var button: NSStatusBarButton? { self.statusItem.button }
 
     /// Monotonic token so a slow background render can't clobber a newer one (last-writer-wins).
     private var renderGeneration: UInt64 = 0
@@ -84,6 +87,7 @@ final class StatusItemController {
 
     @objc
     private func handleClick() {
-        onClick?()
+        guard let button = statusItem.button else { return }
+        onClick?(button)
     }
 }
