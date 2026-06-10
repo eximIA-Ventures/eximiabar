@@ -1,6 +1,7 @@
 import AppKit
 import ClaudeBarCore
 import SwiftUI
+import UserNotifications
 
 /// Application entry point.
 ///
@@ -20,15 +21,22 @@ struct ClaudeBarApp: App {
     }
 }
 
-/// Wires the status item to app state on launch.
+/// Wires the live refresh loop (EXB-1.4) to the status item on launch.
 ///
-/// For EXB-1.2 the `AppState` is seeded with a mock snapshot so the icon is visible and exercises
-/// the proportional-fill / stale logic end to end. The live refresh loop that feeds real snapshots
-/// lands in EXB-1.4.
+/// Lifecycle (AC6 / AC11 / T6):
+///  1. Request notification authorization once (fire-and-forget).
+///  2. Launch the watchdog helper if present (no-op if absent — S6).
+///  3. Kick the startup refresh (`.startup` phase) and start the repeating timer.
+///  4. Observe `AppState.snapshot` and push every change to the status item.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settings = SettingsStore()
-    private let appState = AppState()
+    private let provider = LiveUsageProvider()
+    private let notificationPoster = SystemNotificationPoster()
+    private lazy var appState = AppState(
+        fetch: provider.makeFetch(),
+        settingsStore: settings,
+        notifier: QuotaNotifier(poster: notificationPoster))
     private var statusItemController: StatusItemController?
     private var observationTask: Task<Void, Never>?
 
@@ -37,39 +45,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (e.g. running the bare executable during development).
         NSApp.setActivationPolicy(.accessory)
 
+        // AC11: request notification authorization once at launch — fire and forget.
+        notificationPoster.requestAuthorizationOnStartup()
+
         let controller = StatusItemController(settings: settings)
         statusItemController = controller
 
-        // Click hook — popover (NSPanel) implementation lands in EXB-1.3.
+        // Click hook — popover (NSPanel) implementation lands in EXB-1.3; trigger a user-initiated
+        // refresh when the user opens it (AC6b).
         controller.onClick = { [weak self] in
-            self?.handleStatusItemClick()
+            self?.appState.triggerRefresh(.userInitiated)
         }
 
-        // Seed a mock snapshot so the icon renders immediately (EXB-1.4 replaces this with the
-        // real refresh loop). 87.5% session remaining, 60% weekly remaining.
-        appState.snapshot = DisplaySnapshot(
-            session: RateWindow(utilization: 12.5, resetsAt: nil, windowMinutes: 300),
-            weekly: RateWindow(utilization: 40, resetsAt: nil, windowMinutes: 10080),
-            pace: nil,
-            isStale: false,
-            hasError: false,
-            updatedAt: Date())
+        // AC12: launch the watchdog helper if it exists (no-op when S6 binary is absent).
+        appState.launchWatchdogIfPresent()
 
-        // Observe `AppState.snapshot` and push every change to the status item. Uses the
-        // `@Observable` change-tracking loop; each iteration re-registers via `withObservationTracking`.
+        // Render the initial (empty) state, then start observing.
         controller.update(snapshot: appState.snapshot)
         startObserving(controller: controller)
+
+        // AC6a + AC3: startup refresh, then start the repeating timer.
+        appState.triggerRefresh(.startup)
+        appState.startRefreshTimer()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         observationTask?.cancel()
+        appState.stopRefreshTimer()
     }
 
     private func startObserving(controller: StatusItemController) {
         observationTask = Task { @MainActor [weak self, weak controller] in
             while !Task.isCancelled {
                 guard let self, let controller else { return }
-                // Suspend until `snapshot` changes, then re-render.
+                // Suspend until `snapshot` changes, then re-render. Each iteration re-registers via
+                // `withObservationTracking` (one observable property → one re-render, AC2).
                 await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                     withObservationTracking {
                         _ = self.appState.snapshot
@@ -81,9 +91,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 controller.update(snapshot: self.appState.snapshot)
             }
         }
-    }
-
-    private func handleStatusItemClick() {
-        // Hook only — popover presentation arrives in EXB-1.3.
     }
 }
