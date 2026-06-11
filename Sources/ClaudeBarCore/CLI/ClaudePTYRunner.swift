@@ -13,11 +13,13 @@ import os.lock
 /// until the subprocess exits, and the `claude` CLI can take 20+ seconds on a cold start — this is
 /// freeze root cause #3 from the original CHANGELOG. We avoid it entirely:
 ///
-/// - The child is launched with raw `posix_spawnp` (NOT `Foundation.Process`), into its own process
+/// - The child is launched with raw `posix_spawn` (NOT `Foundation.Process`), into its own process
 ///   group, with `STDIN`/`STDOUT`/`STDERR` bound to the PTY slave fd.
-/// - The master fd is read on an `ioQueue` via `DispatchSource.makeReadSource`, draining
-///   non-blocking reads as bytes arrive.
-/// - Process liveness is polled with `waitpid(WNOHANG)` on the dedicated thread.
+/// - The master fd is set non-blocking (`O_NONBLOCK`) and drained with polled non-blocking `read()`
+///   on the dedicated thread, so `read`, scripted writes, `waitpid`, and the hard timeout are all
+///   coordinated in one place (functionally equivalent to a `DispatchSource` read source, but
+///   without a second queue — see Justified Deviation #4 in the EXB-1.6 story).
+/// - Process liveness is polled with `waitpid(WNOHANG)` on the same dedicated thread.
 /// - Completion is bridged to the `async` caller through a single `CheckedContinuation` that is
 ///   resumed exactly once (timeout, exit, or kill), guarded by an `OSAllocatedUnfairLock`.
 ///

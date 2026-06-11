@@ -1,7 +1,7 @@
 # Story EXB-1.6: CLI Source + Watchdog (P1)
 
 **ID:** EXB-1.6
-**Status:** Review
+**Status:** Done
 **Depends on:** EXB-1.1 (CredentialsStore, FetchPipeline, SourcePlanner), EXB-1.4 (AppState, RefreshPhase)
 **Epic:** EPIC-EXB
 **Executor:** @dev
@@ -201,6 +201,12 @@ Reference: `_reference_codexbar/Sources/CodexBarCore/Providers/Claude/ClaudeOAut
 - **Parser as contract:** `parseUsage` cases mirror the reference `StatusProbeTests` fixtures (used/remaining inversion, ANSI, CR endings, session-only panels).
 - **Tests:** 115 total (was 98+ baseline), 0 regressions; 23 new CLI tests.
 
+#### Finishing pass (2026-06-11)
+- Re-verified all 12 ACs directly against committed code (`0e5e109`), not the narrative: PTY runs on a dedicated `Thread` with single-resume continuation and zero `usleep`/`waitUntilExit`/`Foundation.Process` in the CLI dir; `CLISession` actor supersedes the prior runner (≤1 process); parser is pure with label + positional fallback; the `.claudeCLI` refresh path has zero network primitives (grep-confirmed; POST only in `directRefresh`/`.claudebar`); watchdog spawns into its own pgroup and escalates SIGTERM→500ms→SIGKILL; `package_app.sh` copies the watchdog to `Contents/Helpers/` with `+x` and `test -x` gates it.
+- Independently reproduced: `swift build` and `swift build -c release` → **Build complete, 0 warnings**; `swift test` → **Test run with 115 tests in 17 suites passed (0 failures)** — no regression vs. baseline.
+- **QA-004 resolved (doc-only):** updated the `ClaudePTYRunner` header docstring to describe the polled non-blocking `read()` loop (the documented Deviation #4) instead of the stale `DispatchSource.makeReadSource` wording. No behavior change; both builds remain warning-free.
+- QA-001/QA-002/QA-003 left as tracked low-severity items (error-taxonomy unfreeze, live-capture re-validation, optional prompt-glyph gate) — none are correctness defects and all are deferred per the QA gate rationale.
+
 ### Justified Deviations
 
 1. **`ClaudePTYRunner` vs `PTYRunner` (AC1 names "PTYRunner"):** the EXB-1.1 `PTYRunner` enum already exists in the module for the minimal delegated-refresh path. Two same-named types in one module is illegal, so the full runner is `ClaudePTYRunner`. The existing enum is retained (referenced by nothing now, but a valid documented utility).
@@ -218,3 +224,56 @@ Reference: `_reference_codexbar/Sources/CodexBarCore/Providers/Claude/ClaudeOAut
 | 2026-06-10 | 1.0 | Initial draft | @sm River |
 | 2026-06-10 | 1.1 | Validated GO (9/10) — Status: Draft → Ready. AC4 hardened with explicit "NEVER POST to OAuth refresh endpoint when owner==.claudeCLI" guardrail (epic risk R6 / regression #1161). | @po Pax |
 | 2026-06-10 | 1.2 | Implemented all ACs/tasks — CLI source (PTY runner, CLISession, parser, cleaner, fetch strategy), watchdog bundle integration, delegated-refresh via CLISession. 23 new tests, 115 total green, zero new warnings. Status: Ready → Review. | @dev Dex |
+| 2026-06-10 | 1.3 | QA Gate CONCERNS — Status: InReview → Done. All 12 ACs implemented and verified; build/tests reproduced (0 warnings, 115/115 green); R6/#1161 guardrail confirmed (0 POST on CLI path, proven by RefreshOwnershipTests); anti-freeze honored. Non-blocking concerns logged (parser bare-value fallback semantic, prompt-glyph sequencing, AC9 error encoding). | @qa Quinn |
+| 2026-06-11 | 1.4 | Dev finishing pass — re-verified every AC against `0e5e109` code (PTY dedicated-`Thread`/no-async-blocking, CLISession ≤1 process, parser pure + positional fallback, R6/#1161 zero-network on `.claudeCLI`, watchdog pgroup + SIGTERM→500ms→SIGKILL, `package_app.sh` `Contents/Helpers/` +x). Independently reproduced `swift build` (debug+release, **0 warnings**) and `swift test` (**115/115 in 17 suites passed, 0 regressions**). Resolved QA-004 (doc-only): `ClaudePTYRunner` header now describes the polled non-blocking `read()` loop instead of the stale `DispatchSource.makeReadSource` wording. | @dev Dex |
+
+---
+
+## QA Results — rodada 1
+
+**Reviewer:** Quinn (Test Architect & Quality Advisor) · **Date:** 2026-06-10 · **Gate:** CONCERNS
+
+### Verification method
+Every claim re-derived from the actual code at commit `0e5e109` — not from the dev narrative. Build and full test suite re-run locally. Guardrail and anti-freeze invariants grep-verified. Parser direction validated against the reference fixtures (`_reference_codexbar/.../StatusProbeTests.swift`) as ground truth.
+
+### AC-by-AC trace
+
+| AC | Verdict | Evidence |
+|----|---------|----------|
+| 1 — PTYRunner `class`, dedicated `Thread`, PTY 160×50, no usleep/waitUntilExit/Process in async | PASS | `ClaudePTYRunner.swift`: `final class`, `run()` only `await`s a continuation (L100-110); loop on a named `Thread` (L103-108); winsize 160×50 (L74-75, L123). No `usleep`/`waitUntilExit`/`Foundation.Process` in CLI dir (grep clean). |
+| 2 — `CLISession` actor, ≤1 `claude` process, supersedes prior runner | PASS | `CLISession.swift`: `public actor`; `capture()` drops prior runner before spawn (L91, L107-110). Serialized by actor executor. |
+| 3 — `/usage` probe flow (spawn, prompt, type, parse, trust, exit, 45s) | PASS (1 minor obs) | Args `--allowed-tools ""` (L53); workdir `…/com.eximia.eximiabar/ClaudeProbe/` (L16-23); scripted steps drive `/usage`→`/exit` + trust prompts (L137-157); 45s default (L49). **Obs (low):** AC3b "wait for prompt glyph" is implemented via empty-needle step ordering rather than explicit `>`/`❯` detection — functionally equivalent, recovers via timeout + terminal label-step. |
+| 4 — Delegated refresh: NEVER POST on `.claudeCLI`; `claude /status`; fingerprint poll 0.2/0.5/0.8; cooldowns | PASS | `RefreshCoordinator.swift`: `.claudeCLI`→`delegatedRefresh()` (L88) with ZERO network primitives; `claude /status` via `CLISession.fetchStatus` (L67-74); poll delays `[0.2,0.5,0.8]` (L24, L113); cooldowns 5min/20s (L22-23). **Proven by test** `claudeCLIOwnerNeverCallsRefreshEndpoint` → `requestedURLs.isEmpty`. |
+| 5 — Artifact cleaner removes probe JSONL | PASS | `ClaudeProbeSessionArtifactCleaner.swift`; awaited off-actor in `capture()` (L114-116); tests `removesProbeGeneratedJSONLFiles`, `removesEmptyProjectDirectoryAfterCleanup` green. |
+| 6 — Anti-freeze: PTY I/O off cooperative pool, no `Process.waitUntilExit` on actor/async | PASS | All blocking I/O (`read`/`waitpid`/`nanosleep`) inside static `driveLoop`/`killGroup` on the dedicated thread (L208-349). `async run()` never blocks. |
+| 7 — Watchdog `posix_spawnp` + process group + `waitpid(WNOHANG)` 200ms, SIGTERM→500ms→SIGKILL | PASS | `Sources/ClaudeBarWatchdog/main.swift` (3.3 KB, matches reference); `killProcessTree` SIGTERM→0.5s→SIGKILL; runner spawns into own pgroup (`POSIX_SPAWN_SETPGROUP`, L152-153). |
+| 8 — `package_app.sh` copies watchdog to `Contents/Helpers/` +x; present after build | PASS | `Scripts/package_app.sh` builds + copies watchdog, `chmod +x`, and `test -x` verifies (fatal on miss). Watchdog product builds (`.build/debug/ClaudeBarWatchdog`, 106 KB, executable). |
+| 9 — Errors: cliNotFound / parseError / cliExited | PASS (deviation accepted) | `parseError` is a real case (used at `CLISession` L60). `cliNotFound`/`cliExited`/`cliTimeout` encoded as message-tagged `networkError` (L96, L120-127). **Accepted:** `UsageError` is the L4-frozen EXB-1.1 contract; `networkError.isAuthOrScope == false` correctly prevents a wrong re-fallthrough; AC9 "app continues on OAuth" behavior preserved. See concern QA-001. |
+| 10 — Positional fallback (first two `\d+%`) | PASS | `orderedUtilizations` + fallback in `parseUsage` (L37-45); tests `positionalFallbackTakesFirstTwoPercentsWhenLabelsMissing`, `…RecoversWeeklyWhenOnlySessionLabelPresent` green. |
+| 11 — `parseUsage` pure, process-free | PASS | `enum ClaudeStatusProbe`, pure static func; 12 parser tests run without a process. |
+| 12 — `swift build` all targets, zero new warnings | PASS | Re-ran `swift build` and `swift build -c release` → **0 warnings**. |
+
+**Score: 12/12 ACs implemented and verified.**
+
+### Independently reproduced
+- `swift build` (debug + release): **Build complete, 0 warnings.**
+- `swift test`: **115 tests / 17 suites — all passed** (1.76s). 23 new CLI tests present. 0 regressions vs. baseline.
+- Guardrail grep: only POST in the OAuth/CLI surface is in `directRefresh` (`.claudebar` path). CLI dir has zero network primitives.
+- Parser ground-truth: real `claude /usage` TUI renders `"NN% used"` (every reference fixture). Implementation returns utilization (percent used); for `"40% used"` → `session == 40`, mapping to reference `percentLeft 60` and downstream `usedPercent`. **Direction is correct.**
+
+### Concerns (non-blocking)
+
+| ID | Severity | Finding | Suggested action |
+|----|----------|---------|------------------|
+| QA-001 | low | AC9 error taxonomy collapsed into `networkError("cliNotFound:…")` etc. Behaviorally correct (no wrong fallthrough; AC9 honored) but loses typed diagnosability and string-tagging is brittle for any future programmatic branch on error kind. | When EXB-1.1's `UsageError` contract is next unfrozen, promote `cliNotFound`/`cliExited`/`cliTimeout` to dedicated cases. Until then, document the tag strings as a stable internal contract. |
+| QA-002 | low | Parser bare-`NN%`-without-keyword path diverges from reference semantics: reference treats a directionless value as *remaining* (`assumeRemainingWhenUnclear`), implementation treats it as *used*. Real `claude` TUI always carries the `used` keyword, so this only ever fires in synthetic positional-fallback inputs — no real-world impact today. | If a future `claude` TUI emits bare percentages, re-validate the positional-fallback direction against a live capture. |
+| QA-003 | low | AC3b prompt readiness is inferred from scripted-step ordering (empty-needle `/usage` step) rather than explicit `>`/`❯` glyph detection. A cold-start TUI could theoretically receive `/usage` before it is ready. | Recovery exists (45s timeout + `Current week` terminal step). Consider adding an explicit prompt-glyph gate before the `/usage` step in a hardening pass. |
+| QA-004 | low | `ClaudePTYRunner` header docstring (L18-20) still describes `DispatchSource.makeReadSource` reads, but the loop uses polled non-blocking `read()` (the documented Deviation #4). Stale doc only — behavior is equivalent and off the cooperative pool. | Update the docstring to match the polled-read implementation. |
+
+### Justified deviations — reviewed
+All 5 dev-reported deviations examined and **accepted**: (1) `ClaudePTYRunner` naming — legitimate module collision avoidance; (2) `CLIFetchStrategy` non-conformance — correct, `FetchStrategy` is a value descriptor not a protocol; (3) app-layer binary detection — preserves Core dependency-freedom; (4) polled `read()` — functionally equivalent, off-pool; (5) `cliNotFound`→`networkError` — see QA-001.
+
+### Gate rationale
+All 12 ACs met, build clean, full suite green, the single highest-risk invariant (R6/#1161 — never consume the CLI's refresh token) is both structurally enforced and test-proven, and the anti-freeze pattern is correctly applied. The four findings are all `low` severity, none block release: they are diagnosability/robustness improvements, not correctness defects. Verdict is **CONCERNS** (not PASS) solely to ensure QA-001 and QA-002 are tracked into the next contract-unfreeze and a live-capture validation — proceed with awareness.
+
+**Gate:** CONCERNS
