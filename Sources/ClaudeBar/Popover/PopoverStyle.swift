@@ -17,6 +17,12 @@ enum PopoverStyle {
     /// Panel width in points (AC4).
     static let panelWidth: CGFloat = 310
 
+    /// Corner radius of the popover panel's visual-effect card (EXB-2.1 AC4).
+    ///
+    /// `≥ 8 pt` is the AC floor; 10 pt matches the radius the system applies to its own `.popover`
+    /// material so the frosted card reads as a native floating panel rather than a square block.
+    static let cornerRadius: CGFloat = 10
+
     /// Horizontal content padding (matches the reference card's 20 pt gutter).
     static let horizontalPadding: CGFloat = 20
 

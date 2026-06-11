@@ -16,7 +16,7 @@ import SwiftUI
 @MainActor
 final class UsagePanelController: NSObject, NSWindowDelegate {
     private let panel: KeyablePanel
-    private let effectView: NSVisualEffectView
+    private let effectView: RoundedVisualEffectView
     private let hostingView: NSHostingView<UsageCardView>
     private let actions: UsageCardActions
 
@@ -43,9 +43,15 @@ final class UsagePanelController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false)
 
-        // AC3: vibrant background matching system menus.
-        self.effectView = NSVisualEffectView()
-        self.effectView.material = .menu
+        // EXB-2.1 AC1/AC3/AC4: a `.behindWindow` vibrant background that frosts the desktop content
+        // behind the panel. Material is `.popover` rather than `.menu`: `.menu` only composites its
+        // vibrancy while AppKit is tracking an actual `NSMenu`, so on a free-floating `NSPanel` it
+        // renders nearly opaque. `.popover` is the system material for a floating info card and
+        // produces the same frosted blur in both Light and Dark appearance with no colour branching
+        // (AC3). The rounded subclass clips the card to `PopoverStyle.cornerRadius` so the corners
+        // are not square (AC4).
+        self.effectView = RoundedVisualEffectView()
+        self.effectView.material = .popover
         self.effectView.blendingMode = .behindWindow
         self.effectView.state = .active
         self.effectView.translatesAutoresizingMaskIntoConstraints = false
@@ -94,8 +100,9 @@ final class UsagePanelController: NSObject, NSWindowDelegate {
     }
 
     private func assembleViewTree() {
-        // AC3: NSVisualEffectView is the content view; the hosting view is its child, pinned to all
-        // edges so SwiftUI drives the height (AC2 — never call `fittingSize` synchronously).
+        // EXB-2.1 AC1: the `NSVisualEffectView` is the panel's content view; the `NSHostingView` is its
+        // child (never a sibling or replacement), pinned to all edges so SwiftUI drives the height
+        // (AC2 — never call `fittingSize` synchronously). The architecture stays an `NSPanel` (AC7).
         self.panel.contentView = self.effectView
         self.effectView.addSubview(self.hostingView)
         NSLayoutConstraint.activate([
@@ -251,5 +258,43 @@ private final class KeyablePanel: NSPanel {
             return true
         }
         return super.performKeyEquivalent(with: event)
+    }
+}
+
+/// An `NSVisualEffectView` that clips itself (and therefore the frosted material) to a rounded
+/// rectangle (EXB-2.1 AC4).
+///
+/// The `.popover` material does not bring its own corner radius the way `.menu` does inside an
+/// `NSMenu`, so a free-floating panel would otherwise show hard square corners. The mask is rebuilt
+/// from the live bounds in `layout()` because the panel's height is driven asynchronously by the
+/// SwiftUI hosting view (AC2) — a static mask would be the wrong size on the first frame. Building
+/// the mask is pure CoreGraphics on the main thread with no I/O, so the anti-freeze invariants hold.
+private final class RoundedVisualEffectView: NSVisualEffectView {
+    override func layout() {
+        super.layout()
+        // A 9-slice resizable mask stretches to the view's current bounds automatically, so it only
+        // needs to be (re)built when the radius could change — but rebuilding here is cheap and keeps
+        // the mask correct after an appearance change. AppKit resizes the mask to `bounds` itself.
+        if self.maskImage == nil {
+            self.maskImage = Self.roundedMask(cornerRadius: PopoverStyle.cornerRadius)
+        }
+    }
+
+    /// A resizable mask image with a rounded-rectangle cap inset of `cornerRadius` on every edge, so
+    /// the corners curve while the straight runs stretch (`NSImage.resizingMode = .stretch`).
+    private static func roundedMask(cornerRadius: CGFloat) -> NSImage {
+        let edge = cornerRadius * 2 + 1
+        let image = NSImage(size: NSSize(width: edge, height: edge), flipped: false) { rect in
+            NSColor.black.set()
+            NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius).fill()
+            return true
+        }
+        image.capInsets = NSEdgeInsets(
+            top: cornerRadius,
+            left: cornerRadius,
+            bottom: cornerRadius,
+            right: cornerRadius)
+        image.resizingMode = .stretch
+        return image
     }
 }

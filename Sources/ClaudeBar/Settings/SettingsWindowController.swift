@@ -30,15 +30,49 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         }
 
         let root = SettingsRootView(settings: settings, launchManager: launchManager)
-        let hosting = NSHostingController(rootView: root)
+        let hostingView = NSHostingView(rootView: root)
+        hostingView.translatesAutoresizingMaskIntoConstraints = false
 
-        let window = NSWindow(contentViewController: hosting)
+        // AC1: 546 pt wide; the height is the designed 638 pt pane area plus a 28 pt titlebar band
+        // reserved by `SettingsRootView` so the tab strip clears the traffic lights under
+        // `.fullSizeContentView` (EXB-2.1 AC2). Not resizable.
+        let contentSize = NSSize(width: 546, height: 638 + 28)
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: contentSize),
+            styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false)
         window.title = "exímIABar Settings"
-        // AC1: fixed 546×638 pt; not resizable.
-        window.styleMask = [.titled, .closable, .miniaturizable]
-        window.setContentSize(NSSize(width: 546, height: 638))
+        window.setContentSize(contentSize)
         window.isReleasedWhenClosed = false
         window.delegate = self
+
+        // EXB-2.1 AC2: a `.behindWindow` visual-effect background gives the Settings window the same
+        // native macOS translucency as the popover. `.fullSizeContentView` plus a transparent
+        // titlebar lets the blur extend under the title area; `.followsWindowActiveState` dims the
+        // material when the window is in the background, matching system preference panels. The
+        // material adapts to Dark/Light automatically with no colour branching (AC3).
+        window.titlebarAppearsTransparent = true
+        // Title text is hidden so the `TabView`'s tab strip can sit in the titlebar band without
+        // colliding with it; the traffic-light buttons stay visible. The window still carries the
+        // title for the Window menu / accessibility.
+        window.titleVisibility = .hidden
+        window.backgroundColor = .clear
+        window.isOpaque = false
+
+        let effectView = NSVisualEffectView()
+        effectView.material = .windowBackground
+        effectView.blendingMode = .behindWindow
+        effectView.state = .followsWindowActiveState
+        effectView.addSubview(hostingView)
+        NSLayoutConstraint.activate([
+            hostingView.leadingAnchor.constraint(equalTo: effectView.leadingAnchor),
+            hostingView.trailingAnchor.constraint(equalTo: effectView.trailingAnchor),
+            hostingView.topAnchor.constraint(equalTo: effectView.topAnchor),
+            hostingView.bottomAnchor.constraint(equalTo: effectView.bottomAnchor),
+        ])
+        window.contentView = effectView
+
         window.center()
         self.window = window
 
