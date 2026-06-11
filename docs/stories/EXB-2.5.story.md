@@ -1,7 +1,7 @@
 # Story EXB-2.5: Distribution — GitHub Repo, Release v1.1.0, /Applications Install
 
 **ID:** EXB-2.5
-**Status:** InProgress
+**Status:** Done
 **Depends on:** EXB-2.1 through EXB-2.4 (all Onda 4 stories done), EXB-1.8 (Makefile + packaging pipeline)
 **Epic:** EPIC-EXB
 **Wave:** Onda 4 (v1.1.0)
@@ -179,3 +179,28 @@ make icon         — regenerate AppIcon.icns
 | Date | Version | Description | Author |
 |------|---------|-------------|--------|
 | 2026-06-11 | 1.0 | Initial draft — Onda 4 (v1.1.0) | @sm River |
+| 2026-06-11 | 1.1 | Executed: repo created, v1.1.0 released, /Applications migration. Status → Done | @devops Gage |
+
+---
+
+## Dev Agent Record (@devops Gage)
+
+### Completion Notes
+- **Makefile** (AC1): `install` → `/Applications` with permission-denied fallback message; added `install-user` → `~/Applications`; `uninstall` → `/Applications` with sudo hint.
+- **Info.plist** (AC2): `CFBundleShortVersionString` + `CFBundleVersion` → `1.1.0`. About pane (`PreferencesAboutPane.swift`) and `UpdateViewModel.swift` read these from the bundle — bump suffices.
+- **Build + zip** (AC3, AC4): `make build` clean (universal x86_64+arm64, ad-hoc signed, valid signature). Zip via `ditto -c -k --sequesterRsrc --keepParent` → `ExímIABar.app/` at root; codesignature survives round-trip extract.
+- **Tests** (AC12): `swift test --no-parallel` → 175/175 green. NOTE: parallel runs flake on `policyProviderIsReadOnEveryLoadReachingKeychain` (race with `CredentialLoadOrderTests` over the real system keychain — passes 3/3 in isolation). Serial run is the deterministic gate.
+- **Repo + push** (AC5): `eximIA-Ventures/eximiabar` created public; `origin` set; `main` pushed.
+- **Tag + release** (AC6, AC7, AC8): `v1.1.0` tagged and pushed; release `exímIABar 1.1.0` created with the zip asset and full Onda-4 changelog + CodexBar attribution.
+- **Migration** (AC9): old `~/Applications` copy removed; fixed build installed to `/Applications`; app launches and stays alive (`pgrep -x ClaudeBar` returns PID, running from `/Applications/ExímIABar.app/...`).
+- **README** (AC10): `/Applications` as primary install path, Releases section, auto-updater note.
+- **Auto-updater smoke** (AC11): `api.github.com/.../releases/latest` returns `"v1.1.0"`. Updater's asset picker is name-agnostic (first `.zip`, uses `browser_download_url`), so it is robust to GitHub's ASCII-normalization of the asset name.
+
+### Critical Bug Found & Fixed (packaging — EXB-1.8 regression exposed by EXB-2.2)
+- **Symptom:** the packaged `.app` fatal-crashed on launch: `Fatal error: unable to find bundle named ClaudeBar_ClaudeBar`.
+- **Root cause:** `Scripts/package_app.sh` copied individual resources but never copied the SwiftPM resource bundle `ClaudeBar_ClaudeBar.bundle` (holding the `en`/`pt-BR` localizations from EXB-2.2). `Bundle.module` requires it at runtime via `Bundle.main.resourceURL`.
+- **Fix:** added Step 5b to `package_app.sh` — copy `${BIN_PATH}/ClaudeBar_ClaudeBar.bundle` into `Contents/Resources/` before codesigning (so it is signed and survives the zip). Verified: app now launches without crash; localizations resolve.
+- **Impact:** the first published zip was broken. Rebuilt, re-zipped, and replaced the release asset with the fixed build.
+
+### Known Environment Limitations (not story defects)
+- `mdfind` returns empty: the Spotlight index on `/` is **read-only** (`mdutil -s /`), so `/Applications` entries are not indexed on this machine. App is nonetheless installed, Launch-Services-registered, and running. Fixing Spotlight is out of scope for EXB-2.5.

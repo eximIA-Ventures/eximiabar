@@ -76,6 +76,21 @@ chmod +x "${APP_BUNDLE}/Contents/Helpers/${WATCHDOG}"
 cp "${RES_DIR}/AppIcon.icns" "${APP_BUNDLE}/Contents/Resources/AppIcon.icns"
 cp "${RES_DIR}/ProviderIcon-claude.svg" "${APP_BUNDLE}/Contents/Resources/ProviderIcon-claude.svg"
 
+# ── Step 5b — SwiftPM resource bundle (REQUIRED for Bundle.module) ─────────────
+# The ClaudeBar target ships a resource bundle (`ClaudeBar_ClaudeBar.bundle`) holding
+# the en/pt-BR localization tables (EXB-2.2) and other .copy resources. `Bundle.module`
+# resolves it via `Bundle.main.resourceURL` at runtime, so it MUST live in
+# Contents/Resources/. Without it the app fatal-errors on launch:
+#   "Fatal error: unable to find bundle named ClaudeBar_ClaudeBar".
+RES_BUNDLE_NAME="ClaudeBar_ClaudeBar.bundle"
+RES_BUNDLE_SRC="${BIN_PATH}/${RES_BUNDLE_NAME}"
+if [[ ! -d "${RES_BUNDLE_SRC}" ]]; then
+  echo "FATAL: SwiftPM resource bundle missing at ${RES_BUNDLE_SRC}" >&2
+  exit 1
+fi
+rm -rf "${APP_BUNDLE}/Contents/Resources/${RES_BUNDLE_NAME}"
+cp -R "${RES_BUNDLE_SRC}" "${APP_BUNDLE}/Contents/Resources/${RES_BUNDLE_NAME}"
+
 # ── Step 6 — Info.plist (AC2f) ─────────────────────────────────────────────────
 # Goes to Contents/Info.plist (NOT Contents/Resources/Info.plist).
 cp "${INFO_PLIST}" "${APP_BUNDLE}/Contents/Info.plist"
