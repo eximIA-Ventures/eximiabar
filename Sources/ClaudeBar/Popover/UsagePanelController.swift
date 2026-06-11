@@ -211,6 +211,10 @@ final class UsagePanelController: NSObject, NSWindowDelegate {
         case "r":
             self.actions.refresh()
             return true
+        case "d":
+            // EXB-2.3 AC1: ⌘D opens the local dashboard window.
+            self.actions.openLocalDashboard()
+            return true
         case ",":
             self.actions.openSettings()
             return true

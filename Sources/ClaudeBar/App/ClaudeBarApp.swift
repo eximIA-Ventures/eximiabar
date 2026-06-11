@@ -98,6 +98,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: StatusItemController?
     private var panelController: UsagePanelController?
     private var settingsWindowController: SettingsWindowController?
+    /// EXB-2.3: owns the local Swift Charts dashboard window.
+    private var dashboardWindowController: DashboardWindowController?
     private var observationTask: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -121,6 +123,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindowController = SettingsWindowController(
             settings: settings,
             launchManager: launchManager)
+
+        // EXB-2.3: build the local dashboard window controller. It reads the same off-MainActor
+        // cost-settings holder and shared `CostScanner` the menu-bar fetch uses, so opening the
+        // dashboard reuses the already-computed aggregate and never triggers a rate-limit fetch (AC11).
+        dashboardWindowController = DashboardWindowController(
+            costSettingsProvider: { [costSettingsHolder] in costSettingsHolder.get() },
+            openSettings: { [weak self] in self?.settingsWindowController?.open() })
 
         let controller = StatusItemController(settings: settings)
         statusItemController = controller
@@ -222,6 +231,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         UsageCardActions(
             refresh: { [weak self] in
                 self?.appState.triggerRefresh(.userInitiated)
+            },
+            openLocalDashboard: { [weak self] in
+                // EXB-2.3: open the local Swift Charts dashboard window.
+                self?.dashboardWindowController?.open()
             },
             openUsageDashboard: {
                 Self.open("https://claude.ai/settings/usage")

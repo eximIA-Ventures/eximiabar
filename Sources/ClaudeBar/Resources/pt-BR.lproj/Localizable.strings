@@ -47,11 +47,33 @@
 
 /* MARK: - Linhas de ação */
 "popover.refresh_now"          = "Atualizar Agora";
+"popover.dashboard"            = "Painel";
+"popover.claude_usage_web"     = "Uso do Claude (Web)";
 "popover.usage_dashboard"      = "Painel de Uso";
 "popover.status_page"          = "Página de Status";
 "popover.relogin"              = "Entrar novamente em claude.ai";
 "popover.settings"             = "Preferências…";
 "popover.quit"                 = "Encerrar";
+
+/* MARK: - Janela do painel (EXB-2.3) */
+"dashboard.window.title"           = "Painel exímIABar";
+"dashboard.summary.today"          = "Hoje";
+"dashboard.summary.last_7_days"    = "Últimos 7 dias";
+"dashboard.summary.last_30_days"   = "Últimos 30 dias";
+"dashboard.summary.tokens"         = "%@ tokens";
+"dashboard.chart.cost.title"       = "Custo por dia";
+"dashboard.chart.cost.y_label"     = "USD";
+"dashboard.chart.tokens.title"     = "Tokens por dia";
+"dashboard.chart.tokens.y_label"   = "Tokens";
+"dashboard.chart.axis.date"        = "Data";
+"dashboard.models.title"           = "Detalhamento por modelo (30 dias)";
+"dashboard.models.col.model"       = "Modelo";
+"dashboard.models.col.input"       = "Entrada";
+"dashboard.models.col.output"      = "Saída";
+"dashboard.models.col.cost"        = "Custo";
+"dashboard.empty.message"          = "Nenhum dado de uso encontrado. Verifique se o Claude Code está instalado e foi utilizado.";
+"dashboard.disabled.message"       = "O rastreamento de custo está desativado. Ative em Preferências → Custo.";
+"dashboard.disabled.open_settings" = "Abrir Preferências";
 
 /* MARK: - Notificações */
 "notification.window.session"  = "Sessão";

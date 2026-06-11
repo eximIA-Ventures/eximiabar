@@ -6,6 +6,9 @@ import SwiftUI
 /// `UsageCardView` stays a pure function of the snapshot plus this callback set.
 struct UsageCardActions {
     var refresh: () -> Void = {}
+    /// Opens the local Swift Charts dashboard window (EXB-2.3 AC1).
+    var openLocalDashboard: () -> Void = {}
+    /// Opens the Anthropic web usage page in the browser (EXB-2.3 AC1 — renamed "Claude Usage (Web)").
     var openUsageDashboard: () -> Void = {}
     var openStatusPage: () -> Void = {}
     var openSettings: () -> Void = {}
@@ -299,7 +302,9 @@ private struct ActionSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ActionRow(symbol: "arrow.clockwise", label: L("popover.refresh_now"), shortcut: "⌘R", action: self.actions.refresh)
-            ActionRow(symbol: "chart.bar", label: L("popover.usage_dashboard"), shortcut: nil, action: self.actions.openUsageDashboard)
+            // EXB-2.3 AC1: the local dashboard row sits above the web link with the ⌘D shortcut.
+            ActionRow(symbol: "chart.bar.xaxis", label: L("popover.dashboard"), shortcut: "⌘D", action: self.actions.openLocalDashboard)
+            ActionRow(symbol: "chart.bar", label: L("popover.claude_usage_web"), shortcut: nil, action: self.actions.openUsageDashboard)
             ActionRow(symbol: "dot.radiowaves.up.forward", label: L("popover.status_page"), shortcut: nil, action: self.actions.openStatusPage)
             if self.showRelogin {
                 ActionRow(
