@@ -188,3 +188,21 @@
 "about.github"                 = "GitHub";
 "about.license"                = "Licença";
 "about.attribution"            = "Baseado no CodexBar de Peter Steinberger (MIT).";
+
+/* MARK: - Preferências → Sobre → Atualizador automático (EXB-2.4) */
+"update.check_button"          = "Verificar atualizações";
+"update.download_button"       = "Baixar e instalar";
+"update.retry_button"          = "Tentar novamente";
+"update.checking"              = "Verificando atualizações…";
+"update.up_to_date"            = "Você está atualizado. (v%@)";
+"update.available"             = "Versão %@ disponível.";
+"update.downloading"           = "Baixando %@…";
+"update.installing"            = "Instalando…";
+"update.error.no_network"      = "Sem conexão com a internet.";
+"update.error.rate_limited"    = "Limite de requisições atingido. Tente novamente mais tarde.";
+"update.error.no_asset"        = "Nenhum arquivo para download encontrado nesta versão.";
+"update.error.not_writable"    = "Não é possível atualizar: o local do app não permite gravação. Mova o app para ~/Applications ou execute como administrador.";
+"update.error.extraction_failed" = "Falha ao extrair a atualização.";
+"update.error.invalid_bundle"  = "O pacote baixado é inválido.";
+"update.error.install_failed"  = "Falha na atualização: %@";
+"update.error.generic"         = "Falha na atualização. Tente novamente mais tarde.";

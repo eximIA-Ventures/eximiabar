@@ -8,9 +8,10 @@ import SwiftUI
 /// minus the Sparkle auto-update controls (not in scope for exímIABar).
 @MainActor
 struct PreferencesAboutPane: View {
-    private static let repoURL = "https://github.com/eximia-ventures/eximiabar"
+    private static let repoURL = "https://github.com/eximIA-Ventures/eximiabar"
 
     @State private var iconHover = false
+    @StateObject private var updateModel = UpdateViewModel()
 
     private var versionString: String {
         let version = Bundle.main
@@ -33,6 +34,9 @@ struct PreferencesAboutPane: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
+
+            UpdateSectionView(model: updateModel)
+                .padding(.top, 4)
 
             VStack(alignment: .center, spacing: 10) {
                 AboutLinkRow(

@@ -190,3 +190,21 @@
 "about.github"                 = "GitHub";
 "about.license"                = "License";
 "about.attribution"            = "Based on CodexBar by Peter Steinberger (MIT).";
+
+/* MARK: - Settings → About → Auto-updater (EXB-2.4) */
+"update.check_button"          = "Check for Updates";
+"update.download_button"       = "Download and Install";
+"update.retry_button"          = "Retry";
+"update.checking"              = "Checking for updates…";
+"update.up_to_date"            = "You're up to date. (v%@)";
+"update.available"             = "Version %@ available.";
+"update.downloading"           = "Downloading %@…";
+"update.installing"            = "Installing…";
+"update.error.no_network"      = "No network connection.";
+"update.error.rate_limited"    = "Rate limited. Try again later.";
+"update.error.no_asset"        = "No downloadable asset found for this release.";
+"update.error.not_writable"    = "Cannot update: app location is not writable. Move the app to ~/Applications or run as admin.";
+"update.error.extraction_failed" = "Failed to extract update.";
+"update.error.invalid_bundle"  = "Downloaded bundle is invalid.";
+"update.error.install_failed"  = "Update failed: %@";
+"update.error.generic"         = "Update failed. Try again later.";
