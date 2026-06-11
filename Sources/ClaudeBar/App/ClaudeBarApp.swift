@@ -59,8 +59,10 @@ struct ClaudeBarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        // No window: the app is a menu-bar agent. `Settings` provides an (empty) scene so SwiftUI
-        // has a valid `App` body; the real settings window arrives in EXB-1.5.
+        // No window: the app is a menu-bar agent. This empty `Settings` scene is an inert lifecycle
+        // host — SwiftUI requires a non-empty `App` body, and it has no openable content. The real
+        // settings window is driven imperatively by `SettingsWindowController` (EXB-1.5), opened from
+        // the popover `Settings…` action row and the ⌘, key equivalent on the installed main menu.
         Settings {
             EmptyView()
         }

@@ -72,15 +72,43 @@ struct UsagePaceTests {
         #expect(pace!.status == .reserve(pace!.reserve))
     }
 
-    /// |delta| within 6 points classifies as onPace even off the exact line ("slightly").
+    /// Within the `onTrack` band (|delta| ≤ 2) classifies as onPace ("On pace", no number).
     @Test
-    func slightlyOffLineStaysOnPace() {
+    func withinTrackBandIsOnPace() {
         let now = Date()
-        // 50% elapsed → expected 50%; actual 55% → delta +5 (≤6 → onPace).
+        // 50% elapsed → expected 50%; actual 52% → delta +2 (≤2 → onPace).
+        let resetsAt = now.addingTimeInterval(TimeInterval(weeklyMinutes) * 60 * 0.5)
+        let window = RateWindow(utilization: 52, resetsAt: resetsAt, windowMinutes: weeklyMinutes)
+        let pace = UsagePace.compute(window: window, now: now)
+        #expect(pace?.status == .onPace)
+    }
+
+    /// "Slightly" band (2 < |delta| ≤ 6) is NOT onPace — it carries the signed delta so the pace text
+    /// shows the number, matching `_reference_codexbar` (`.slightlyAhead`/`.slightlyBehind` still
+    /// render "N% in deficit"/"N% in reserve"). Regression guard for the S3 reference-parity fix.
+    @Test
+    func slightlyAheadShowsDeficitNotOnPace() {
+        let now = Date()
+        // 50% elapsed → expected 50%; actual 55% → delta +5 (2 < |Δ| ≤ 6 → slightly deficit).
         let resetsAt = now.addingTimeInterval(TimeInterval(weeklyMinutes) * 60 * 0.5)
         let window = RateWindow(utilization: 55, resetsAt: resetsAt, windowMinutes: weeklyMinutes)
         let pace = UsagePace.compute(window: window, now: now)
-        #expect(pace?.status == .onPace)
+        #expect(pace?.status == .deficit(5))
+        #expect(pace?.deficit == 5)
+        #expect(pace?.reserve == 0)
+    }
+
+    /// "Slightly" band on the under-pace side renders reserve with a number (reference parity).
+    @Test
+    func slightlyBehindShowsReserveNotOnPace() {
+        let now = Date()
+        // 50% elapsed → expected 50%; actual 46% → delta -4 (2 < |Δ| ≤ 6 → slightly reserve).
+        let resetsAt = now.addingTimeInterval(TimeInterval(weeklyMinutes) * 60 * 0.5)
+        let window = RateWindow(utilization: 46, resetsAt: resetsAt, windowMinutes: weeklyMinutes)
+        let pace = UsagePace.compute(window: window, now: now)
+        #expect(pace?.status == .reserve(4))
+        #expect(pace?.reserve == 4)
+        #expect(pace?.deficit == 0)
     }
 
     /// A reset further out than the window length yields no pace (no meaningful elapsed).

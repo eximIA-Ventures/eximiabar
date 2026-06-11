@@ -35,6 +35,17 @@ struct UsagePaceTextTests {
         #expect(detail.secondary?.hasPrefix("Runs out in ") == true || detail.secondary == "Runs out now")
     }
 
+    /// Slightly-ahead band (2 < |delta| ≤ 6) renders the number, not "On pace" — reference parity
+    /// (`_reference_codexbar` `.slightlyAhead` → "N% in deficit"). Regression guard for the S3 fix.
+    @Test
+    func slightlyAheadShowsNumberNotOnPace() {
+        let now = Date()
+        // 50% elapsed, 55% used → delta +5.
+        let detail = UsagePaceText.detail(for: pace(utilization: 55, elapsedFraction: 0.5, now: now), now: now)
+        #expect(detail.primary == "5% in deficit")
+        #expect(detail.isReserve == false)
+    }
+
     /// Reserve renders "N% in reserve" with a green stripe and "Lasts until reset".
     @Test
     func reserveStrings() {

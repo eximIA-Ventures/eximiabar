@@ -59,41 +59,45 @@ struct PromptPolicyTests {
         #expect(record.source == .credentialsFile)
     }
 
-    /// The provider is read on every `load`, never memoized. A mutable, thread-safe source observes
-    /// at least one read per load — confirming the policy is re-sampled rather than captured once.
+    /// The provider is read on **every** `load` that reaches the keychain layer (e), never memoized.
+    ///
+    /// With no env token, no cache, and no credentials file, every `load` falls through layers (a)–(d)
+    /// straight into (e) where the policy is consulted (`CredentialsStore.load`, line 129) — exactly
+    /// once per call, before `loadFromClaudeKeychain`. Each load throws `.notFound` (no system keychain
+    /// item under test), so nothing is memoized and the next load reaches (e) again. Asserting an exact
+    /// read-count == number of (e)-reaching loads is a tight regression guard on the no-memoization
+    /// guarantee (AC11) — strictly stronger than "≥ 1".
     @Test
-    func policyProviderIsReadPerLoad() async throws {
+    func policyProviderIsReadOnEveryLoadReachingKeychain() async throws {
+        // An empty home dir: no `~/.claude/.credentials.json`, so layer (d) always misses and every
+        // load reaches (e).
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("eximiabar-policy-\(UUID().uuidString)")
-        let claudeDir = home.appendingPathComponent(".claude")
-        try FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: home) }
-        let oauth: [String: Any] = [
-            "accessToken": "file-token",
-            "refreshToken": "refresh",
-            "expiresAt": 4_102_444_800_000,
-            "scopes": ["user:profile"],
-        ]
-        let payload = try JSONSerialization.data(withJSONObject: ["claudeAiOauth": oauth])
-        try payload.write(to: claudeDir.appendingPathComponent(".credentials.json"))
 
         let reads = ReadCounter()
         let store = CredentialsStore(
             environment: [:],
             homeDirectory: home,
             defaults: UserDefaults(suiteName: "exb.policy.\(UUID().uuidString)")!,
-            // System keychain enabled so the policy provider is actually consulted in layer (e).
+            // System keychain enabled so the policy provider is consulted in layer (e).
             promptPolicyProvider: { reads.bump(); return .never },
             enableSystemKeychain: true)
 
-        // The file layer satisfies the load before reaching (e) on the first call, but a second
-        // load that misses the file (removed) drops to (e) where the provider IS consulted.
-        _ = try? await store.load(phase: .background)
-        try FileManager.default.removeItem(at: home)
-        await store.invalidateCaches()
-        _ = try? await store.load(phase: .userInitiated)
+        let loadCount = 3
+        for _ in 0 ..< loadCount {
+            // Each load misses (a)–(d) and consults the provider in (e). `invalidateCaches()` drops
+            // any record a host `"Claude Code-credentials"` item might have produced, so the *next*
+            // load can't short-circuit at the in-memory layer (b) — every iteration reaches (e),
+            // making the read-count deterministic regardless of the host keychain state.
+            _ = try? await store.load(phase: .userInitiated)
+            await store.invalidateCaches()
+        }
 
-        #expect(reads.value >= 1)
+        // Exactly one provider read per load that reached (e) — proves the policy is re-sampled on
+        // every load, never captured once at init. Tight `== loadCount` regression guard on AC11.
+        #expect(reads.value == loadCount)
     }
 }
 

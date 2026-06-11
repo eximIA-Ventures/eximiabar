@@ -15,7 +15,8 @@ public struct UsagePace: Sendable, Equatable {
     /// projection is carried separately in `projectedRunOut` / `lastsUntilReset`, mirroring the
     /// reference where `stage` and `eta` are independent.
     public enum PaceStatus: Sendable, Equatable {
-        /// Within the "slightly" threshold of the expected burn line (|delta| ≤ 6).
+        /// On the expected burn line within the `onTrack` band (|delta| ≤ 2). Beyond ±2 the status
+        /// carries the signed delta so the pace text shows the number (reference parity — see `status`).
         case onPace
         /// Ahead of the expected burn by `delta` percentage points (burning too fast).
         case deficit(Double)
@@ -131,9 +132,16 @@ public struct UsagePace: Sendable, Equatable {
             status: status)
     }
 
-    /// Classify the pace status by delta only. "Slightly" (`onPace`) when `abs(delta) ≤ 6` (AC13).
+    /// Classify the pace status by delta only.
+    ///
+    /// Reference parity (`_reference_codexbar/.../UsagePace.swift:110-116` +
+    /// `UsagePaceText.swift:36-42`): only the `onTrack` band (|delta| ≤ 2) suppresses the number and
+    /// renders "On pace". The reference's "slightly" band (2 < |delta| ≤ 6) is a bar-stripe
+    /// distinction, **not** a string one — it still shows "N% in deficit"/"N% in reserve". So `onPace`
+    /// is the ≤2 band; everything beyond it carries the signed delta. The stripe direction is driven
+    /// independently by the `reserve`/`deficit` fields, so the slightly band keeps its green/red stripe.
     private static func status(delta: Double) -> PaceStatus {
-        if abs(delta) <= 6 { return .onPace }
+        if abs(delta) <= 2 { return .onPace }
         return delta >= 0 ? .deficit(delta) : .reserve(-delta)
     }
 }

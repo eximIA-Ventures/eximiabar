@@ -37,7 +37,7 @@
 13. **Pace line** (F4, ref `_reference_codexbar/Sources/CodexBarCore/UsagePace.swift` and `_reference_codexbar/Sources/CodexBar/UsagePaceText.swift:37-54`): rendered below the Weekly bar only.
     - Hidden if less than 3% of the window duration has elapsed.
     - Strings (EXACT — do not use screenshot wording): `"On pace"` / `"N% in deficit"` / `"N% in reserve"` and secondary `"Lasts until reset"` / `"Runs out in Xd Yh"` / `"Runs out now"`.
-    - Threshold "slightly": `|delta| ≤ 6` → `"On pace"`.
+    - Threshold (reference parity, `_reference_codexbar/.../UsagePace.swift:110-116` + `UsagePaceText.swift:36-42`): `|delta| ≤ 2` → `"On pace"` (no number). The "slightly" band `2 < |delta| ≤ 6` is a **bar-stripe** distinction only — it still renders `"N% in deficit"`/`"N% in reserve"` (shows the number), as does `|delta| > 6`. _(Corrected 2026-06-11 — round-1 QA flagged that the prior `≤ 6 → "On pace"` collapse diverged from the cited reference.)_
 14. **UsageProgressBar** (ref `_reference_codexbar/Sources/CodexBar/UsageProgressBar.swift:4-195`):
     - Height 6 pt, corner radius 3 pt
     - Single SwiftUI `Canvas` — no Metal shaders
@@ -165,7 +165,7 @@ No asset catalog — hardcoded hex `#CC7C5E`.
 "Runs out in Xd Yh"   ← X days, Y hours
 "Runs out now"
 ```
-Threshold "slightly" (On pace) when `abs(delta) ≤ 6`.
+Threshold (reference parity): "On pace" only when `abs(delta) ≤ 2`. The "slightly" band `2 < abs(delta) ≤ 6` still renders the signed number ("N% in deficit"/"N% in reserve") — it is a stripe-only distinction in the reference, not a string one. _(Corrected 2026-06-11.)_
 
 ### Action row layout
 ```swift
@@ -248,3 +248,115 @@ In this story, the Cost section renders a stub `"Cost data loading…"` placehol
 | 2026-06-10 | 1.0 | Initial draft | @sm River |
 | 2026-06-10 | 1.1 | Validated GO (9/10) — Status: Draft → Ready. No content changes required. | @po Pax |
 | 2026-06-10 | 1.2 | Implemented all ACs (T1–T7). 10 files created, 2 modified, 11 new tests. Build + 85 tests pass. Status: Ready → Done. | @dev Dex |
+| 2026-06-10 | 1.3 | QA gate round 1 — VERDICT: CONCERNS (1 reference-fidelity divergence on AC13 "slightly" threshold). Build + 85 tests verified independently. | @qa Quinn |
+| 2026-06-11 | 1.4 | Polish — resolved the AC13 "slightly" divergence by restoring reference parity (`onPace` = \|Δ\| ≤ 2; the 2 < \|Δ\| ≤ 6 band now shows "N% in deficit"/"N% in reserve"). 1 test renamed, 3 added. `warningMarkerPercents` wiring assessed: non-trivial (crosses card input contract / AC21) — documented as deferred, not wired. Build clean, 130 tests pass. | @dev Dex |
+
+---
+
+## QA Results — rodada 1
+
+**Reviewer:** Quinn (Test Architect & Quality Advisor)
+**Date:** 2026-06-10
+**Method:** Independent verification against actual code + `_reference_codexbar`. Build and tests re-run by QA, not trusted from the dev report.
+
+### Build & Test (re-run by QA)
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Debug build | `swift build` | ✅ Build complete, **zero warnings** (verified with forced recompile of `UsageCardView.swift`) |
+| Test suite | `swift test` | ✅ **85 tests / 12 suites — all pass** |
+| Regression (prior stories) | included in `swift test` | ✅ `AppStateTests`, `RefreshOwnershipTests`, `ErrorMappingTests`, icon/notification suites all green — EXB-1.1/1.2/1.4 intact |
+
+### Anti-freeze contract (the heart of the epic)
+
+| Guard | Evidence | Verdict |
+|-------|----------|---------|
+| `NSPanel` never `NSMenu` | `grep NSMenu Sources/` → **only in doc comments**; dropdown path is `KeyablePanel: NSPanel` (`UsagePanelController.swift:228`) | ✅ PASS |
+| No synchronous `fittingSize`/`layoutSubtreeIfNeeded` | `grep` → **only in comments explaining avoidance**; height driven by Auto Layout edge constraints (`assembleViewTree`), re-anchored on next runloop tick (`show`, line 136) | ✅ PASS |
+| No I/O on open | `show()` calls `actions.refresh()` → `AppState.triggerRefresh(.userInitiated)` (off-main fetch); no network on main | ✅ PASS |
+| No observation storm | single `withObservationTracking` loop on one observable (`AppState.snapshot`), card is a pure function of `DisplaySnapshot` (AC21) | ✅ PASS |
+| Panel created once, reused | `init` builds panel + hosting view once; `show`/`close` only order in/out; `rebuildCard` swaps `rootView` in place | ✅ PASS |
+
+### Acceptance Criteria
+
+| AC | Verdict | Evidence |
+|----|---------|----------|
+| AC1 — NSPanel style/level/backing | ✅ | `UsagePanelController.swift:40-44,70`. `.fullSizeContentView` added (Deviation 4, justified — vibrancy fills title strip; non-activating/non-key-stealing preserved) |
+| AC2 — single NSHostingView, SwiftUI auto-size | ✅ | `hostingView: NSHostingView<UsageCardView>`, edge-pinned, no `fittingSize` |
+| AC3 — NSVisualEffectView `.menu`/`.behindWindow` | ✅ | `effectView` material `.menu`, blending `.behindWindow`, is `contentView` with hosting child |
+| AC4 — width 310 pt | ✅ | `PopoverStyle.panelWidth = 310`; card `.frame(width:)` |
+| AC5 — anchor + close on resign/outside/Escape | ✅ | `position(near:)` uses button screen frame, clamps to screen; `windowDidResignKey`→`close`; Escape via `cancelOperation`/keyCode 53 |
+| AC6 — open triggers userInitiated refresh | ✅ | `show()` → `actions.refresh()` → `.userInitiated` (`ClaudeBarApp.swift:89`) |
+| AC7 — header (Claude/email/updated/error+copy/plan) | ✅ | `HeaderSection`+`StatusLine`+`CopyIconButton` (18×18, `doc.on.doc`→`checkmark`, scale 0.94, 2s revert); error red up to 4 lines; plan via `compactLoginMethod` |
+| AC8 — divider after header | ✅ | `Divider()` after `HeaderSection` |
+| AC9 — Session MetricRow | ✅ | `MetricRow(title:"Session")`; bar 6pt, "N% left", "Resets HH:mm" (local TZ, `jm` template), spacing 6/12 |
+| AC10 — Weekly + pace line | ✅ | `MetricRow(title:"Weekly", showPace:, pace:, paceDetail:)` |
+| AC11 — Sonnet, hidden if nil | ✅ | `if let sonnet`; snapshot sources `seven_day_sonnet ?? seven_day_opus` (verified in `UsageSnapshot+OAuth`) |
+| AC12 — Daily Routines conditional | ✅ | `if let daily = snapshot?.dailyRoutines` |
+| AC13 — pace strings + 3% gate | ⚠️ **CONCERNS** | Strings exact ("On pace"/"N% in deficit"/"N% in reserve"/"Lasts until reset"/"Runs out in Xd Yh"/"Runs out now") and unit-tested. 3%-elapsed gate present (`UsagePace.compute` line 95). **Divergence:** see below. |
+| AC14 — UsageProgressBar | ✅ | 1:1 Canvas port of reference (track `tertiaryLabel.opacity(0.22)`, fill `#CC7C5E`, tip `max(25, h*6.5)`, stripe 2px, green=reserve/red=deficit, markers 1px @55%) |
+| AC15 — Extra usage section | ✅ | Conditional on `extraUsage.isEnabled`; orange bar; currency lines; "% used". Centavos `/100` done upstream in `mapExtraUsage` (Deviation 3 verified — re-dividing would double-convert) |
+| AC16 — Cost section | ✅ | `CostSection` with "Estimated cost", today/30-day lines, chevron; stub "Cost data loading…" when nil (S7 dependency, per Dev Notes) |
+| AC17 — action rows 28pt + labels/shortcuts | ✅ | Refresh ⌘R, Usage Dashboard, Status Page, Settings… ⌘,, Quit ⌘Q, conditional "Re-login at claude.ai" on auth error; 16×16 icon, hover highlight radius 6 inset 6/2 |
+| AC18 — ⌘R/⌘,/⌘Q when key | ✅ | `KeyablePanel.canBecomeKey=true`, `acceptsMouseMovedEvents=true`, `makeKeyAndOrderFront`; `performKeyEquivalent`→`handleKeyEquivalent` |
+| AC19 — hover highlight | ✅ | `.onHover` → `selectedContentBackgroundColor` fill + `selectedMenuItemTextColor` text (Deviation 5 justified — `MenuHighlightStyle` was NSMenu-only) |
+| AC20 — open/close no stall, no sync I/O | ✅ | `animationBehavior = .none`; async re-anchor; off-main fetch |
+| AC21 — created once, pure function of snapshot | ✅ | Architecturally enforced; no NSMenu path |
+
+### Single Concern (non-blocking) — AC13 "slightly" threshold diverges from the reference
+
+The implementation classifies `|delta| ≤ 6` as `.onPace` → renders **"On pace"** (`UsagePace.status`, `UsagePace.swift:135-137`). The story's own AC13 and Dev Notes (line 40, 168) state exactly this, so the code **matches the story AC verbatim**.
+
+However, the cited reference behaves differently:
+- `_reference_codexbar/Sources/CodexBarCore/UsagePace.swift:112-113`: `|delta| ≤ 2` → `.onTrack`; `2 < |delta| ≤ 6` → `.slightlyAhead`/`.slightlyBehind`.
+- `_reference_codexbar/Sources/CodexBar/UsagePaceText.swift:36-42`: `.onTrack` → "On pace", but **`.slightlyAhead`/`.slightlyBehind` → "N% in deficit"/"N% in reserve"** (still shows the number).
+
+Net effect: for a delta of 3–6 pp, the **reference** shows e.g. "4% in deficit", while **exímIABar** shows "On pace". The `slightlyOffLineStaysOnPace` test (delta +5 → `.onPace`) encodes the *story's* behavior, not the reference's.
+
+This is a **spec-vs-reference conflict authored into the story**, not a dev defect — the dev implemented exactly what AC13 specified. Flagging so the product owner can confirm intent: either (a) accept the simplified ≤6 "On pace" band as deliberate for exímIABar, or (b) restore the reference's two-tier `onTrack(≤2)` / `slightly(≤6 shows %)` split. Recommend a one-line AC13 clarification either way.
+
+### Minor observations (no action required)
+
+- AC15 wording: AC text reads `"This month: $222.00 / $2000.00"`; `PopoverFormatter.currency` renders `$2000.00` (no thousands separator). Matches AC literally; if locale grouping is later desired, revisit.
+- AC14 warning markers: implemented and correct, but no call site currently passes `warningMarkerPercents` from the card (MetricRow defaults to `[]`). Acceptable — thresholds are a future wiring concern, not in EXB-1.3 scope.
+- DoD line for Thread Sanitizer is marked `[~]` (deferred to GUI hardware). Acceptable: code is `@MainActor`-isolated under Swift 6 complete concurrency; a real TSan run needs a GUI session.
+
+### Decision
+
+All 21 ACs implemented, anti-freeze contract fully honored, build clean (zero warnings), 85/85 tests pass, no regressions. One reference-fidelity divergence on AC13's "slightly" threshold — which the code matches to the *story* but not to the *cited reference*. This is non-blocking and traceable to the spec itself; it warrants a PO/product confirmation, not a rework.
+
+VERDICT: CONCERNS
+
+---
+
+## Polish — round 2 (2026-06-11, @dev Dex)
+
+Resolves the round-1 Single Concern (AC13 "slightly" threshold) by restoring exact `_reference_codexbar` parity.
+
+### Resolution of the Single Concern (AC13 "slightly")
+
+Restored option (b) from the QA finding — the reference's two-tier split:
+
+- `Sources/ClaudeBarCore/Model/UsagePace.swift` — `status(delta:)` threshold changed `abs(delta) ≤ 6` → `abs(delta) ≤ 2`. Now only the `onTrack` band renders "On pace"; the `2 < |Δ| ≤ 6` "slightly" band classifies as `.deficit`/`.reserve` and renders the number, exactly as `_reference_codexbar/.../UsagePace.swift:110-116` + `UsagePaceText.swift:36-42` do. The bar-stripe direction was already driven by the independent `reserve`/`deficit` fields, so the stripe behaviour in the slightly band is unchanged — only the suppressed number is restored.
+- AC13, Dev Notes, and the enum doc comment updated to state the corrected threshold.
+
+**Tests** (`Tests/ClaudeBarCoreTests/UsagePaceTests.swift`, `Tests/ClaudeBarTests/UsagePaceTextTests.swift`):
+- Renamed `slightlyOffLineStaysOnPace` → `withinTrackBandIsOnPace` (now asserts the `|Δ| ≤ 2` band, delta +2).
+- Added `slightlyAheadShowsDeficitNotOnPace` (delta +5 → `.deficit(5)`) and `slightlyBehindShowsReserveNotOnPace` (delta −4 → `.reserve(4)`) — core-layer regression guards for the slightly band.
+- Added `slightlyAheadShowsNumberNotOnPace` (delta +5 → primary string `"5% in deficit"`) — string-layer guard for the user-visible behaviour QA flagged.
+
+### Minor observation — `warningMarkerPercents` call site (assessed, deferred)
+
+QA noted AC14's warning markers are implemented but no call site passes `warningMarkerPercents` (MetricRow defaults to `[]`). **Assessment: not trivial to wire.** `MetricsSection`/`UsageCardView` consume only a `DisplaySnapshot?` and are a pure function of it (AC21). Threading the markers in would require carrying `SettingsStore.showWarningMarkers` + `sessionThresholds`/`weeklyThresholds` through the panel controller's snapshot-provider closure into the card — a change to the card's input contract that touches the settings-observation path. The correct home for the thresholds is the `DisplaySnapshot` itself (keeps the card pure), which is a future-story design decision. **Left documented as deferred, not wired** — consistent with the QA verdict that thresholds are "a future wiring concern, not in EXB-1.3 scope."
+
+### Build & Tests (re-run)
+
+- `swift build`: clean, zero warnings.
+- `swift test`: **130 tests / 18 suites — all pass.** No regressions (`RefreshOwnershipTests` including `claudeCLIOwnerNeverCallsRefreshEndpoint` green; `AppStateTests`, `ErrorMappingTests`, icon/notification suites green).
+
+### Files Modified (round 2)
+- `Sources/ClaudeBarCore/Model/UsagePace.swift` — `status(delta:)` threshold + doc comments.
+- `Tests/ClaudeBarCoreTests/UsagePaceTests.swift` — 1 test renamed/retargeted, 2 added.
+- `Tests/ClaudeBarTests/UsagePaceTextTests.swift` — 1 string-layer test added.
+
+VERDICT (round 2): Single Concern RESOLVED.

@@ -1,7 +1,7 @@
 # Story EXB-1.5: Settings Window
 
 **ID:** EXB-1.5
-**Status:** InReview
+**Status:** Done
 **Depends on:** EXB-1.1 (credential models), EXB-1.4 (AppState, SettingsStore stub)
 **Epic:** EPIC-EXB
 **Executor:** @dev
@@ -238,3 +238,100 @@ Default thresholds `[50, 20]` means: warn at 50% remaining AND at 20% remaining.
 | 2026-06-10 | 1.0 | Initial draft | @sm River |
 | 2026-06-10 | 1.1 | Validated GO (8/10) — Status: Draft → Ready. No content changes required. | @po Pax |
 | 2026-06-10 | 1.2 | Implemented all ACs. 98 tests pass (13 new). swift build clean (0 warnings). Status: Ready → InReview. | @dev Dex |
+| 2026-06-10 | 1.3 | QA Gate CONCERNS — Status: InReview → Done. All 12 ACs verified in code; clean build (0 warnings); 98/98 tests pass; anti-freeze invariants hold. 2 non-blocking issues (stale comment + slightly weak AC11 test assertion). | @qa Quinn |
+| 2026-06-11 | 1.4 | Polish — resolved both round-1 non-blocking issues: MNT-001 (stale `Settings`-scene comment rewritten to describe the inert lifecycle host) and TEST-001 (AC11 assertion strengthened from `>= 1` to exact `== loadCount`, with every load forced through keychain layer (e)). Build clean, 130 tests pass. | @dev Dex |
+
+---
+
+## QA Results — rodada 1
+
+**Reviewer:** Quinn (Test Architect & Quality Advisor)
+**Review Date:** 2026-06-10
+**Method:** Verified against real code — every claim in the dev report independently checked. Full clean rebuild and full test suite run locally by QA (not trusting reported output).
+
+### Gate: CONCERNS → Done
+
+PASS with two documented non-blocking issues. The architecturally critical work (AC11 runtime keychain-policy path, anti-freeze invariants, visual fidelity) is correct and safe. Both issues are cosmetic/documentation-level.
+
+### 1. Acceptance Criteria — all 12 verified in code
+
+| AC | Verdict | Evidence |
+|----|---------|----------|
+| 1 — 546×638, padding h24/v16, ⌘, + action row | PASS | `SettingsWindowController.swift:39` `setContentSize(546×638)` + non-resizable `styleMask`; all four panes apply `.padding(.horizontal,24).padding(.vertical,16)`; ⌘, via installed minimal main menu (`ClaudeBarApp.swift:136-152`), action row via `openSettings` closure (`ClaudeBarApp.swift:168-172`). **Deviation #2 (⌘, routing) verified valid** — LSUIElement agents need an installed `mainMenu` to receive the key equivalent. |
+| 2 — TabView, 4 tabs | PASS | `SettingsRootView.swift` — `TabView` with General/Claude/Display/About `.tabItem`s. **Deviation #1 (`.tabBarOnly`) verified valid** — macOS default `TabView` already renders the top tab picker; `.tabBarOnly` is an iOS-era modifier. No visual difference. |
+| 3 — General pane | PASS | `PreferencesGeneralPane.swift` — UPPERCASE `SectionHeader`; launch-at-login routes through `LaunchAtLoginManager.set(enabled:)` with error-revert; `.menu` cadence picker `maxWidth 200`; session/weekly thresholds default `[50,20]`; cost toggle + 1–365 stepper; Quit `.borderedProminent .large` → `NSApp.terminate(nil)`. |
+| 4 — Claude pane | PASS | `PreferencesClaudePane.swift` — source picker with Web greyed + "not yet available (P2)" note and binding that ignores `.web` (Deviation #3, valid); keychain-policy picker visible only `if settings.useSecurityCLIReader` (AC4); `useSecurityCLIReader` toggle; web-extras + custom-binary behind `DisclosureGroup("Developer")` (Deviation #4, valid — values persist, no fetch wired). |
+| 5 — Display pane | PASS | `PreferencesDisplayPane.swift` — `showUsed`, `showAbsoluteReset`, `showWarningMarkers`, `workdayMarkers` `.menu` picker, brand-icon toggle flipping `displayMode` with immediate status-item re-render via `onDisplayModeChange` (`ClaudeBarApp.swift:85-88`). |
+| 6 — About pane | PASS | `PreferencesAboutPane.swift` — icon 92×92, `cornerRadius(16)`, hover `scaleEffect 1.05` `.easeInOut(0.2)`, version from `CFBundleShortVersionString`/`CFBundleVersion`, accent-colored links. **Exact match** to `_reference_codexbar/.../PreferencesAboutPane.swift:38-41`. |
+| 7 — Shared components | PASS | `PreferencesComponents.swift` — `PreferenceToggleRow` `VStack spacing: 5.4` / `.toggleStyle(.checkbox)` / subtitle `.footnote .tertiary`; `SettingsSection` `VStack spacing: 10` / title `.subheadline.weight(.semibold)`. **Byte-for-byte match** to reference component file (`spacing: 5.4`, `spacing: 10` confirmed in reference). |
+| 8 — SettingsStore | PASS | `SettingsStore.swift` — `@MainActor @Observable final class` (matches T1; AC8 prose says "actor" but T1 governs); every listed property present with documented defaults; 500 ms debounced save coalesced into a `Sendable PersistedSnapshot` written inside `Task.detached(priority: .utility)` (off-MainActor); `flush()` for termination; `settingsSurviveRestart` test green. |
+| 9 — LaunchAtLoginManager | PASS | `LaunchAtLoginManager.swift` — `SMAppService.mainApp.register()/.unregister()`, `isEnabled` via `.status == .enabled`, macOS 13+. |
+| 10 — Activation-policy dance | PASS | `SettingsWindowController.swift` — `.regular` + `activate(ignoringOtherApps:)` on `open()`; `.accessory` on `windowWillClose` (also flushes settings). |
+| 11 — Keychain policy at runtime | PASS | **Critical path verified.** `CredentialsStore.swift:129` reads `self.promptPolicyProvider().allowsPrompt(phase:)` inside `load()` — no memoization; legacy `promptPolicy:` init delegates to the `@Sendable` provider init (backward compatible). Core `PromptPolicy` gains `.always` + `allowsPrompt(phase:)` with correct semantics (`never`→false, `onUserAction`→userInitiated-only, `always`→true). Off-MainActor source is a lock-free `PromptPolicyHolder` (`OSAllocatedUnfairLock`), seeded at launch and kept in lock-step via `onKeychainPolicyChange`. `policyProviderIsReadPerLoad` + `keychainPolicyMapsToCorePolicy` tests green. |
+| 12 — swift build, zero warnings | PASS | Full `swift package clean` + rebuild run by QA: `Build complete!`, **zero warnings, zero errors**. |
+
+### 2. Build & Tests (run by QA)
+
+- **`swift build`** (after `swift package clean`): clean, **0 warnings / 0 errors**. AC12 confirmed.
+- **`swift test`**: **98 tests in 14 suites passed** — including the 13 new (8 SettingsStore, 5 PromptPolicy). No skips, no flakes observed.
+
+### 3. Anti-freeze (non-negotiable) — HOLDS
+
+- **Zero I/O on MainActor:** grep for `Data(contentsOf` / `.synchronize()` / `DispatchQueue.main.sync` / `Thread.sleep` / `contentsOfFile` across Settings + SettingsStore + LaunchManager → **zero hits**. UserDefaults writes are coalesced and dispatched off-main via `Task.detached`.
+- **Keychain policy read lock-free:** `PromptPolicyHolder` uses `OSAllocatedUnfairLock`; the credential read path never hops to the MainActor.
+- **NSPanel, not NSMenu:** the popover stays an `NSPanel` (`UsagePanelController`, with an in-code comment forbidding `NSMenu` for the dropdown). The only `NSMenu` in the diff is the deliberate ⌘, main-menu carrier — not the popover. Correct separation.
+- **No observation storm:** `startObserving` re-registers `withObservationTracking` on a single observable property (`appState.snapshot`) per iteration — one property, one re-render.
+
+### 4. Visual Fidelity (vs `_reference_codexbar`)
+
+| Element | Reference value | Implementation | Match |
+|---------|-----------------|----------------|-------|
+| Window size | `defaultWidth 546` / `windowHeight 638` (`PreferencesView.swift`) | `546×638` hardcoded | Exact |
+| `PreferenceToggleRow` | `spacing 5.4`, `.checkbox`, `.footnote .tertiary` subtitle | identical | Exact |
+| `SettingsSection` | `spacing 10`, `.subheadline.weight(.semibold)` | identical | Exact |
+| About icon | `92×92`, `cornerRadius 16`, `scaleEffect 1.05`, shadow `.accentColor.opacity(0.25) radius 6` | identical | Exact |
+| Cadence picker | `.menu` + `maxWidth 200` | `.menu` + `maxWidth 200` | Match |
+| Pane padding | reference General uses `h20/v12` | `h24/v16` | **Intentional — follows AC1 (24/16), which supersedes the older reference; applied consistently across all 4 panes.** |
+
+### 5. Integration / Regression — no regression
+
+- `AppState.swift` change is a pure rename follow-through (`quotaThresholds` → `sessionThresholds`); notification double-crossing tests (`crossedThresholdReturnsMostSevereOnDoubleCrossing`, `thresholdFiresOnceOnCrossing`, `thresholdRefiresAfterRecovery`, `depletedThenRestoredFires`) all green → EXB-1.4 behavior preserved.
+- **No POST to refresh endpoint added:** `pipelineNeverRunsWebSource` green; source binding `case .web: break`; `hasWebSession: false`; refresh-ownership suite (`claudeCLIOwnerNeverCallsRefreshEndpoint`, `claudebarOwnerCallsRefreshEndpointDirectly`) green.
+- `utilization` 0–100 untouched (error placeholder still `utilization: 0`).
+- Scope: committed change set exactly matches the story File List (17 source/test files). Uncommitted working-tree changes are only the pre-existing EXB-1.1/1.2/1.3 story docs — not application source, no scope violation.
+
+### Issues (non-blocking)
+
+| id | severity | finding | suggested_action |
+|----|----------|---------|------------------|
+| MNT-001 | low | **RESOLVED (2026-06-11, round 2 polish).** `ClaudeBarApp.swift:28-34` still declares `Settings { EmptyView() }` as the SwiftUI `App` body scene, and the comment on line 30 ("the real settings window arrives in EXB-1.5") is now stale. The real window is driven imperatively by `SettingsWindowController`; the empty `Settings` scene is functionally inert (no openable content), so there is no conflict — but it is latent ambiguity + dead documentation. | Remove the empty `Settings` scene (replace the App body with a no-window `MenuBarExtra`/agent-only scene if SwiftUI requires a body), or update the stale comment to state the scene is an inert lifecycle host. Cleanup item for a later story. |
+| TEST-001 | low | **RESOLVED (2026-06-11, round 2 polish).** `PromptPolicyTests.policyProviderIsReadPerLoad` asserts `reads.value >= 1` after two loads. This proves the provider is not captured-once-at-init, but is slightly weaker than asserting the policy is re-sampled on *every single* load. Production code clearly re-reads per `load()` (CredentialsStore:129), so the behavior is correct; only the assertion is loose. | Strengthen the test to assert a fresh read on each `load` that reaches layer (e) (e.g. count == number of (e)-reaching loads), for tighter regression protection on the no-memoization guarantee. |
+
+### Decision
+
+Gate: **CONCERNS** — approved to Done with the two low-severity items documented for follow-up. Handoff: @devops `*push`.
+
+---
+
+## Polish — round 2 (2026-06-11, @dev Dex)
+
+Both round-1 non-blocking issues resolved.
+
+### MNT-001 (low) — stale `Settings`-scene comment — RESOLVED
+
+`Sources/ClaudeBar/App/ClaudeBarApp.swift` — chose the comment-update option (removing the empty `Settings` scene risks SwiftUI requiring a non-empty `App` body; the scene is functionally inert, so the surgical fix is to make the documentation accurate). The comment now states the empty `Settings` scene is an **inert lifecycle host** with no openable content, and that the real settings window is driven imperatively by `SettingsWindowController` (opened via the popover `Settings…` action row and the ⌘, key equivalent on the installed main menu). No behaviour change.
+
+### TEST-001 (low) — weak AC11 assertion — RESOLVED
+
+`Tests/ClaudeBarCoreTests/PromptPolicyTests.swift` — replaced `policyProviderIsReadPerLoad` (asserted `reads.value >= 1`) with `policyProviderIsReadOnEveryLoadReachingKeychain`, which asserts the **exact** read count: `reads.value == loadCount`. The store is built over an empty home directory (no env token, no cache, no credentials file) so every `load` falls through layers (a)–(d) straight into keychain layer (e), where the policy provider is consulted (`CredentialsStore.load`, line 129) exactly once per call before `loadFromClaudeKeychain`. `invalidateCaches()` between loads drops any record a host `"Claude Code-credentials"` item might produce, so no load short-circuits at the in-memory layer (b) — making the read count deterministic at exactly `loadCount` regardless of host keychain state. This is the tight no-memoization regression guard QA requested (strictly stronger than `>= 1`).
+
+### Build & Tests (re-run)
+
+- `swift build`: clean, zero warnings.
+- `swift test`: **130 tests / 18 suites — all pass.** No regressions — `SettingsStoreTests`, `PromptPolicyTests`, `AppStateTests`, `RefreshOwnershipTests` (incl. `claudeCLIOwnerNeverCallsRefreshEndpoint`) all green.
+
+### Files Modified (round 2)
+- `Sources/ClaudeBar/App/ClaudeBarApp.swift` — `Settings`-scene comment (MNT-001).
+- `Tests/ClaudeBarCoreTests/PromptPolicyTests.swift` — AC11 test strengthened to exact-count (TEST-001).
+
+VERDICT (round 2): MNT-001 + TEST-001 RESOLVED.
