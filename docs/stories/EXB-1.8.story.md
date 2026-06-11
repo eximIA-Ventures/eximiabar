@@ -1,7 +1,7 @@
 # Story EXB-1.8: Packaging + Polish
 
 **ID:** EXB-1.8
-**Status:** Review
+**Status:** Done
 **Depends on:** EXB-1.1 through EXB-1.7 (all stories complete)
 **Epic:** EPIC-EXB
 **Executor:** @dev
@@ -273,3 +273,109 @@ $ swift build -c release           # 0 warnings, 0 errors
 | 2026-06-10 | 1.0 | Initial draft | @sm River |
 | 2026-06-10 | 1.1 | Validated GO (8/10) — Status: Draft → Ready. No content changes required. | @po Pax |
 | 2026-06-11 | 1.2 | Implemented all tasks T1–T8. Packaging pipeline complete, app launches, 130 tests green. Status: Ready → Review. | @dev Dex |
+| 2026-06-11 | 1.3 | QA Gate CONCERNS (story PASS; epic-level: EXB-1.2/1.4 status-field slip) — Status: InReview → Done | @qa Quinn |
+
+---
+
+## QA Results — gate final
+
+**Reviewer:** Quinn (Guardian) · Test Architect
+**Date:** 2026-06-11
+**Commit under review:** `da3a891` (local, not pushed)
+**Method:** Every gate re-run from a wiped tree. The dev report was trusted for nothing — `make clean` first, then a cold `make build`, full `swift test`, codesign verification, and a live launch lifecycle all executed independently. This is the FINAL gate for EXB-1.8 + epic sanity.
+
+### Verdict: PASS (story) · CONCERNS (epic closeout)
+
+EXB-1.8 itself is a clean PASS — all 12 ACs satisfied, all 8 tasks done (including the T8 launch item the dev deferred to QA, which I executed below). The CONCERNS flag is purely an **epic-level hygiene** issue: two prior stories (EXB-1.2, EXB-1.4) are still `InReview` despite being QA-passed/resolved. No code defect, no AC gap, no failing test anywhere.
+
+### 1. Cold build from clean tree (AC2, AC5, AC6)
+
+Ran `make clean` (wiped `dist/` + `.build/`) then a cold `make build` — proving the "clone the repo, one command, distributable app" promise.
+
+| Check | Result | Evidence |
+|-------|--------|----------|
+| `make clean` → `make build` (cold) | ✅ **Build complete!** | Universal build + bundle assembly + sign + verify in **~13s** wall |
+| Warnings | ✅ **0** | full compile output — zero `warning:` lines across all 6 targets |
+| Errors | ✅ **0** | Build succeeded, 100% |
+| Bundle produced | ✅ `dist/ExímIABar.app` **4.4 MB** (< 15 MB ceiling) | `du -sh` |
+
+### 2. Bundle integrity (AC2, AC3, AC4, AC8, AC9)
+
+| Check | Result | Evidence |
+|-------|--------|----------|
+| `codesign -vvv` | ✅ "valid on disk", "satisfies its Designated Requirement" | re-run on freshly built bundle |
+| `codesign --verify --deep --strict` | ✅ **exit 0** | helper signed inside-out, bundle `--deep` |
+| Main binary `ClaudeBar` | ✅ universal | `lipo -info` → `x86_64 arm64` |
+| Watchdog `ClaudeBarWatchdog` (AC9) | ✅ Mach-O universal + executable | `file` → "Mach-O universal binary with 2 architectures"; `test -x` → yes; in `Contents/Helpers/` |
+| Info.plist keys (AC3) | ✅ all present in bundle | `PlistBuddy` on `Contents/Info.plist`: `CFBundleIdentifier=com.eximia.eximiabar`, `CFBundleExecutable=ClaudeBar`, `CFBundleIconFile=AppIcon`, `CFBundleVersion=1.0.0`, `CFBundleShortVersionString=1.0.0`, `LSUIElement=true`, `NSPrincipalClass=NSApplication`, `CFBundlePackageType=APPL`, copyright string |
+| Icon present (AC4) | ✅ | `Contents/Resources/AppIcon.icns` (121 KB) + source `Sources/ClaudeBar/Resources/AppIcon.icns` |
+
+### 3. Full test suite (AC12) — zero regressions
+
+```
+✔ Test run with 130 tests in 18 suites passed after 1.832 seconds.
+```
+**130/130 green, 0 failures.** This includes the two EXB-1.4 fix tests (`singleTickDoubleCrossingFiresMostSevereThreshold`, `crossedThresholdReturnsMostSevereOnDoubleCrossing`) and the security invariant `claudeCLIOwnerNeverCallsRefreshEndpoint()` — all passing.
+
+### 4. Live launch lifecycle (AC7, AC11 — the deferred T8 manual item)
+
+The dev correctly deferred "open → confirm alive → terminate" to QA (can't run headless). I executed it on the freshly-built bundle:
+
+```
+$ pkill -x ClaudeBar          # clean slate — (none running)
+$ open dist/ExímIABar.app     # exit 0
+$ sleep 5; pgrep -lx ClaudeBar
+12908 ClaudeBar               # ALIVE after 5s
+$ ps → /Users/.../eximiabar/dist/ExímIABar.app/Contents/MacOS/ClaudeBar   # confirmed OUR build
+$ kill 12908                  # exit 0
+$ pgrep ClaudeBar             # cleanly terminated
+```
+**The app REALLY opens.** Launched as an LSUIElement menu-bar agent, stayed alive past the 3s/5s window, ran from our exact `dist/` bundle, and shut down cleanly. T8 launch item now satisfied.
+
+> Note on T8 "click icon → popover live data": the *process-level* launch is fully verified. Driving an actual mouse-click on the menu-bar extra and asserting live popover data requires a logged-in interactive GUI session with real Claude OAuth credentials in the keychain — out of scope for an automated gate. The popover path (`UsagePanelController` NSPanel) is covered structurally by EXB-1.3's gate and by the 130-test suite. Not a blocker for EXB-1.8.
+
+### 5. LICENSE / README (AC1, AC10) — honest and complete
+
+- **LICENSE** ✅ — dual MIT attribution present and literal-correct: `Copyright (c) 2024 Peter Steinberger (CodexBar — https://github.com/steipete/CodexBar)` AND `Copyright (c) 2026 exímIA / Hugo Capitelli (exímIABar)`. Includes a derivative-work notice. Both copyrights required by AC1 — satisfied.
+- **README** ✅ — accurate and honest: correct one-liner, real requirements (macOS 14+, Claude Code, Swift 6.2), `make build && make install`, the honest Gatekeeper caveat (ad-hoc sign → first-launch right-click → Open), a make-targets table that matches the actual Makefile, and a CodexBar attribution + license section. Screenshot is an honest placeholder. No overclaiming.
+- **[DOC-001 · low]** LICENSE/README use the canonical `github.com/steipete/CodexBar` URL (dev `[AUTO-DECISION]`) rather than the stale `PSPDFKit-labs` URL in the story Dev Notes. AC1 mandates only the literal copyright *text*, which is correct. The canonical URL is the right call. No action.
+
+### 6. Epic completeness (the CONCERN) — 8 stories status audit
+
+| Story | Status field | QA history | Verdict |
+|-------|-------------|-----------|---------|
+| EXB-1.1 | ✅ Done | gated | OK |
+| EXB-1.2 | ❌ **InReview** | QA verdict **PASS** (Change Log 1.3, 2026-06-10) | **status slip** |
+| EXB-1.3 | ✅ Done | gated | OK |
+| EXB-1.4 | ❌ **InReview** | CONCERNS → **resolved** (`.max()`→`.min()` fix + 2 tests, Change Log 1.4) | **status slip** |
+| EXB-1.5 | ✅ Done | gated | OK |
+| EXB-1.6 | ✅ Done | gated | OK |
+| EXB-1.7 | ✅ Done | gated (`docs/qa/gates/EXB-1.7-cost-scan-local.yml`) | OK |
+| EXB-1.8 | ✅ Done (this gate) | PASS | OK |
+
+**[REQ-001 · low] EXB-1.2** was QA-verdict PASS on 2026-06-10 (Change Log records it) but the Status field was never transitioned `InReview → Done`. Work is complete; pure process slip.
+
+**[REQ-002 · low] EXB-1.4** received a round-1 CONCERNS verdict; the dev then resolved both CONCERN items (the notification-suppression fix `crossedThreshold` `.max()`→`.min()` for reference parity, plus 2 regression tests). I confirmed the fix is **actually in source** — `QuotaNotifier.swift:83,86` returns `crossed.min()`/`eligible.min()`, exact parity with `_reference_codexbar/.../SessionQuotaNotifications.swift:112,115`, and both new tests pass in my 130-test run. The fix is real and verified; only the Status field was never moved to Done.
+
+Neither is a code or quality problem — both stories' work is done and verified. They are documentation/lifecycle hygiene that should be cleaned up before epic closeout (transition both to Done). I do not block EXB-1.8 on a prior-story status field.
+
+### 7. Epic-wide invariant sweep (anti-freeze + security)
+
+Re-checked the load-bearing invariants across the whole product, not just S8:
+- **Anti-freeze — dropdown is NSPanel, never NSMenu:** ✅ the popover is `UsagePanelController` (NSPanel). The only `NSMenu()` instances are the standard app **main menu** (`ClaudeBarApp.swift:192,196`) providing the ⌘, "Settings…" key-equivalent that an LSUIElement agent needs — NOT the dropdown. Invariant holds.
+- **No blocking main-thread I/O:** ✅ grep for `DispatchQueue.main.sync` / `DispatchSemaphore` / `.waitUntilExit()` / `Thread.sleep` in the UI layer → none.
+- **Security (CLI-owned token never POSTs refresh):** ✅ covered by `claudeCLIOwnerNeverCallsRefreshEndpoint()` (passing) — no regression in S8 (packaging only, no network/OAuth code touched).
+
+### 8. Scope hygiene
+
+Out-of-scope prior-story edits (`EXB-1.1/1.2/1.6/1.7`, `docs/qa/`) were correctly left unstaged by the dev. EXB-1.8's commit `da3a891` is scoped to packaging artifacts only. ✅
+
+### Decision
+
+**EXB-1.8: PASS.** All 12 ACs verified against the real cold-built binary and bundle — clean build (zero warnings), 130/130 tests, valid ad-hoc signature (strict verify exit 0), both binaries universal, watchdog Mach-O+executable, 4.4 MB, and a live launch lifecycle confirmed on our own `dist/` build. The release pipeline does exactly what the story promised: clone → `make build` → distributable signed universal `.app`.
+
+**Epic EXB-1: CONCERNS (non-blocking).** All eight stories are substantively complete and QA-verified, but **EXB-1.2 and EXB-1.4 must be transitioned `InReview → Done`** before the epic is formally closed. These are status-field slips with zero code impact — recorded as REQ-001/REQ-002 (low). The EXB-1.4 notification fix is confirmed present and at reference parity.
+
+> Recommendation to @po / @sm: apply the two status transitions (EXB-1.2 → Done, EXB-1.4 → Done) to close the epic cleanly. No rework, no re-review needed — both are already QA-passed.
+
+Gate: CONCERNS → docs/qa/gates/EXB-1.8-packaging-polish.yml

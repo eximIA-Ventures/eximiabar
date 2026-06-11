@@ -277,3 +277,60 @@ All 5 dev-reported deviations examined and **accepted**: (1) `ClaudePTYRunner` n
 All 12 ACs met, build clean, full suite green, the single highest-risk invariant (R6/#1161 — never consume the CLI's refresh token) is both structurally enforced and test-proven, and the anti-freeze pattern is correctly applied. The four findings are all `low` severity, none block release: they are diagnosability/robustness improvements, not correctness defects. Verdict is **CONCERNS** (not PASS) solely to ensure QA-001 and QA-002 are tracked into the next contract-unfreeze and a live-capture validation — proceed with awareness.
 
 **Gate:** CONCERNS
+
+---
+
+## QA Results — rodada 1
+
+**Reviewer:** Quinn (Test Architect & Quality Advisor) · **Date:** 2026-06-11 · **Gate:** PASS
+
+### Verification method
+Independent re-review of the finishing-pass commit `f2ece25` on top of `0e5e109`. Every AC re-derived from the actual source — not the dev narrative. Both builds and the full suite reproduced locally. Anti-freeze and the R6/#1161 never-POST guardrail grep-verified across the whole `Sources/` tree. Watchdog compared line-for-line against the reference. Guardrail test read and confirmed to assert the invariant.
+
+### Scope integrity
+Commit `f2ece25` touches exactly 2 files (`ClaudePTYRunner.swift` docstring + this story). The 4 unstaged files (`EXB-1.1/1.2/1.3/1.5` story QA appends) were dirty before this story and are out of scope — correctly left for the lead. No application source outside EXB-1.6 modified.
+
+### AC-by-AC trace (read from code)
+
+| AC | Verdict | Evidence |
+|----|---------|----------|
+| 1 — `ClaudePTYRunner` `class`, dedicated `Thread`, PTY 160×50, no usleep/waitUntilExit/Process in async | PASS | `ClaudePTYRunner.swift`: `final class` (L29); `run()` only `await`s a continuation (L102-111); loop on named `Thread` (L105-108); winsize 50×160 (L76-77, L125); `posix_spawn` not `Foundation.Process` (L176). |
+| 2 — `CLISession` actor, ≤1 `claude` process, supersedes prior runner | PASS | `CLISession.swift`: `public actor` (L13); `capture()` drops prior runner before spawn (L91, L106-110); serialized by actor executor. |
+| 3 — `/usage` probe flow (args, workdir, prompt, type, parse, trust, exit, 45s) | PASS | `--allowed-tools ""` (L53); workdir `…/com.eximia.eximiabar/ClaudeProbe/` (L16-23); scripted steps drive trust→`/usage`→`/exit` (L137-147); `ANTHROPIC_*` scrub (L163-170); 45s default (L49). |
+| 4 — Delegated refresh: NEVER POST on `.claudeCLI`; `claude /status`; fingerprint poll 0.2/0.5/0.8; cooldowns 5min/20s | PASS | `RefreshCoordinator.swift`: `.claudeCLI`→`delegatedRefresh()` (L88) with ZERO network primitives; default probe runs `claude /status` via `CLISession.fetchStatus` (L66-75); poll delays `[0.2,0.5,0.8]` (L24, L113); cooldowns 5min/20s (L22-23). **Test-proven** by `claudeCLIOwnerNeverCallsRefreshEndpoint` → `requestedURLs.isEmpty` (passed in this run). |
+| 5 — Artifact cleaner removes probe JSONL | PASS | `ClaudeProbeSessionArtifactCleaner.swift` removes `.jsonl` + empty dir (L38-47); awaited off-actor in `capture()` (L115-116); test `removesEmptyProjectDirectoryAfterCleanup` green. |
+| 6 — Anti-freeze: PTY I/O off cooperative pool, no `Process.waitUntilExit` on actor/async | PASS | All blocking I/O (`read`/`waitpid`/`nanosleep`) inside static `driveLoop`/`killGroup` on the dedicated thread (L210-351). Grep: only `usleep`/`waitUntilExit`/`Foundation.Process` matches in CLI dir are in explanatory comments (L12, L16). |
+| 7 — Watchdog `posix_spawnp` + process group + `waitpid(WNOHANG)` 200ms, SIGTERM→500ms→SIGKILL | PASS | `Sources/ClaudeBarWatchdog/main.swift`: `posix_spawnp` (L71), `setpgid` own group (L85), `waitpid(WNOHANG)` 200ms poll (L103, L121), `killProcessTree` SIGTERM→0.5s→SIGKILL (L17-38), reparent `getppid()==1` (L115). **Line-for-line parity** with `_reference_codexbar/Sources/CodexBarClaudeWatchdog/main.swift`. |
+| 8 — `package_app.sh` copies watchdog to `Contents/Helpers/` +x; present after build | PASS | `Scripts/package_app.sh` copies watchdog, `chmod +x`, fatal `test -x` gate (L40-45). Watchdog product builds to a real Mach-O arm64 executable (`.build/release/ClaudeBarWatchdog`, 58KB, `-rwxr-xr-x`); declared as executable product/target in `Package.swift` (L12, L47-48). |
+| 9 — Errors: cliNotFound / parseError / cliExited | PASS (deviation accepted) | `parseError` is a real case (`CLISession` L60). `cliNotFound`/`cliTimeout`/`cliExited` encoded as message-tagged `networkError` (L96, L120-127) — `networkError.isAuthOrScope == false` correctly prevents a wrong re-fallthrough; AC9 "continue on OAuth" preserved. `UsageError` is the L4-frozen EXB-1.1 contract (Deviation #5). See QA-001. |
+| 10 — Positional fallback (first two `\d+%`) | PASS | `ClaudeStatusProbe.swift`: `orderedUtilizations` + fallback in `parseUsage` (L37-45); tests `positionalFallbackTakesFirstTwoPercentsWhenLabelsMissing`, `…RecoversWeeklyWhenOnlySessionLabelPresent` green. |
+| 11 — `parseUsage` pure, process-free | PASS | `enum ClaudeStatusProbe`, pure static func (L21); 17 CLI tests run with no process. |
+| 12 — `swift build` all targets, zero new warnings | PASS | `swift build` and `swift build -c release` → **Build complete, 0 warnings** (re-run this session). |
+
+**Score: 12/12 ACs implemented and verified.**
+
+### Independently reproduced (this session)
+- `swift build` (debug) + `swift build -c release`: **Build complete, 0 warnings.**
+- `swift test`: **115 tests / 17 suites — all passed** (1.759s), 0 failures, 0 regressions vs. baseline.
+- Anti-freeze grep (`Sources/ClaudeBarCore/CLI/` + `RefreshCoordinator.swift`): zero real `usleep`/`waitUntilExit`/`Foundation.Process` — only comments.
+- Guardrail grep (whole `Sources/`): exactly ONE `httpMethod = "POST"` (RefreshCoordinator L154, inside `directRefresh`/`.claudebar`); endpoint constructed only in `directRefresh` (L149); CLI dir has zero network primitives.
+- Watchdog: line-for-line invariant match against the reference codexbar watchdog.
+- Max-one-process: `CLISession.capture()` nulls `currentRunner` before each spawn; the runner SIGTERM/SIGKILLs its own pgroup — supersede is correct.
+
+### QA-004 (from rodada-1 CONCERNS) — RESOLVED
+The `ClaudePTYRunner` header docstring now describes the polled non-blocking `read()` loop (Deviation #4) instead of the stale `DispatchSource.makeReadSource` wording (L18-21). Doc-only, no behavior change; both builds remain warning-free. Verified in `f2ece25`.
+
+### Concerns (non-blocking, tracked — none block release)
+
+| ID | Severity | Status | Finding |
+|----|----------|--------|---------|
+| QA-001 | low | Deferred | AC9 error taxonomy collapsed into message-tagged `networkError`. Behaviorally correct (no wrong fallthrough). Promote `cliNotFound`/`cliExited`/`cliTimeout` to typed cases when EXB-1.1's `UsageError` contract is next unfrozen. |
+| QA-002 | low | Deferred | Bare-`NN%`-without-keyword path treats value as *used* (reference assumes *remaining*). Only fires on synthetic positional-fallback inputs — real `claude` TUI always carries the `used` keyword. Re-validate against a live capture if a future TUI emits bare percentages. |
+| QA-003 | low | Deferred | AC3b prompt readiness inferred from scripted-step ordering rather than explicit `>`/`❯` glyph detection. Recovery exists (45s timeout + `Current week` terminal step). Optional prompt-glyph gate in a future hardening pass. |
+
+### Gate rationale
+All 12 ACs implemented and independently verified against real code. Build clean (debug + release, 0 warnings), full suite green (115/115, 0 regressions). The single highest-risk invariant — R6/#1161, never consume the CLI's rotating refresh token — is both structurally enforced (zero network primitives on the `.claudeCLI` path) and test-proven (`requestedURLs.isEmpty`). Anti-freeze is correctly applied (all blocking I/O on a dedicated `Thread`, single-resume lock-guarded continuation). Watchdog matches the reference line-for-line. QA-004 from the prior round is resolved. The three remaining findings are all `low`-severity diagnosability/robustness items with safe recovery paths and zero real-world impact today — they do not warrant withholding the gate. The DoD TSan item remains `[~]` (known swiftpm-xctest+TSan launcher abort, not project code; the loop is structurally race-free and the tests are process-free) — acceptable.
+
+Promoting from the prior round's CONCERNS to **PASS**: every concern is either resolved (QA-004) or correctly tracked as a deferred non-defect.
+
+**Gate:** PASS

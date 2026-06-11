@@ -1,7 +1,7 @@
 # Story EXB-1.2: Status Item + Menu Bar Icon
 
 **ID:** EXB-1.2
-**Status:** InReview
+**Status:** Done
 **Depends on:** EXB-1.1 (provides `UsageSnapshot`, `RateWindow`)
 **Epic:** EPIC-EXB
 **Executor:** @dev
@@ -178,3 +178,80 @@ AC9 prose reads "Lateral arms: 3 px wide each side of **both bars**" and "4 legs
 | 2026-06-10 | 1.0 | Initial draft | @sm River |
 | 2026-06-10 | 1.1 | Validated GO (9/10) — Status: Draft → Ready. No content changes required. | @po Pax |
 | 2026-06-10 | 1.2 | Implemented all ACs (T1–T5). Status: Ready → InReview. 16 new tests, zero-warning build. | @dev Dex |
+| 2026-06-10 | 1.3 | QA gate — round 1. Verdict: PASS. | @qa Quinn |
+
+---
+
+## QA Results — rodada 1
+
+**Gate reviewer:** @qa (Quinn) · **Date:** 2026-06-10 · **Commit under review:** `1d65c95`
+
+Todas as verificações foram feitas no **código real e binário compilado**, não no relatório do dev. Build e testes rodados de uma árvore limpa (`swift package clean`).
+
+### 1. Build & Test (verificados de zero)
+
+| Check | Resultado | Evidência |
+|-------|-----------|-----------|
+| `swift build` (clean) | ✅ **Build complete!** | 49 etapas de compilação, todos os targets linkados |
+| Erros | ✅ **0** | `grep -c "error:"` = 0 |
+| Warnings novos (AC16) | ✅ **0** | `grep -c "warning:"` = 0 |
+| `swift test` | ✅ **59 tests / 8 suites passed** | 43 pré-existentes + 16 novos, 0 falhas |
+
+### 2. Acceptance Criteria — traceability (16/16)
+
+| AC | Status | Arquivo / evidência |
+|----|--------|---------------------|
+| AC1 — LSUIElement agent, NSPrincipalClass | ✅ | `Info.plist` + embed via linker `-sectcreate`. **Verificado no binário:** `segedit -extract __TEXT __info_plist` → `LSUIElement => true`, `CFBundleIdentifier => com.eximia.eximiabar`, `NSPrincipalClass => NSApplication`. Belt-and-suspenders `NSApp.setActivationPolicy(.accessory)` em `ClaudeBarApp.swift:38` |
+| AC2 — `.variableLength`, `imageScaling = .scaleNone` | ✅ | `StatusItemController.swift:25` (`statusItem(withLength: .variableLength)`) e `:29` (`button.imageScaling = .scaleNone`) |
+| AC3 — 18×18 pt / 36×36 px bitmap, `isTemplate` | ✅ | `IconRenderer.swift:338-373` (`NSBitmapImageRep` 36×36, `image.isTemplate = true`). Teste `rendersTemplateImageAtExpectedSize` assere `pixelsWide/High == 36` e `size == 18×18` |
+| AC4 — barras corner radius 0, coords | ✅ | `IconRenderer.swift:30-32` (`sessionRectPx (3,19,30,12)`, `weeklyRectPx (3,5,30,8)`), `:215` (`NSBezierPath(rect:)` — sem corner radius) |
+| AC5 — fill proporcional `remaining/100` | ✅ | `IconRenderer.swift:234-248` (clamp + clip + left-to-right rect). Testes `rendersBoundaryFills` (0%/100%) |
+| AC6 — α layering (track .28 / stroke .44 / progress 1.0) | ✅ | `IconRenderer.swift:157-159` (valores exatos, ativo) |
+| AC7 — stale (.18/.28/.55) | ✅ | `IconRenderer.swift:157-159` (ramo `dimmed`: 0.18/0.28/0.55). Teste `staleAndErrorStatesAreDistinctCacheEntries` |
+| AC8 — error → alphas stale | ✅ | `IconRenderer.swift:123` (`dimmed = isStale \|\| hasError`) |
+| AC9 — crab cutouts (arms 3px, 4 legs 2×3px, eyes 2×5px `.clear`) | ✅ (com desvio documentado) | `IconRenderer.swift:256-294`. Port fiel do bloco `addNotches` da ref (`:257-336`), com `wiggle`/`blink` removidos conforme story. **Desvio AC9 validado** — ver §6 |
+| AC10 — weekly ausente → α0.45 | ✅ | `IconRenderer.swift:182-193` (`drawBar(remaining: nil, alpha: 0.45)`). Idêntico à ref `:679/708`. Teste `rendersWithAbsentWeekly` |
+| AC11 — incident overlay (shape presente, off P0/P1) | ✅ | `IconRenderer.swift:303-324` (shapes minor/major presentes; `drawMeter` chama com `false/false`; stub `renderIncidentOverlay` retorna `nil`). Teste `incidentOverlayStubIsNil` |
+| AC12 — LRU 64 slots, quantização 0.1% | ✅ | `IconRenderer.swift:68-104` (port fiel do `IconCacheStore` da ref, lock-guarded, eviction). Testes `cacheReturnsSameInstanceForIdenticalState`, `cacheQuantizesToTenthOfAPercent` (boundary 42.30 vs 42.34 vs 42.50) |
+| AC13 — brand icon + `" 87%"` / `"87% · +5%"` | ✅ | `MenuBarDisplayText.swift:16-27` (literais exatos, middle-dot U+00B7 confirmado) + `ProviderBrandIcon.swift` (SVG template 16×16). 5 testes cobrindo todas as formas + clamp + nil |
+| AC14 — update on main, `IconRenderer` stateless sem `@MainActor` | ✅ | `IconRenderer` é `enum` sem estado de instância e sem `@MainActor` (único estado é o cache lock-guarded). `StatusItemController.applyMeter` roda no `@MainActor` |
+| AC15 — anti-freeze: render off-main, set image on-main | ✅ | `StatusItemController.swift:57-64` (`Task.detached(priority: .userInitiated)` → render → `await self.applyMeter` no MainActor com generation guard) |
+| AC16 — build zero novos warnings | ✅ | confirmado (§1) |
+
+### 3. Definition of Done — 6/6 ✅
+Todos os itens de DoD verificados contra código/binário/testes (LSUIElement embarcado, fill proporcional, stale distinto, cache identity, brand mode, concurrency safety via `renderIsConcurrencySafe` 200 renders concorrentes).
+
+### 4. Anti-freeze audit (regras críticas)
+
+| Regra | Resultado |
+|-------|-----------|
+| I/O bloqueante na main thread | ✅ **NENHUM** — `grep` por `DispatchQueue.main.sync`, `Data(contentsOf`, `Thread.sleep`, `waitUntilExit`, `readData` na camada UI → 0 ocorrências |
+| `NSMenu` no dropdown | ✅ **NENHUM** — apenas `onClick` hook (popover S3). Sem `NSMenu` |
+| Mutação observável incremental | ✅ **OK** — `AppState` expõe **1 única** prop `@Observable` (`snapshot`), atribuída como valor imutável único. Sem observable storm |
+| Drawing off-main | ✅ — `Task.detached` + `MainActor.run` (apply) |
+
+### 5. Segurança (CRÍTICO)
+
+✅ **PASS.** A camada UI da EXB-1.2 (`Sources/ClaudeBar/`) **não contém nenhum código de OAuth, token, refresh ou rede** — `grep` por `URLSession`/`URLRequest`/`refresh`/`token` retorna apenas comentários de doc referenciando o "refresh loop" futuro (S4). O invariante de segurança real (CLI-owned token nunca chama refresh endpoint) vive na camada Core (EXB-1.1) e está coberto pelo teste `claudeCLIOwnerNeverCallsRefreshEndpoint` (**passou**) e `pipelineNeverRunsWebSource` (**passou**). Nada nesta story regride essa garantia.
+
+### 6. Fidelidade ao original (`_reference_codexbar`)
+
+Comparação direta arquivo-a-arquivo das porções citadas pela story:
+
+- **AC12 LRU cache** (`IconRenderer.swift:31-70` ref ↔ `:68-104` impl): **fiel** — mesma estrutura lock-guarded, mesma lógica de ordenação/eviction, limite 64.
+- **AC9 crab** (`IconRenderer.swift:257-336` ref ↔ `:256-294` impl): **fiel** — arms (3px, `h-6`, `y+3`), 4 legs (`2×3`, step `w/(count+1)`), eyes (`2×5` `.clear` cutouts, mesmos offsets). Removidos `wiggle`/`blink` exatamente como a story exige (P2 deferred).
+- **AC10 weekly-absent** (`:671-710` ref ↔ `:182-193` impl): **fiel** — `drawBar(remaining: nil, alpha: 0.45)`.
+
+**Desvio AC9 — aceito como CONCERN não-bloqueante.** A prosa do AC9 diz "arms on **both bars**" e "legs **below the weekly bar**", mas o código de referência citado como autoridade (`addNotches` aplicado **apenas à barra de sessão**) desenha um único crab na barra superior. O dev seguiu o código de referência (tie-breaker explícito do spawn: "replicate pixel by pixel… fidelity is requirement"), documentou no Dev Agent Record, e há divergência prosa-vs-código na própria spec. **Decisão de gate:** a interpretação do dev é a correta segundo a hierarquia de autoridade da story (código de ref > prosa idealizada). Sem impacto funcional — a barra weekly ainda renderiza track/stroke/fill e o caminho dim de ausência. Registro como observação para o PO confirmar a intenção visual numa futura iteração, mas **não bloqueia**.
+
+`[AUTO-DECISION]` Desvio AC9 prosa↔ref → aceitar implementação fiel à ref (reason: spawn directive define código de referência como tie-breaker de fidelidade; divergência é da própria spec, não erro de implementação; zero impacto funcional).
+
+### 7. Escopo / higiene
+- Único arquivo unstaged é `docs/stories/EXB-1.1.story.md` — pré-existente, fora do escopo da EXB-1.2, corretamente intocado pelo dev. ✅
+- `Sources/ClaudeBar/main.swift` (placeholder EXB-1.1) removido e superseded por `ClaudeBarApp.swift`. ✅
+
+### Veredito
+
+**PASS.** Os 16 ACs estão implementados e verificados no código real; build limpo (zero warnings) e 59 testes passam de árvore limpa; todas as regras anti-freeze respeitadas; invariante de segurança preservado. O único desvio (AC9 crab placement) é uma interpretação correta da hierarquia de autoridade da própria story, documentada e sem impacto funcional — registrado como CONCERN informativo para o PO, não-bloqueante.
+
+> Recomendação ao @po: numa próxima oportunidade, alinhar a prosa do AC9 ("both bars / below weekly bar") com o comportamento de referência (single crab na barra de sessão) para remover a ambiguidade. Não requer rework de código.

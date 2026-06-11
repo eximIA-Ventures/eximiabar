@@ -1,0 +1,35 @@
+schema: 1
+story: 'EXB-1.7'
+gate: PASS
+status_reason: 'All 14 ACs verified in real code; swift build clean (0 warnings), 127 tests green (12 new, 0 regressions); security and anti-freeze invariants hold.'
+reviewer: 'Quinn'
+updated: '2026-06-11T18:30:00Z'
+build:
+  command: 'swift build'
+  result: 'Build complete! — zero warnings'
+tests:
+  command: 'swift test'
+  result: '127 tests in 18 suites passed'
+  new_tests: 12
+  regressions: 0
+ac_coverage: '14/14'
+security:
+  oauth_cli_token_refresh: 'CLEAN — fetch path never consumes CLI refresh token; CostScanner reads local JSONL only, no auth network'
+anti_freeze:
+  process_spawn_in_cost_subsystem: 0
+  mainactor_or_dispatch_main_in_cost_subsystem: 0
+  blocking_sync_in_cost_subsystem: 0
+  popover_remains_nspanel_not_nsmenu: true
+reference_parity:
+  dedup_key: 'matches _reference_codexbar (messageId:requestId)'
+  claude_config_dir_split: 'matches reference'
+top_issues:
+  - id: 'MNT-001'
+    severity: low
+    finding: 'Persisted (day,model) aggregate is never pruned for days outside the costDays window; UserDefaults grows slowly over time (masked by read-time window filter, functionally harmless).'
+    suggested_action: 'Prune aggregate entries outside costDays in saveAggregate in a future story.'
+  - id: 'MNT-002'
+    severity: low
+    finding: 'Cosmetic default divergence: CostSettings default enabled:false in LiveUsageProvider.init vs enabled:true in CostSettingsHolder. Reconciled at launch, no runtime effect.'
+    suggested_action: 'Align defaults for code readability (optional).'
+waiver: { active: false }

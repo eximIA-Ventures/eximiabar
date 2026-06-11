@@ -1,7 +1,7 @@
 # Story EXB-1.7: Cost Scan Local (P1)
 
 **ID:** EXB-1.7
-**Status:** Review
+**Status:** Done
 **Depends on:** EXB-1.1 (ClaudeBarCore lib, ProviderCost model), EXB-1.4 (AppState/DisplaySnapshot)
 **Epic:** EPIC-EXB
 **Executor:** @dev
@@ -202,6 +202,56 @@ Task.detached(priority: .background) {
 
 ---
 
+## QA Results — rodada 1
+
+### Review Date: 2026-06-11
+### Reviewed By: Quinn (Test Architect)
+### Verdict: **PASS**
+
+Verificação no código real (não apenas no relatório do dev). `swift build` e `swift test` executados por mim.
+
+#### Build & Test (executados)
+- `swift build` → **Build complete!** Zero warnings (confirmado em build limpo).
+- `swift test` → **127 tests in 18 suites passed** (1.785s). 115 baseline + 12 novos. Zero regressões.
+
+#### Cobertura de AC (todos verificados no código)
+| AC | Status | Evidência |
+|----|--------|-----------|
+| AC1 — diretórios `.claude/projects`, `.config/claude/projects`, `$CLAUDE_CONFIG_DIR`, `.pi/agent/sessions` | ✅ | `CostScanner.defaultDirectories` (L94-123); dedup de roots, env comma-split, `.pi` só se existir |
+| AC2 — pre-filter por bytes antes do JSON decode | ✅ | `handleLine` L207-210 exige `assistantMarker` **e** `usageMarker` via `containsAsciiSubsequence` antes de `JSONSerialization` |
+| AC3 — dedup `(message.id, requestId)`, último chunk (maior offset) vence | ✅ | `handleLine` L242-252; `if existing.offset > lineOffset { return }`. Paridade com reference (`"\(messageId):\(requestId)"`) |
+| AC4 — scan incremental + reset em truncamento | ✅ | `scan` L62-77; `if fileSize < startOffset { startOffset = 0 }`; offsets em UserDefaults `costScanner.fileOffsets` |
+| AC5 — pricing models.dev + cache 24h + fallback table + unknown→sonnet-4 | ✅ | `Pricing.swift` L29-34 (tabela exata da story), L99-103 (unknown→sonnet), L110-162 (fetch+cache 24h) |
+| AC6 — agregação por `(day, model)` em TZ local | ✅ | `handleLine` L228 `Calendar.current.startOfDay`; `DayModelKey`; `parseFile` L183-192 |
+| AC7 — `ProviderCost` (today, last30Days, tokens, byModel) | ✅ | `ProviderCost.swift` L37-62; `makeProviderCost` L257-294 |
+| AC8 — `byModel` no submenu | ✅ | `UsageCardView.CostSection` L265-275 renderiza `"model: $X · NK tokens"` |
+| AC9 — `costDays` window em calendar days TZ local | ✅ | `isWithinWindow` L300-308 usa `Calendar.current`; default 30 carregado/clampeado 1–365 (SettingsStore L443-445) |
+| AC10 — off-MainActor, folded em `DisplaySnapshot.cost` | ✅ | `LiveUsageProvider.makeFetch` L115-156; scan no `Task.detached` do AppState |
+| AC11 — `costEnabled == false` → `cost = nil` → seção oculta | ✅ | `scanCost` L116-118 retorna nil; `UsageCardView` L38 oculta seção |
+| AC12 — falha silenciosa + `os.Logger` | ✅ | `parseFile` L176-180 catch sem crash; `Logger` em scanner/pricing |
+| AC13 — anti-freeze: I/O nunca na MainActor | ✅ | `CostScanner`/`Pricing` são `actor`; grep confirma zero `MainActor`/`DispatchQueue.main`/process/blocking-sync no subsistema Cost |
+| AC14a–e — testes | ✅ | `CostScannerTests.swift` 12 testes cobrindo pre-filter, dedup, agregação today/window, fallback sem rede, incremental + truncamento + nested + missing-dir |
+
+#### Gate explícito do briefing
+1. **Cada AC implementado** — sim, 14/14, citados acima.
+2. **`swift build` limpo** — RODADO, zero warnings.
+3. **`swift test`** — RODADO, 127 verdes, zero regressão.
+4. **Anti-freeze** — subsistema Cost spawna **zero processos**, **zero** referência a MainActor/DispatchQueue.main (apenas em doc-comments), **zero** blocking sync (`Thread.sleep`/semáforo/`.wait()`). Popover permanece **NSPanel, não NSMenu** (invariante preservada). Máx 1 processo `claude`: o CostScanner não toca o caminho do CLI — invariante intacta.
+5. **Segurança — refresh OAuth do token do CLI** — grep confirma: o caminho de fetch **NUNCA** consome o refresh token do CLI (`LiveUsageProvider` L81-82); o CostScanner só lê JSONL local, sem rede de auth. ✅
+6. **Paridade com reference** — `_reference_codexbar/.../CostUsageScanner+Claude.swift`: dedup key e CLAUDE_CONFIG_DIR comma-split idênticos; nossa impl é superset correto de AC1 (inclui ambos roots default sempre). ✅
+
+#### Observações (não-bloqueantes)
+- **MNT-001 (low):** o agregado persistido por `(day,model)` (`costScanner.aggregate`) nunca é podado para dias que saem da janela — `makeProviderCost` filtra na leitura, mas as linhas antigas permanecem no UserDefaults e crescem lentamente ao longo do tempo. Funcionalmente inócuo (mascarado pelo filtro de janela). Sugestão: podar entradas fora de `costDays` no `saveAggregate`, em story futura.
+- **MNT-002 (low):** divergência cosmética — `CostSettings` default em `LiveUsageProvider.init` é `enabled: false` enquanto `CostSettingsHolder` é `enabled: true`. Reconciliado no launch (`costSettingsHolder.set` em `applicationDidFinishLaunching`), então sem efeito real. Apenas inconsistência de leitura de código.
+
+Desvios justificados do dev (#1 offset-only cache, #2 aggregate persistido, #3 wiring via `LiveUsageProvider`, #4 `CostDefaults` box) — todos verificados, sãos e cobertos por teste. Aprovados.
+
+### Gate Status
+
+Gate: PASS → docs/qa/gates/EXB-1.7-cost-scan-local.yml
+
+---
+
 ## Change Log
 
 | Date | Version | Description | Author |
@@ -209,3 +259,4 @@ Task.detached(priority: .background) {
 | 2026-06-10 | 1.0 | Initial draft | @sm River |
 | 2026-06-10 | 1.1 | Validated GO (8/10) — Status: Draft → Ready. Corrected 4 reference paths: CostUsageScanner+Claude.swift and CostUsagePricing.swift live under Sources/CodexBarCore/Vendored/CostUsage/, not Providers/Claude/. | @po Pax |
 | 2026-06-11 | 1.2 | Implemented all ACs (T1–T7). 5 files created, 5 modified. 12 new tests (AC14a–e + extras), 127 total green, build clean. Status: Ready → Review. | @dev Dex |
+| 2026-06-11 | 1.3 | QA Gate PASS — all 14 ACs verified in real code, build clean, 127 tests green, security + anti-freeze invariants hold. 2 low-severity maintainability notes (non-blocking). Status: Review → Done. | @qa Quinn |

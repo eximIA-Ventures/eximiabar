@@ -1,7 +1,7 @@
 # Story EXB-1.4: AppState + Refresh Loop + Notifications
 
 **ID:** EXB-1.4
-**Status:** InReview (QA CONCERN resolved — threshold double-crossing fixed)
+**Status:** Done (QA CONCERN resolved — threshold double-crossing fixed)
 **Depends on:** EXB-1.1 (FetchPipeline, UsageSnapshot), EXB-1.2 (StatusItemController stub)
 **Epic:** EPIC-EXB
 **Executor:** @dev

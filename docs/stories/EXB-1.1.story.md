@@ -1,7 +1,7 @@
 # Story EXB-1.1: Core OAuth Pipeline
 
 **ID:** EXB-1.1
-**Status:** InReview
+**Status:** Done
 **Depends on:** — (foundation story)
 **Epic:** EPIC-EXB
 **Executor:** @dev
@@ -221,3 +221,128 @@ Port these as inline strings in `ClaudeBarCoreTests`.
 | 2026-06-10 | 1.0 | Initial draft | @sm River |
 | 2026-06-10 | 1.1 | Validated GO (9/10) — Status: Draft → Ready. Tightened AC9 session fallback cascade (five_hour → seven_day → oauth_apps → sonnet → opus) per spec §4.4. | @po Pax |
 | 2026-06-10 | 1.2 | Implemented all 7 ACs + scaffold. SwiftPM 4-target package, ClaudeBarCore data layer (actors), 43 passing tests. Status: Ready → InReview. | @dev Dex |
+| 2026-06-10 | 1.3 | QA Gate PASS — all 17 ACs verified in real code, clean build (debug+release, 0 warnings), 43/43 tests pass, AC13 security contract enforced + tested. Status: InReview → Done. | @qa Quinn |
+
+## QA Results — rodada 1
+
+### Review Date: 2026-06-10
+### Reviewed By: Quinn (Test Architect & Quality Advisor)
+### Gate Verdict: **PASS**
+
+Every claim in the dev report was independently verified against the real code — nothing
+was taken on trust. Build and tests were re-run from a wiped `.build`.
+
+---
+
+### 1. Build & Test (re-run by QA, not from report)
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Toolchain | `swift --version` | Apple Swift 6.2.3, arm64-apple-macosx26.0 |
+| Clean debug build (+tests) | `rm -rf .build && swift build --build-tests` | **Build complete — 0 warnings, 0 errors** |
+| Release build | `swift build -c release` | **Build complete — 0 warnings, 0 errors** |
+| Test suite | `swift test --filter ClaudeBarCoreTests` | **43 tests, 5 suites, all pass — 0 failures** |
+
+AC1 ("compiles standalone, zero warnings under Swift 6.2 StrictConcurrency") confirmed from
+a true clean build, not an incremental cache.
+
+---
+
+### 2. Acceptance Criteria Traceability (all 17 verified in source)
+
+| AC | Verdict | Evidence (file) |
+|----|---------|-----------------|
+| AC1 — standalone lib, 0 warnings, Swift 6.2 strict | PASS | `Package.swift` (`swiftLanguageModes: [.v6]`, `-strict-concurrency=complete`); clean build proves 0 warnings |
+| AC2 — 5-layer load priority (env→mem→kc-cache→file→kc-system) | PASS | `CredentialsStore.load` (env L73 → mem L81 → cache-kc L92 → file L100 → system-kc L107); exact service/account strings L24-28 |
+| AC3 — fingerprint polling, ≤1/60s, invalidate on change | PASS | `CredentialsStore.pollFingerprintsAndInvalidateIfChanged` L363; file fp `(mtime ms, size)` L400; keychain fp `(modifiedAt,createdAt,sha256-prefix)` L351 |
+| AC4 — `kSecMatchLimitAll`+persistentRef, no-UI policy | PASS | `newestClaudeKeychainCandidate` L280 + `KeychainNoUIQuery.apply` (LAContext.interactionNotAllowed + UIFail via dlsym); prompt only when `.onUserAction` AND `.userInitiated` (L108) |
+| AC5 — GET usage, exact headers, 30s timeout | PASS | `UsageFetcher.fetchUsage` L67-74 — all 5 headers exact; `timeoutInterval = 30` L69 |
+| AC6 — decode all fields, discard probes, tolerate unknown | PASS | `OAuthUsageResponse` `DynamicCodingKey`; `iguana_necktie` decoded+discarded L43; `seven_day_design/omelette` not read (comment L45) |
+| AC7 — utilization as-is (×1), extra_usage ÷100 | PASS | `RateWindow.remaining = 100 - utilization` (no ×100); `mapExtraUsage` ÷100.0 L93-94 |
+| AC8 — ISO8601 with/without fractional seconds | PASS | `ISO8601Decoder.date` tries `.withFractionalSeconds` then falls back |
+| AC9 — UsageSnapshot mapping + session fallback cascade | PASS | `UsageSnapshot.from` — cascade `fiveHour ?? sevenDay ?? oauthApps ?? sonnet ?? opus` L25-29; windowMinutes 300/10080; routines null→0% bar L49-51 |
+| AC10 — ClaudePlan Max/Pro/Team/Enterprise/Ultra | PASS | `ClaudePlan.fromOAuthCredentials` (subscriptionType then rateLimitTier); all 5 cases |
+| AC11 — HTTP error mapping (401/403/429/network) | PASS | `UsageFetcher.handle` L90-114 — 401→authRequired, 403→scopeMissing, 429→rateLimited(retryAfter), default→networkError |
+| AC12 — 429 gate: bg short-circuit, user-initiated ignores | PASS | `ClaudeOAuthUsageRateLimitGate.blockedUntil` — `guard phase != .userInitiated`; tested `backgroundRefreshShortCircuits`/`userInitiatedRefreshIgnoresGate` |
+| **AC13 — owner==.claudeCLI NEVER refreshes (CRITICAL)** | **PASS** | `RefreshCoordinator.refresh` switches on owner; `.claudeCLI`→`delegatedRefresh` (PTY + fp poll 0.2/0.5/0.8s, cooldown 5min/20s) with **zero** network calls; `.claudebar`→direct POST; `.environment`→noRefresh |
+| AC14 — invalid_grant terminal block + exp backoff 5min/6h | PASS | `ClaudeOAuthRefreshFailureGate` — `recordTerminalAuthFailure` (cleared only on fp change); `transientBaseInterval=60*5`, `transientMaxInterval=60*60*6`, `pow(2, failures-1)` |
+| AC15 — SourcePlanner pure, auto order OAuth→CLI→Web | PASS | `SourcePlanner.plan` (no side effects); `shouldFallback` true for auth/scope only |
+| AC16 — all I/O off MainActor, main never blocked | PASS | All work inside `actor`s; PTY on dedicated `Thread`; grep confirms **zero `@MainActor`** annotations in core |
+| AC17 — fixture tests (a–f) | PASS | (a) util passthrough + (b) centavo ÷ + (c) resets_at → `OAuthResponseTests`; (d) 401/403/429 → `ErrorMappingTests`; (e) load order → `CredentialLoadOrderTests`; (f) planner → `SourcePlannerTests` |
+
+---
+
+### 3. Anti-Freeze Audit (grep-verified across `Sources/ClaudeBarCore/`)
+
+| Rule | Result |
+|------|--------|
+| `@MainActor` in core | **NONE** (only appears inside a doc comment) ✓ |
+| `@unchecked Sendable` / `nonisolated(unsafe)` | **NONE** — `Sendable` achieved via `OSAllocatedUnfairLock`, not suppression ✓ |
+| Blocking on main (`DispatchSemaphore`, `.wait()`, `sync {`) | **NONE** ✓ |
+| `Thread.sleep` | Only inside `PTYRunner` on its **own dedicated Thread** (not main, not cooperative pool) — correct anti-freeze design ✓ |
+| `fatalError` / `try!` / debug `print(` in core | **NONE** ✓ |
+
+NSMenu / observable-mutation checks are N/A — this story is UI-free (`ClaudeBarCore` imports no AppKit/SwiftUI; verified in `Package.swift`).
+
+---
+
+### 4. Security — CLI refresh-token protection (regression #1161)
+
+The most safety-critical requirement. Verified structurally and by test:
+- `transport.send` / `httpMethod="POST"` / `httpBody` appear **only** in `directRefresh` (`.claudebar` path). The `delegatedRefresh` (`.claudeCLI`) path contains **zero** network primitives.
+- The `switch record.owner` makes it structurally impossible for `.claudeCLI` to reach the POST.
+- `RefreshOwnershipTests.claudeCLIOwnerNeverCallsRefreshEndpoint` injects a `RecordingTransport` and asserts `transport.requestedURLs.isEmpty` — a genuine hard assertion, not a stub that always passes.
+
+**No path exists for a CLI-owned token to be refreshed via the OAuth endpoint.**
+
+---
+
+### 5. Fidelity to `_reference_codexbar`
+
+| Contract | Reference | Port | Match |
+|----------|-----------|------|-------|
+| Watchdog `main.swift` | 122 lines | 122 lines | Structural diff (ignoring renamed identifiers): **NONE** — verbatim ✓ |
+| Usage endpoint `/api/oauth/usage` | `ClaudeOAuthUsageFetcher.swift:39` | `UsageFetcher` | Exact ✓ |
+| `anthropic-beta: oauth-2025-04-20` | `:40` | `UsageFetcher.betaHeader` | Exact ✓ |
+| Keychain service `Claude Code-credentials` | `ClaudeOAuthCredentials.swift:16` | `CredentialsStore.claudeKeychainService` | Exact ✓ |
+| OAuth client_id `9d1c250a-…` | `:24` | `RefreshCoordinator.defaultClientID` | Exact ✓ |
+| Rate-limit gate (user-initiated bypass) | `guard interaction != .userInitiated` | port mirrors | Faithful ✓ |
+| Refresh-failure gate (terminal invalid_grant) | `terminal(reason:failures:)` | port mirrors | Faithful ✓ |
+
+The dev's "behavioral-contract port, not literal copy" approach (Deviation #1) is sound — the
+reference monolith is coupled to CodexBar-wide infra, and the epic mandates a clean rebuild.
+All exact contract strings are preserved.
+
+---
+
+### 6. Deviations Assessment
+
+All 5 dev-disclosed deviations reviewed and **accepted**:
+1. Behavioral-contract port (not literal) — justified by clean-rebuild mandate; strings preserved.
+2. 403→scopeMissing for all 403s — behaviorally correct (only 403 on this endpoint is scope).
+3. Minimal PTYRunner — full PTY machinery is EXB-1.6 scope; current anti-freeze spawn satisfies AC13.
+4. `enableSystemKeychain` test seam — legitimate testability seam, default `true`, not a feature.
+5. LICENSE added now — listed in epic DoD (R8), appropriate in the foundation story.
+
+---
+
+### 7. Non-Blocking Observations (no action required for this gate)
+
+| ID | Severity | Finding | Suggested action |
+|----|----------|---------|------------------|
+| MNT-001 | low | 403 handler (`UsageFetcher` L98-103) has a vestigial `if user:profile/scope … else …` where both branches return the identical `scopeMissing`. | Collapse to a single return when richer 403 differentiation is genuinely needed (or never). |
+| TEST-001 | low | AC2 keychain-layer ordering (cache-kc vs file vs system-kc) is enforced structurally and covered by AC4, but not by an automated test (tests isolate env/mem/file via `enableSystemKeychain=false`, since system keychain needs a live macOS keychain). | Add an injectable keychain seam in a later story to close the automated-coverage gap for layers (c) and (e). |
+
+Neither blocks the gate: both are low-severity maintainability/coverage notes on an
+otherwise complete, correct, and well-tested foundation.
+
+---
+
+### Gate Status
+
+**Gate: PASS** — All 17 ACs implemented and verified in real code. Clean build (debug + release,
+0 warnings). 43/43 tests pass. Critical AC13 security contract structurally enforced and
+genuinely tested. Anti-freeze constraints hold with zero Sendable suppressions. Reference
+fidelity confirmed. Two low-severity non-blocking notes logged for future stories.
+
+Status: **InReview → Done.** Handoff: @devops `*push`.

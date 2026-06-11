@@ -1,0 +1,20 @@
+schema: 1
+story: 'EXB-1.8'
+gate: CONCERNS
+status_reason: 'EXB-1.8 fully passes — cold make build, 130/130 tests, valid signature, universal binaries, live launch verified independently. Epic-level concern: EXB-1.2 and EXB-1.4 remain InReview despite being QA-passed/resolved (status-field slip, no code impact).'
+reviewer: 'Quinn'
+updated: '2026-06-11T15:45:00Z'
+top_issues:
+  - id: 'REQ-001'
+    severity: low
+    finding: 'EXB-1.2 Status field still InReview though QA verdict was PASS (Change Log 1.3, 2026-06-10). Work complete; only the status transition was never applied.'
+    suggested_action: 'Transition EXB-1.2 Status InReview → Done before epic closeout.'
+  - id: 'REQ-002'
+    severity: low
+    finding: 'EXB-1.4 Status field still InReview though the round-1 CONCERN (threshold .max()->.min() notification fix + 2 tests) was resolved and verified green. Fix confirmed in source with reference parity.'
+    suggested_action: 'Transition EXB-1.4 Status InReview → Done before epic closeout.'
+  - id: 'DOC-001'
+    severity: low
+    finding: 'LICENSE/README use canonical CodexBar URL github.com/steipete/CodexBar (dev AUTO-DECISION) vs the stale PSPDFKit-labs URL in story Dev Notes. AC1 mandates only the literal copyright text, which is correct.'
+    suggested_action: 'No action — informational; canonical URL is correct.'
+waiver: { active: false }
