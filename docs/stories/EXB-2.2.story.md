@@ -1,7 +1,7 @@
 # Story EXB-2.2: Language Selector — Localization (en + pt-BR)
 
 **ID:** EXB-2.2
-**Status:** Ready for Review
+**Status:** Done
 **Depends on:** EXB-1.5 (Settings window + SettingsStore), EXB-1.3 (popover strings), EXB-1.4 (notifications)
 **Epic:** EPIC-EXB
 **Wave:** Onda 4 (v1.1.0)
@@ -205,9 +205,64 @@ fallback, and the `appLanguage` persistence round-trip.
 
 ---
 
+## QA Results — rodada 1
+
+### Review Date: 2026-06-11
+### Reviewed By: Quinn (Test Architect)
+### Gate Decision: **PASS**
+
+Independent verification of the real code — not just the dev report. Every claim was checked against source, build output, and live test runs.
+
+### Acceptance Criteria Traceability
+
+| AC | Requirement | Verdict | Evidence (verified in code) |
+|----|-------------|---------|------------------------------|
+| AC1 | `Package.swift` `defaultLocalization: "en"` | ✅ PASS | `Package.swift:5`. Placed at the `Package(…)` initializer — **justified deviation**: SwiftPM exposes no per-target `defaultLocalization`; the package-level setting is what enables localized resources on the `ClaudeBar` target. |
+| AC2 | Two `.strings` files, every visible string keyed in both | ✅ PASS | `en.lproj`/`pt-BR.lproj` = **129/129 keys, exact parity** (key diff empty). Broad grep for hardcoded `Text(...)`/`Label`/`Button`/`Picker`/`Toggle`/`navigationTitle` literals across Popover/Settings/App/StatusItem/Notifications → **zero unwrapped UI strings**. |
+| AC3 | Localizable Language picker, 3 options | ✅ PASS | `PreferencesGeneralPane.swift:45-50` — `Picker(L("settings.general.language"), …)` over `AppLanguage.allCases`; option labels resolve via `L(…)` (`SettingsStore.swift:90-96`), so the picker itself is localizable. |
+| AC4 | Persist `appLanguage` (`system`/`en`/`pt-BR`), default `system` | ✅ PASS | `SettingsStore.swift:143-163` + key `Key.appLanguage = "appLanguage"` (un-namespaced, read directly by the engine). Test `persistsUnderAppLanguageKeyAndSurvivesRestart` proves the round-trip; `defaultsToSystem` proves the default. |
+| AC5 | Switch via Option A or B, mechanism documented in `SettingsStore.swift` | ✅ PASS | **Option A** chosen; documented in a code comment `SettingsStore.swift:144-152`. `didSet` persists eagerly → `resetClaudeBarLocalizationCache()` → `onAppLanguageChange`. |
+| AC6 | (If Option B) relaunch confirmation dialog | ➖ N/A | Conditional on Option B; Option A implemented. AC6 N/A by its own wording. |
+| AC7 | (If Option A) all strings update without relaunch | ✅ PASS | `SettingsRootView.swift:41` `.id(settings.appLanguage)` forces SwiftUI to rebuild every localized body on switch; `L()` re-resolves the active `.lproj`. Test `switchingLanguageReResolvesInProcess` confirms en≠pt-BR in-process. |
+| AC8 | Keys follow `<screen>.<element>` | ✅ PASS | Regex audit of all 129 keys → **zero convention violations**. |
+| AC9 | About panel + menu bar tooltip localized | ✅ PASS | About: 7 `L(…)` calls in `PreferencesAboutPane.swift`. Tooltip: `StatusItemController.swift:33-34` (`toolTip` + `setAccessibilityTitle` via `L("statusitem.tooltip")`). |
+| AC10 | `swift build` zero new warnings | ✅ PASS | Ran `swift build` (debug) **and** `swift build -c release` → both **Build complete!**, zero warnings. |
+| AC11 | `swift test` zero regressions | ✅ PASS (with verified note) | 138/139 attributable to this story pass. See regression analysis below. |
+
+### Regression Analysis — the one red test
+
+Full `swift test` showed **`PromptPolicyTests/policyProviderIsReadOnEveryLoadReachingKeychain`** fail once (`reads.value → 2 == loadCount → 3`). I did **not** take the dev's word for "flake" — I verified it:
+
+1. **Not in this story's blast radius:** `git show --stat 519e78d` confirms EXB-2.2 touched **zero** `ClaudeBarCore` files. `git diff main` for `PromptPolicyTests.swift` and all of `Sources/ClaudeBarCore/` is **empty** — the test and its subject are byte-identical to `main`.
+2. **Empirically a flake, not a failure:** re-ran the test **in isolation 3×** → all green (~0.05s each, vs the 6.8s slow path during the failing run).
+3. **Root cause matches epic risk R4:** the test exercises the real system keychain (`enableSystemKeychain: true`); the macOS keychain-ACL one-time slow path on first access after a rebuild perturbs the exact read-count assertion. Deterministic on every subsequent run.
+
+**Conclusion:** environment-dependent pre-existing flake in a story-unrelated subsystem — **not a regression introduced by EXB-2.2.** Gate not blocked.
+
+### Anti-Freeze Invariants (EPIC-EXB)
+
+| Invariant | Status | Evidence |
+|-----------|--------|----------|
+| Popover is NSPanel, not NSMenu | ✅ Intact | `UsagePanelController.swift:235` `KeyablePanel: NSPanel`. |
+| Zero blocking I/O on the main thread | ✅ Intact | `L()` is `nonisolated` — no `MainActor` hop, no `DispatchQueue.sync`. The `.lproj`/`Bundle(path:)` disk lookup is cached behind a lock with the compute performed **outside** the critical section (`Localization.swift:65-101`). |
+| Persistence off the hot path | ✅ Intact | `SettingsStore` save remains debounced (500ms) + off-main detached write. |
+
+### Test Quality
+9 new tests in `LocalizationTests.swift` are substantive (not vacuous): real pt-BR assertions (`"No ritmo"`, `"Atualizar Agora"`, `"Idioma"`), positional `%1$@/%2$d` substitution, English+raw-key fallback chain, persistence round-trip under the un-namespaced key, and no-double-fire callback semantics. Existing string-comparing suites required zero edits and pass unchanged — the EN base is byte-for-byte the prior literals, so the localization layer introduced no behavioral drift. Clean engineering call.
+
+### Minor observations (non-blocking, no action required)
+- `L(_:)` (`Localization.swift:171`) calls `claudeBarResourceBundle()` even on the happy path where it isn't needed until the fallback branch — negligible (cached, lock-protected), noted only for future tidy-up. **Severity: low.**
+
+### Gate Status
+
+Gate: PASS → docs/qa/gates/EXB-2.2-language-selector-localization.yml
+
+---
+
 ## Change Log
 
 | Date | Version | Description | Author |
 |------|---------|-------------|--------|
 | 2026-06-11 | 1.0 | Initial draft — Onda 4 (v1.1.0) | @sm River |
 | 2026-06-11 | 1.1 | Full en + pt-BR localization (Option A in-process). 129-key parity, 9 new tests, 139/139 green, zero warnings. | @dev Dex |
+| 2026-06-11 | 1.2 | QA Gate PASS — Status: InReview → Done. AC1-11 verified in code; the 1 red test confirmed a pre-existing keychain flake in untouched ClaudeBarCore (not a regression). | @qa Quinn |

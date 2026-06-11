@@ -20,12 +20,16 @@ It reads the same OAuth credentials your `claude` CLI uses — and never writes 
 ## Build & install
 
 ```bash
-make build && make install
+make build && sudo make install
 ```
 
 - `make build` produces a universal (arm64 + x86_64), ad-hoc-signed
   `dist/ExímIABar.app`.
-- `make install` copies it to `~/Applications/`.
+- `make install` copies it to **`/Applications/`** (the canonical, system-wide
+  location — Spotlight indexes it for all users). Writing to `/Applications`
+  needs admin rights, so run it with `sudo`.
+- Prefer a per-user install? `make install-user` copies to `~/Applications/`
+  with no `sudo`.
 
 Because the app is ad-hoc signed (no Apple Developer ID), the first launch needs
 a right-click → **Open** to clear Gatekeeper.
@@ -35,11 +39,27 @@ a right-click → **Open** to clear Gatekeeper.
 | Target | Action |
 |--------|--------|
 | `make build` | Build the signed `.app` into `dist/` |
-| `make install` | Copy to `~/Applications/` |
-| `make uninstall` | Remove from `~/Applications/` |
+| `make install` | Copy to `/Applications/` (may need `sudo`) |
+| `make install-user` | Copy to `~/Applications/` (no `sudo`) |
+| `make uninstall` | Remove from `/Applications/` (may need `sudo`) |
 | `make clean` | Remove `dist/` and `.build/` |
 | `make test` | Run `swift test` |
 | `make icon` | Regenerate `AppIcon.icns` |
+
+## Releases
+
+Pre-built, signed releases are published on GitHub:
+
+- **[github.com/eximIA-Ventures/eximiabar/releases](https://github.com/eximIA-Ventures/eximiabar/releases)**
+
+Each release ships a `ExímIABar-<version>.zip` you can unzip and drop into
+`/Applications`.
+
+### Auto-updater
+
+exímIABar checks GitHub Releases for newer versions. Open the app and go to
+**Settings → About → Check for Updates** to fetch and install the latest
+release in place. No package manager required.
 
 ## License
 

@@ -1,0 +1,41 @@
+schema: 1
+story: 'EXB-2.2'
+gate: PASS
+status_reason: 'All 11 ACs verified in real code; full en/pt-BR localization (Option A) with 129-key parity, zero hardcoded UI strings, anti-freeze invariants intact, clean debug+release builds. The single red test is a pre-existing keychain flake in untouched ClaudeBarCore — not a regression.'
+reviewer: 'Quinn'
+updated: '2026-06-11T17:40:00Z'
+top_issues:
+  - id: 'MNT-001'
+    severity: low
+    finding: 'L(_:) resolves claudeBarResourceBundle() on the happy path before it is needed (only the fallback branch uses it).'
+    suggested_action: 'Defer the resource-bundle lookup into the fallback branch on a future tidy-up. Negligible (cached, lock-protected). No action required for this story.'
+waiver: { active: false }
+
+ac_traceability:
+  AC1: PASS  # Package.swift:5 defaultLocalization "en" (package-level, justified)
+  AC2: PASS  # 129/129 key parity; zero unwrapped UI strings
+  AC3: PASS  # PreferencesGeneralPane.swift:45-50 localizable picker
+  AC4: PASS  # appLanguage persisted under "appLanguage", default system
+  AC5: PASS  # Option A documented SettingsStore.swift:144-152
+  AC6: N/A   # Option B path not taken
+  AC7: PASS  # SettingsRootView.swift:41 .id(appLanguage) instant in-process switch
+  AC8: PASS  # zero <screen>.<element> convention violations
+  AC9: PASS  # About 7 L() calls; tooltip StatusItemController.swift:33-34
+  AC10: PASS # swift build debug + release, zero warnings
+  AC11: PASS # 138/139; 1 pre-existing keychain flake (untouched ClaudeBarCore), verified green on isolated re-run
+
+regression_analysis:
+  failing_test: 'PromptPolicyTests/policyProviderIsReadOnEveryLoadReachingKeychain'
+  is_regression: false
+  evidence:
+    - 'git show --stat 519e78d: EXB-2.2 touched zero ClaudeBarCore files'
+    - 'git diff main: PromptPolicyTests.swift and Sources/ClaudeBarCore/ identical to main'
+    - 'Re-ran in isolation 3x: all green (~0.05s vs 6.8s slow path)'
+    - 'Root cause = epic risk R4 (macOS keychain ACL one-time slow path; enableSystemKeychain: true)'
+
+anti_freeze:
+  nspanel_intact: true       # KeyablePanel: NSPanel (UsagePanelController.swift:235)
+  no_blocking_io_on_main: true  # L() nonisolated, disk lookup cached outside lock critical section
+  persistence_off_hot_path: true # debounced 500ms + detached off-main write
+
+verification_method: 'Independent code review + live swift build (debug+release) + swift test (full + isolated re-runs). Not dev-report-only.'

@@ -243,9 +243,64 @@ Sources/ClaudeBar/Updater/
 - `swift test` — `Test run with 175 tests in 24 suites passed` (145 baseline + 30 new, zero regressions).
 - AC11 anti-freeze: `UpdateChecker`/`AppUpdater` are actors (off-main); subprocesses run on a dedicated `Thread` bridged by `CheckedContinuation`; `URLSession.download` is async; UI mutations are `@MainActor`-only. No `Data(contentsOf:)`/sync parse on main.
 
+## QA Results — rodada 1
+
+**Reviewer:** @qa (Quinn, Test Architect) · **Date:** 2026-06-11 · **Verdict:** PASS
+
+### Verification method
+Every claim re-verified against real code, not the dev report: `swift package clean && swift build` (debug + `-c release`), full `swift test`, source reads of all 5 implementation files + 2 test suites, localization key symmetry grep, anti-freeze grep, commit-scope audit.
+
+### Build & test (run by QA, not trusted from report)
+- `swift build` (debug) → **Build complete, zero warnings** (clean from `swift package clean`).
+- `swift build -c release` → **Build complete, zero warnings/errors** (AC12 confirmed on both configs).
+- `swift test` → **175 tests / 24 suites PASS** (145 baseline + 30 new). **Zero regressions** — refresh-ownership guards (`claudeCLIOwnerNeverCallsRefreshEndpoint`) and web-source stub still green.
+
+### Acceptance Criteria — per-AC trace (all 12 met)
+
+| AC | Status | Evidence |
+|----|--------|----------|
+| AC1 — Check button + version label | ✅ | `UpdateSectionView.primaryControl` button (`update.check_button`); version via `PreferencesAboutPane.versionString` (`CFBundleShortVersionString`, dynamic). See AC1 note below. |
+| AC2 — GitHub GET off-main + UA header | ✅ | `UpdateChecker.fetchLatestRelease` — `User-Agent: exímIABar/{version}`, `Accept: vnd.github+json`; runs inside `actor` via async `transport.send` (cooperative pool, never MainActor). |
+| AC3 — semver strip-v + component compare | ✅ | `SemanticVersion.isNewer` component-wise `Int` compare; `parseRelease` strips single leading `v`. 8 dedicated tests incl. 2-vs-3 component + non-numeric suffix. |
+| AC4 — 6 UI states | ✅ | `UpdateState` enum (idle/checking/upToDate/available/downloading/installing/error) fully rendered in `UpdateSectionView` (spinner, determinate+indeterminate progress, systemRed error + Retry). |
+| AC5 — first .zip asset, temp dir, async download | ✅ | `parseRelease` selects first `.zip` (case-insensitive); `AppUpdater.download` uses `URLSession.shared.download(from:)` to `temporaryDirectory`. |
+| AC6 — ditto extract on bg thread + bundle locate | ✅ | `runProcess("/usr/bin/ditto", -x -k)` on dedicated `Thread`+`CheckedContinuation`; `locateExtractedApp` finds `ExímIABar.app` (root + shallow nest). |
+| AC7 — validate `Contents/MacOS/ClaudeBar` exec | ✅ | `validateBundle` — `fileExists` + `isExecutableFile`, else `.invalidBundle` → "Downloaded bundle is invalid." |
+| AC8 — install (writable check, remove/move/chmod/codesign) | ✅ | Pre-flight `parentIsWritable` (fail-fast before download); `install` removes old, move-with-copy-fallback, `chmod -R +x`, `codesign --force --sign - --deep --timestamp=none`. |
+| AC9 — detached relaunch + terminate | ✅ | `relaunch` (`@MainActor`) — `bash -c "sleep 1 && open -a …"` detached, then `NSApp.terminate(nil)`. |
+| AC10 — graceful error cases | ✅ | All 5 mapped: noNetwork/rateLimited(403,429)/noAsset/notWritable/extractionFailed → localized messages. HTTP & network mapping unit-tested. |
+| AC11 — entire pipeline off-main | ✅ | `UpdateChecker`/`AppUpdater` are actors; blocking subprocesses on dedicated `Thread`; `URLSession.download` async; UI mutation only via `@MainActor UpdateViewModel`. |
+| AC12 — zero new warnings | ✅ | Confirmed debug + release. |
+
+### Gate checks (spawn brief)
+- **No network call on main:** ✅ — network confined to `UpdateChecker` actor via async transport. Anti-freeze grep (`Data(contentsOf`, `.synchronize()`, `DispatchQueue.main.sync`, `Thread.sleep`, `contentsOfFile`) on new code → **zero real-code hits** (only a documentation comment).
+- **Semver compared correctly:** ✅ — component-wise, strip-v, more-components-wins; 8 tests cover edge cases (no vacuous assertions).
+- **Errors handled:** ✅ — `UpdateViewModel.message(for:)` maps every `UpdateError` case; `errorMappingCoversEveryCase()` test guards exhaustiveness.
+- **i18n parity:** ✅ — **16 `update.*` keys, identical set in en + pt-BR (`diff` empty)**. All 16 code-referenced `L(...)` keys resolve in both files. `update.error.install_failed` `%@` specifier matches its single-arg call. **Zero hardcoded `Text("…")` literals** in new UI.
+- **Anti-freeze invariants preserved:** ✅ — NSPanel popover layer untouched (`UsagePanelController`, `StatusItemController` not in commit); only `NSMenu()` is the legitimate main-menu carrier in `ClaudeBarApp.swift` (allowed LSUIElement exception). Dashboard/updater fully async.
+- **Commit scope:** ✅ — `362802d` is clean, **14 files / +1473 / -1, all EXB-2.4** (Core updater, app updater, UI, i18n ×2, About-pane edit, 5 test files, story). No collateral edits.
+
+### Justified deviations — all reviewed and accepted
+1. `UpdateChecker`+`SemanticVersion` in `ClaudeBarCore` (not `ClaudeBar/Updater/`) — **correct call.** Reuses the `HTTPTransport`/`StubTransport` test seam, mirrors `UsageFetcher`, makes pure logic AppKit-free and unit-testable. Pipeline+UI stay in the app target per the story.
+2. Endpoint as injectable constant — accepted; enables fixture/stub tests; live flow deferred to EXB-2.5 (real repo + release).
+3. `Process()` + `run()` instead of deprecated `Process.launchedProcess` — accepted; identical detached behavior, avoids a warning (serves AC12).
+4. Indeterminate download progress — explicitly permitted by Dev Notes; UI handles both modes.
+5. Version label reads `CFBundleShortVersionString` dynamically (currently **`1.0.0`**, confirmed in `Sources/ClaudeBar/Info.plist`) — **correct.** Hardcoding `"Version 1.1.0"` would break the dynamic display and contradict AC3. The literal in AC1 is the post-bump runtime value; the bump is **EXB-2.5's AC2**. Legitimate cross-story dependency, not a defect.
+
+### Note on AC1 literal vs. runtime value (advisory, non-blocking)
+AC1 writes the version label as `"Version 1.1.0"`, but the app correctly displays the live `CFBundleShortVersionString` (= `1.0.0` today). This is a wording artifact of writing an Onda-4 story ahead of the version bump; the implementation is right and the dependency on EXB-2.5 is documented. No action needed in this story.
+
+### DoD residual (acceptable)
+- The relaunch live smoke test is deferred to EXB-2.5 (no repo/release exists yet — relaunch requires a real installed `.app` to `open`). All other DoD items met and verified. This is the correct deferral, consistent with the epic's reference-fidelity gating (live-data steps deferred until the artifact exists).
+
+**Conclusion:** Implementation is complete, correct, and faithful to the anti-freeze invariants. Network is off-main, semver is correct, all error paths are handled and localized, tests are genuine and regression-free, and the build is clean on both configs. Approved for InReview → Done (status transition + version bump to follow in EXB-2.5).
+
+---
+
 ## Change Log
 
 | Date | Version | Description | Author |
 |------|---------|-------------|--------|
 | 2026-06-11 | 1.0 | Initial draft — Onda 4 (v1.1.0) | @sm River |
 | 2026-06-11 | 1.1 | Implemented all 12 ACs — UpdateChecker (Core) + AppUpdater/UpdateViewModel/UpdateSectionView (app), 18 i18n keys ×2, 30 new tests. Status Draft → InReview. | @dev Dex |
+| 2026-06-11 | 1.2 | QA gate rodada 1 — VERDICT: PASS. All 12 ACs verified against real code; build clean (debug + release), 175 tests pass zero regression, i18n parity confirmed, anti-freeze preserved, commit scope clean. | @qa Quinn |

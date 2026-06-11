@@ -117,6 +117,32 @@ Sources/
 
 ---
 
+## Onda 4 (v1.1.0)
+
+**Status:** Draft | **Target:** v1.1.0 | **Created:** 2026-06-11
+
+Enhancement wave after the v1.0.0 MVP (Onda 1–3 = EXB-1.1 through EXB-1.8, all Done).
+
+| Order | Story ID | Title | Executor | Rationale |
+|-------|----------|-------|----------|-----------|
+| 1 | EXB-2.1 | Glassmorphism | @dev | NSPanel lost native menu material; NSVisualEffectView restores it |
+| 2 | EXB-2.2 | Language Selector (en + pt-BR) | @dev | Full localization; depends on all UI strings being in place |
+| 3 | EXB-2.3 | Local Dashboard | @dev | Requires CostScanner data model (EXB-1.7); new window with Swift Charts |
+| 4 | EXB-2.4 | Auto-Updater via GitHub Releases | @dev | Requires published repo + release (EXB-2.5 sets that up); About pane update |
+| 5 | EXB-2.5 | Distribution (@devops) | @devops | Publishes repo, tags v1.1.0, migrates install to /Applications |
+
+**Execution order:** 2.1 → 2.2 → 2.3 → 2.4 → 2.5 (2.5 must be last — it creates the release that 2.4 checks against).
+
+**Wave DoD:**
+- [ ] All 5 stories Done
+- [ ] `swift build -c release` zero warnings with all Onda 4 code
+- [ ] `swift test` 130+ tests passing (no regression)
+- [ ] GitHub release `v1.1.0` at `https://github.com/eximIA-Ventures/eximiabar/releases`
+- [ ] App installed at `/Applications/ExímIABar.app`
+- [ ] Auto-updater smoke test: Settings → About → Check for Updates returns "up to date" on v1.1.0
+
+---
+
 ## Definition of Done (Epic)
 
 - [ ] All 8 stories Done

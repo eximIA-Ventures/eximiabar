@@ -1,7 +1,7 @@
 # Story EXB-2.3: Local Usage Dashboard
 
 **ID:** EXB-2.3
-**Status:** Ready for Review
+**Status:** Done
 **Depends on:** EXB-1.7 (CostScanner + ProviderCost model), EXB-1.3 (popover action rows), EXB-1.5 (SettingsStore)
 **Epic:** EPIC-EXB
 **Wave:** Onda 4 (v1.1.0)
@@ -207,9 +207,53 @@ view-model transform (`DashboardData.build`) was added in the app target.
 
 ---
 
+## QA Results — rodada 1
+
+**Gate:** @qa Quinn (Guardian) · **Date:** 2026-06-11 · **Verdict:** PASS
+
+Verified against real code (not the dev report). Clean `swift package clean && swift build` (6.62s, **zero warnings**), `swift build -c release` (11.05s, **zero warnings**), and `swift test` → **145 tests / 21 suites passed, zero regressions** (130 baseline @ EXB-1.8 + new). All critical refresh-ownership guards (`claudeCLIOwnerNeverCallsRefreshEndpoint`, refresh delegation) pass.
+
+### AC traceability (12/12 implemented)
+
+| AC | Verdict | Evidence |
+|----|---------|----------|
+| 1 — popover rows: web row renamed `Claude Usage (Web)` (→ `claude.ai/settings/usage`), new `Dashboard` row above (SF `chart.bar.xaxis`, ⌘D) | PASS | `UsageCardView.swift` ActionSection L304–307; `ClaudeBarApp.swift` L240 opens `https://claude.ai/settings/usage`; keys `popover.dashboard` / `popover.claude_usage_web` in both locales |
+| 2 — standard `NSWindow` 480×600 min, resizable, titled, NOT NSPanel | PASS | `DashboardWindowController.swift` L78–86: `NSWindow(...)`, `minSize 480×600`, `[.titled,.closable,.miniaturizable,.resizable]`. NSPanel only in popover (`KeyablePanel`) — untouched |
+| 3 — opens instantly with loading skeleton, no main-thread block | PASS | `open()` sets `.loading` then `makeKeyAndOrderFront`; scan is detached (AC8) |
+| 4 — cost/day `BarMark`, brand `#CC7C5E`, first/last date labels, Y `USD` | PASS | `CostPerDayChart` uses `PopoverStyle.brand`, `endpointDates()` first/last only, `chartYAxisLabel(...cost.y_label)` = "USD" |
+| 5 — tokens/day `BarMark`, combined in+out, Y `Tokens`, same axis | PASS | `TokensPerDayChart` plots `Double(entry.tokens)`, reuses `endpointDates`, Y "Tokens" |
+| 6 — model breakdown sorted cost desc, model/in/out/cost, 2-dp + K/M | PASS | `ModelBreakdownTable` over `data.byModel` (sorted cost desc, model asc tiebreak); `PopoverFormatter.currency`/`tokenCount` |
+| 7 — Today / 7d / 30d summary cards, `.headline`/`.title2.bold`/`.footnote.secondary` | PASS | `SummaryCard` fonts match exactly |
+| 8 — load via `Task.detached(.utility)` → `@MainActor` apply | PASS | `loadData()` L111–118: detached scan + `DashboardData.build` off-main, `await self?.apply(data)` on `@MainActor` |
+| 9 — `costEnabled == false` → disabled message + Open Settings button | PASS | `loadData()` guards `settings.enabled` → `.disabled`; `DisabledStateView` button wired to `settingsWindowController.open()` |
+| 10 — zero entries → empty state message | PASS | `apply()` sets `.empty` when `data.isEmpty`; `CenteredMessageView` with `dashboard.empty.message`; test `emptyWhenNoModelEntries` |
+| 11 — no new rate-limit API fetch; reads `CostScanner` only | PASS | `costScanner: .shared` reused; `scan()` has **no** URLSession/network refs (verified in `CostScanner.swift`); reuses incremental aggregate |
+| 12 — zero new warnings; Swift Charts no extra dep | PASS | Both debug + release builds clean; `import Charts` from OS SDK only |
+
+### Repo-invariant checks (non-negotiable bar)
+- **Anti-freeze:** grep for `Data(contentsOf` / `.synchronize()` / `DispatchQueue.main.sync` / `Thread.sleep` / `contentsOfFile` / semaphore across Dashboard + modified UI/App → **zero hits**. Scan is `Task.detached(.utility)`; `DashboardData.build` is pure value transform; `DashboardData` is `Sendable`, crosses actor hop with no race.
+- **NSPanel intact:** popover stays `KeyablePanel: NSPanel`; dashboard is standard `NSWindow`; only `NSMenu()` is the allowed minimal ⌘-carrier main menu in `ClaudeBarApp`.
+- **Localization (2.2 carryover):** **zero** hardcoded `Text("…")` literals in `DashboardView`; all 18 dashboard keys + 2 popover keys present in **both** en and pt-BR. (`.value("USD")`/`.value("Tokens")` are chart data-series identifiers, not displayed strings — correctly not localized.)
+- **No-refresh-POST:** `claudeCLIOwnerNeverCallsRefreshEndpoint` + refresh-ownership suite green.
+
+### Deviations reviewed — all justified, accepted
+1. `NSObject`+`NSWindowDelegate` (not `NSWindowController`) — mirrors established `SettingsWindowController` activation-policy dance. ✓
+2. `@Observable DashboardModel` (not view `@State`) — idiomatic for off-main `@MainActor` state flip; no data race. ✓
+3. "Last 30 days" card uses `costDays` window total — consistent with EXB-1.7 popover labeling; AC7 fixes label text only. ✓
+4. Zero-filled daily axis — required for continuous 30-day chart per AC4/AC5 intent; covered by `dailyAxisIsZeroFilledAndAscending` test. ✓
+
+### Notes
+- Headless gate is fully green; live popover-click + actual chart render with real keychain creds is acceptably deferred (interactive GUI required) — consistent with epic precedent (EXB-1.8).
+- Status transitioned `Ready for Review` → **Done** at this gate (avoids the EXB-1.x straggler pattern where PASS stories were left in `InReview`).
+
+**Decision: APPROVED — VERDICT: PASS**
+
+---
+
 ## Change Log
 
 | Date | Version | Description | Author |
 |------|---------|-------------|--------|
 | 2026-06-11 | 1.0 | Initial draft — Onda 4 (v1.1.0) | @sm River |
 | 2026-06-11 | 1.1 | Implemented all ACs — local Swift Charts dashboard, popover row, off-main scan; 6 new tests | @dev Dex |
+| 2026-06-11 | 1.2 | QA gate PASS — 12/12 ACs verified in code, 145 tests green (zero regressions), anti-freeze/NSPanel/localization invariants clean; Status → Done | @qa Quinn |
