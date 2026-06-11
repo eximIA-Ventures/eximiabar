@@ -154,10 +154,22 @@ final class SettingsStore {
     }
 
     /// Whether the local cost scan runs (AC3). Default on.
-    var costEnabled: Bool = true { didSet { scheduleSaveIfChanged(costEnabled, oldValue) } }
+    var costEnabled: Bool = true {
+        didSet {
+            guard costEnabled != oldValue else { return }
+            onCostSettingsChange?(costEnabled, costDays)
+            scheduleSave()
+        }
+    }
 
     /// How many days of cost history the scan covers, 1–365 (AC3). Default 30.
-    var costDays: Int = 30 { didSet { scheduleSaveIfChanged(costDays, oldValue) } }
+    var costDays: Int = 30 {
+        didSet {
+            guard costDays != oldValue else { return }
+            onCostSettingsChange?(costEnabled, costDays)
+            scheduleSave()
+        }
+    }
 
     // MARK: - Claude (AC4)
 
@@ -237,6 +249,10 @@ final class SettingsStore {
     /// Invoked when `claudeBinaryPath` changes so the off-MainActor CLI binary holder stays in
     /// lock-step with the live setting (EXB-1.6). Carries the optional override path.
     var onClaudeBinaryChange: (@MainActor (String?) -> Void)?
+
+    /// Invoked when `costEnabled` or `costDays` changes so the off-MainActor cost-settings holder
+    /// stays in lock-step with the live setting (EXB-1.7 AC9/AC11). Carries `(enabled, days)`.
+    var onCostSettingsChange: (@MainActor (Bool, Int) -> Void)?
 
     // MARK: - Persistence (AC8)
 

@@ -33,8 +33,12 @@ struct UsageCardView: View {
                 ExtraUsageSection(extra: extra)
             }
 
-            Divider()
-            CostSection(cost: self.snapshot?.cost)
+            // AC11: the cost section is present only when a scan produced a `ProviderCost`
+            // (`costEnabled == true`). When cost is disabled it is `nil` and the section is hidden.
+            if let cost = self.snapshot?.cost {
+                Divider()
+                CostSection(cost: cost)
+            }
 
             Divider()
             ActionSection(showRelogin: self.snapshot?.error?.isAuthOrScope == true, actions: self.actions)
@@ -225,32 +229,49 @@ private struct ExtraUsageSection: View {
     }
 }
 
-// MARK: - Cost (AC16)
+// MARK: - Cost (AC16 / EXB-1.7 AC7–AC8)
 
+/// Local cost estimate from the JSONL scan. The header summarizes today / window totals; tapping it
+/// expands the per-`(day, model)` breakdown (`byModel`) — the "cost detail submenu" of AC8.
 private struct CostSection: View {
-    let cost: ProviderCost?
+    let cost: ProviderCost
+
+    @State private var expanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: PopoverStyle.metricInternalSpacing) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Estimated cost")
-                    .font(.body)
-                    .fontWeight(.medium)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+            Button {
+                withAnimation(.easeInOut(duration: 0.12)) { self.expanded.toggle() }
+            } label: {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Estimated cost")
+                        .font(.body)
+                        .fontWeight(.medium)
+                    Spacer()
+                    Image(systemName: self.expanded ? "chevron.down" : "chevron.right")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
             }
-            if let cost = self.cost {
-                Text("Today: \(PopoverFormatter.currency(cost.today)) · \(PopoverFormatter.tokenCount(cost.todayTokens)) tokens")
-                    .font(.footnote)
-                Text("Last 30 days: \(PopoverFormatter.currency(cost.last30Days)) · \(PopoverFormatter.tokenCount(cost.last30DaysTokens)) tokens")
-                    .font(.footnote)
-            } else {
-                // S7 dependency: real data lands in EXB-1.7 (AC16 / Dev Notes).
-                Text("Cost data loading…")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+            .buttonStyle(.plain)
+            .disabled(self.cost.byModel.isEmpty)
+
+            Text("Today: \(PopoverFormatter.currency(self.cost.today)) · \(PopoverFormatter.tokenCount(self.cost.todayTokens)) tokens")
+                .font(.footnote)
+            Text("Last 30 days: \(PopoverFormatter.currency(self.cost.last30Days)) · \(PopoverFormatter.tokenCount(self.cost.last30DaysTokens)) tokens")
+                .font(.footnote)
+
+            if self.expanded, !self.cost.byModel.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(Array(self.cost.byModel.enumerated()), id: \.offset) { _, entry in
+                        Text("\(entry.model): \(PopoverFormatter.currency(entry.cost)) · \(PopoverFormatter.tokenCount(entry.totalTokens)) tokens")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.leading, 8)
+                .padding(.top, 2)
             }
         }
     }

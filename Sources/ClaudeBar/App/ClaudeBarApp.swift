@@ -34,6 +34,21 @@ private final class ClaudeBinaryHolder: Sendable {
     }
 }
 
+/// Thread-safe holder for the live cost-scan settings (EXB-1.7).
+///
+/// The cost scan reads `costEnabled` / `costDays` off-MainActor on every fetch via a `@Sendable`
+/// closure; the MainActor `SettingsStore` writes them whenever the user changes the setting. Same
+/// lock-light pattern as the prompt-policy / binary holders — no actor hop on the fetch path.
+private final class CostSettingsHolder: Sendable {
+    private let lock = OSAllocatedUnfairLock(
+        initialState: LiveUsageProvider.CostSettings(enabled: true, days: 30))
+
+    func get() -> LiveUsageProvider.CostSettings { lock.withLock { $0 } }
+    func set(enabled: Bool, days: Int) {
+        lock.withLock { $0 = LiveUsageProvider.CostSettings(enabled: enabled, days: days) }
+    }
+}
+
 /// Application entry point.
 ///
 /// exímIABar is an `LSUIElement` agent (no Dock icon, no app menu — see `Info.plist`). It uses the
@@ -67,9 +82,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let promptPolicyHolder = PromptPolicyHolder()
     /// Shared `claude` binary source read by the CLI fallback off-MainActor (EXB-1.6).
     private let claudeBinaryHolder = ClaudeBinaryHolder()
+    /// Shared cost-scan settings source read by the cost scanner off-MainActor (EXB-1.7).
+    private let costSettingsHolder = CostSettingsHolder()
     private lazy var provider = LiveUsageProvider(
         promptPolicyProvider: { [promptPolicyHolder] in promptPolicyHolder.get() },
-        claudeBinaryProvider: { [claudeBinaryHolder] in claudeBinaryHolder.resolve() })
+        claudeBinaryProvider: { [claudeBinaryHolder] in claudeBinaryHolder.resolve() },
+        costSettingsProvider: { [costSettingsHolder] in costSettingsHolder.get() })
     private let notificationPoster = SystemNotificationPoster()
     private lazy var appState = AppState(
         fetch: provider.makeFetch(),
@@ -94,6 +112,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         promptPolicyHolder.set(settings.corePromptPolicy)
         // EXB-1.6: seed the off-MainActor CLI binary holder from the persisted override.
         claudeBinaryHolder.set(settings.claudeBinaryPath)
+        // EXB-1.7: seed the off-MainActor cost-settings holder from the persisted settings.
+        costSettingsHolder.set(enabled: settings.costEnabled, days: settings.costDays)
 
         // EXB-1.5: build the settings window controller (opened from the menu action / ⌘,).
         settingsWindowController = SettingsWindowController(
@@ -115,6 +135,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // EXB-1.6: keep the off-MainActor CLI binary holder in lock-step with the live setting.
         settings.onClaudeBinaryChange = { [claudeBinaryHolder] override in
             claudeBinaryHolder.set(override)
+        }
+        // EXB-1.7: keep the off-MainActor cost-settings holder in lock-step, and refresh so a toggle
+        // takes effect immediately (cost section appears/disappears on the next snapshot).
+        settings.onCostSettingsChange = { [weak self, costSettingsHolder] enabled, days in
+            costSettingsHolder.set(enabled: enabled, days: days)
+            self?.appState.triggerRefresh(.userInitiated)
         }
 
         // EXB-1.3: build the popover (NSPanel) and wire its actions. The card reads the live

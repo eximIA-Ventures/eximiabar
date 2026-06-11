@@ -11,22 +11,37 @@ import os
 ///
 /// `Sendable` so its `fetch` closure can cross actor boundaries into `AppState`.
 struct LiveUsageProvider: Sendable {
+    /// The cost-scan settings read fresh per fetch (EXB-1.7 AC9/AC11), off-MainActor.
+    struct CostSettings: Sendable {
+        let enabled: Bool
+        let days: Int
+    }
+
     private let credentials: CredentialsStore
     private let fetcher: UsageFetcher
     private let pipeline: FetchPipeline
     /// Resolves the configured `claude` binary path (Settings override → PATH). Read per fetch so a
     /// settings change is honoured immediately.
     private let claudeBinaryProvider: @Sendable () -> String?
+    /// Resolves the live cost-scan settings (`costEnabled` / `costDays`). Read per fetch so a
+    /// settings change is honoured immediately (EXB-1.7 AC9/AC11).
+    private let costSettingsProvider: @Sendable () -> CostSettings
+    /// The local JSONL cost scanner (EXB-1.7). Invoked off-MainActor after each successful fetch.
+    private let costScanner: CostScanner
     private let log = Logger(subsystem: CoreLog.subsystem, category: "provider")
 
     init(
         credentials: CredentialsStore = CredentialsStore(),
         fetcher: UsageFetcher = UsageFetcher(),
-        claudeBinaryProvider: @escaping @Sendable () -> String? = { nil })
+        claudeBinaryProvider: @escaping @Sendable () -> String? = { nil },
+        costSettingsProvider: @escaping @Sendable () -> CostSettings = { CostSettings(enabled: false, days: 30) },
+        costScanner: CostScanner = .shared)
     {
         self.credentials = credentials
         self.fetcher = fetcher
         self.claudeBinaryProvider = claudeBinaryProvider
+        self.costSettingsProvider = costSettingsProvider
+        self.costScanner = costScanner
         self.pipeline = Self.makePipeline(
             credentials: credentials,
             fetcher: fetcher,
@@ -39,12 +54,16 @@ struct LiveUsageProvider: Sendable {
     init(
         promptPolicyProvider: @escaping @Sendable () -> PromptPolicy,
         fetcher: UsageFetcher = UsageFetcher(),
-        claudeBinaryProvider: @escaping @Sendable () -> String? = { nil })
+        claudeBinaryProvider: @escaping @Sendable () -> String? = { nil },
+        costSettingsProvider: @escaping @Sendable () -> CostSettings = { CostSettings(enabled: false, days: 30) },
+        costScanner: CostScanner = .shared)
     {
         let credentials = CredentialsStore(promptPolicyProvider: promptPolicyProvider)
         self.credentials = credentials
         self.fetcher = fetcher
         self.claudeBinaryProvider = claudeBinaryProvider
+        self.costSettingsProvider = costSettingsProvider
+        self.costScanner = costScanner
         self.pipeline = Self.makePipeline(
             credentials: credentials,
             fetcher: fetcher,
@@ -86,7 +105,19 @@ struct LiveUsageProvider: Sendable {
         let pipeline = self.pipeline
         let credentials = self.credentials
         let claudeBinaryProvider = self.claudeBinaryProvider
+        let costSettingsProvider = self.costSettingsProvider
+        let costScanner = self.costScanner
         let log = self.log
+
+        // EXB-1.7: scan local JSONL logs for an estimated cost, gated by `costEnabled` (AC11). Runs
+        // on the `CostScanner` actor's executor, called from `AppState`'s detached fetch task — so
+        // no file I/O ever touches the MainActor (AC10/AC13). Returns `nil` when disabled (AC11).
+        @Sendable func scanCost() async -> ProviderCost? {
+            let settings = costSettingsProvider()
+            guard settings.enabled else { return nil }
+            return await costScanner.scan(costDays: settings.days)
+        }
+
         return { phase in
             // Plan against what is plausibly available: OAuth from a credential probe, CLI from a
             // resolvable `claude` binary (Settings override → PATH). The planner orders
@@ -100,9 +131,12 @@ struct LiveUsageProvider: Sendable {
                 hasWebSession: false))
 
             let result = await pipeline.run(plan: plan, mode: phase.fetchMode)
+            // EXB-1.7: fold the local cost scan into the snapshot. The scan is independent of the
+            // usage fetch — even on a usage failure we still surface a local cost estimate (AC10).
+            let cost = await scanCost()
             switch result {
             case let .success(usage):
-                return DisplaySnapshot.from(usage, cost: nil, isRefreshing: false)
+                return DisplaySnapshot.from(usage, cost: cost, isRefreshing: false)
             case let .failure(error):
                 log.error("fetch failed: \(error.message, privacy: .public)")
                 // Attach the error to a placeholder so the icon can render the error state (AC8).
@@ -117,7 +151,7 @@ struct LiveUsageProvider: Sendable {
                     updatedAt: Date(),
                     source: .oauth,
                     error: error)
-                return DisplaySnapshot.from(errored, cost: nil, isRefreshing: false)
+                return DisplaySnapshot.from(errored, cost: cost, isRefreshing: false)
             }
         }
     }
