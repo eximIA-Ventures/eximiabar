@@ -14,25 +14,25 @@ enum PopoverFormatter {
         formatter.calendar = calendar
         // `jm` lets the system choose 12h vs 24h based on the user's locale/region preference.
         formatter.setLocalizedDateFormatFromTemplate("jm")
-        return "Resets \(formatter.string(from: resetsAt))"
+        return L("popover.resets", formatter.string(from: resetsAt))
     }
 
     /// `"Updated Xm ago"` for the header status line (AC7). Buckets seconds/minutes/hours/days.
     static func updatedText(from updatedAt: Date, now: Date = .init()) -> String {
         let interval = max(0, now.timeIntervalSince(updatedAt))
         if interval < 45 {
-            return "Updated just now"
+            return L("popover.updated_just_now")
         }
         let minutes = Int((interval / 60).rounded())
         if minutes < 60 {
-            return "Updated \(max(1, minutes))m ago"
+            return L("popover.updated_minutes_ago", max(1, minutes))
         }
         let hours = Int((interval / 3_600).rounded())
         if hours < 24 {
-            return "Updated \(hours)h ago"
+            return L("popover.updated_hours_ago", hours)
         }
         let days = Int((interval / 86_400).rounded())
-        return "Updated \(days)d ago"
+        return L("popover.updated_days_ago", days)
     }
 
     /// `"$222.00"` style currency for the extra-usage / cost lines (AC15/AC16).

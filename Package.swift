@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "ClaudeBar",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v14),
     ],
@@ -28,6 +29,11 @@ let package = Package(
             resources: [
                 .copy("Resources/ProviderIcon-claude.svg"),
                 .copy("Resources/AppIcon.icns"),
+                // EXB-2.2 AC2: ship both localization tables inside the package resource bundle
+                // (`ClaudeBar_ClaudeBar.bundle`). `.copy` preserves the `.lproj` folder structure so
+                // `Bundle.path(forResource:ofType:"lproj")` resolves them at runtime — see Localization.swift.
+                .copy("Resources/en.lproj"),
+                .copy("Resources/pt-BR.lproj"),
             ],
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency"),

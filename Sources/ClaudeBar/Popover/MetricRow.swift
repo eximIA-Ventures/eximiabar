@@ -26,14 +26,14 @@ struct MetricRow: View {
 
             UsageProgressBar(
                 percent: self.window.utilization,
-                accessibilityLabel: "\(self.title) usage",
+                accessibilityLabel: L("popover.metric.usage_accessibility", self.title),
                 pacePercent: self.showPace ? self.paceDetail?.pacePercent : nil,
                 paceReserve: self.paceDetail?.isReserve ?? true,
                 warningMarkerPercents: self.warningMarkerPercents)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("\(Int(self.remaining.rounded()))% left")
+                    Text(L("popover.metric.percent_left", Int(self.remaining.rounded())))
                         .font(.footnote)
                         .lineLimit(1)
                     Spacer()

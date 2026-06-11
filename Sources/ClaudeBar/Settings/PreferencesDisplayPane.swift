@@ -25,12 +25,11 @@ struct PreferencesDisplayPane: View {
 
     private var menuBarSection: some View {
         SettingsSection(contentSpacing: 12) {
-            SectionHeader("Menu Bar")
+            SectionHeader(L("settings.display.section.menu_bar"))
             // AC5: switches `displayMode` between `.meterIcon` and `.brandIconPercent` (F2/P1).
             PreferenceToggleRow(
-                title: "Brand icon + %",
-                subtitle: "Show the Claude brand icon with the remaining percentage instead of the "
-                    + "meter icon.",
+                title: L("settings.display.brand_icon"),
+                subtitle: L("settings.display.brand_icon.subtitle"),
                 binding: brandIconBinding)
         }
     }
@@ -46,28 +45,28 @@ struct PreferencesDisplayPane: View {
 
     private var menuContentSection: some View {
         SettingsSection(contentSpacing: 12) {
-            SectionHeader("Menu Content")
+            SectionHeader(L("settings.display.section.menu_content"))
 
             PreferenceToggleRow(
-                title: "Show usage as used",
-                subtitle: "Bars fill with consumed quota. Turn off to show remaining instead.",
+                title: L("settings.display.show_used"),
+                subtitle: L("settings.display.show_used.subtitle"),
                 binding: $settings.showUsed)
 
             PreferenceToggleRow(
-                title: "Reset time as clock",
-                subtitle: "Show \"Resets 14:00\" instead of \"Resets in 2h 15m\".",
+                title: L("settings.display.reset_clock"),
+                subtitle: L("settings.display.reset_clock.subtitle"),
                 binding: $settings.showAbsoluteReset)
 
             PreferenceToggleRow(
-                title: "Warning markers",
-                subtitle: "Show threshold dashes on the usage bars.",
+                title: L("settings.display.warning_markers"),
+                subtitle: L("settings.display.warning_markers.subtitle"),
                 binding: $settings.showWarningMarkers)
 
             LabelledRow(
-                title: "Workday markers",
-                subtitle: "Pace markers on the weekly bar.")
+                title: L("settings.display.workday_markers"),
+                subtitle: L("settings.display.workday_markers.subtitle"))
             {
-                Picker("Workday markers", selection: $settings.workdayMarkers) {
+                Picker(L("settings.display.workday_markers"), selection: $settings.workdayMarkers) {
                     ForEach(WorkdayMarkers.allCases) { marker in
                         Text(marker.label).tag(marker)
                     }

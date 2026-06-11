@@ -36,12 +36,12 @@ enum RefreshCadence: String, Sendable, Equatable, CaseIterable, Identifiable {
     /// Picker label (AC3).
     var label: String {
         switch self {
-        case .manual: "Manual"
-        case .min1: "Every 1 min"
-        case .min2: "Every 2 min"
-        case .min5: "Every 5 min"
-        case .min15: "Every 15 min"
-        case .min30: "Every 30 min"
+        case .manual: L("settings.cadence.manual")
+        case .min1: L("settings.cadence.min1")
+        case .min2: L("settings.cadence.min2")
+        case .min5: L("settings.cadence.min5")
+        case .min15: L("settings.cadence.min15")
+        case .min30: L("settings.cadence.min30")
         }
     }
 }
@@ -60,9 +60,9 @@ enum KeychainPromptPolicy: String, Sendable, Equatable, CaseIterable, Identifiab
 
     var label: String {
         switch self {
-        case .never: "Never"
-        case .onUserAction: "Only on user action"
-        case .always: "Always"
+        case .never: L("settings.claude.policy.never")
+        case .onUserAction: L("settings.claude.policy.on_user_action")
+        case .always: L("settings.claude.policy.always")
         }
     }
 
@@ -72,6 +72,26 @@ enum KeychainPromptPolicy: String, Sendable, Equatable, CaseIterable, Identifiab
         case .never: .never
         case .onUserAction: .onUserAction
         case .always: .always
+        }
+    }
+}
+
+/// App language preference (EXB-2.2 AC3/AC4). Persisted as its raw string in `UserDefaults` under
+/// `"appLanguage"`: `""` (System), `"en"`, or `"pt-BR"`. `system` follows the macOS language.
+enum AppLanguage: String, Sendable, Equatable, CaseIterable, Identifiable {
+    case system = ""
+    case english = "en"
+    case portuguese = "pt-BR"
+
+    var id: String { rawValue }
+
+    /// Localized display label for the picker (AC3). Resolved through `L(…)` so the option names
+    /// themselves adapt to the active language.
+    var label: String {
+        switch self {
+        case .system: L("settings.general.language.system")
+        case .english: L("settings.general.language.english")
+        case .portuguese: L("settings.general.language.portuguese")
         }
     }
 }
@@ -87,10 +107,10 @@ enum WorkdayMarkers: String, Sendable, Equatable, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .off: "Off"
-        case .fourDay: "4 days"
-        case .fiveDay: "5 days"
-        case .sevenDay: "7 days"
+        case .off: L("settings.display.workday.off")
+        case .fourDay: L("settings.display.workday.four_day")
+        case .fiveDay: L("settings.display.workday.five_day")
+        case .sevenDay: L("settings.display.workday.seven_day")
         }
     }
 
@@ -119,6 +139,28 @@ enum WorkdayMarkers: String, Sendable, Equatable, CaseIterable, Identifiable {
 @Observable
 final class SettingsStore {
     // MARK: - General (AC3)
+
+    /// App language (EXB-2.2 AC3/AC4). Persisted under `UserDefaults` key `"appLanguage"` as the raw
+    /// string (`""`/`"en"`/`"pt-BR"`). Default `.system`.
+    ///
+    /// **Switch mechanism — Option A (in-process, no relaunch):** changing this resets the
+    /// localization bundle cache (`resetClaudeBarLocalizationCache()`), `UserDefaults` already holds
+    /// the new value that `L(…)` reads, and `onAppLanguageChange` lets the app force a UI repaint. Every
+    /// SwiftUI body resolves its strings through `L(…)`; because this property is `@Observable`, the
+    /// views that read it re-render immediately and pick up the new `.lproj` table. No `Process`
+    /// relaunch and no confirmation dialog (the path AC6 describes for Option B) are used — see
+    /// `Localization.swift` for the resolver.
+    var appLanguage: AppLanguage = .system {
+        didSet {
+            guard appLanguage != oldValue else { return }
+            // Persist eagerly so `L(…)` (which reads `UserDefaults` directly) sees the new value the
+            // instant the cache is dropped, then drop the cache and notify the app to repaint.
+            defaults.set(appLanguage.rawValue, forKey: Key.appLanguage)
+            resetClaudeBarLocalizationCache()
+            onAppLanguageChange?(appLanguage)
+            scheduleSave()
+        }
+    }
 
     /// Refresh timer cadence. Default 5 minutes. Changing this restarts the `AppState` timer (AC3).
     var refreshCadence: RefreshCadence = .min5 {
@@ -236,6 +278,10 @@ final class SettingsStore {
 
     // MARK: - Callbacks
 
+    /// Invoked when `appLanguage` changes so the app can force an immediate UI repaint (EXB-2.2 AC5,
+    /// Option A in-process switch). The bundle cache is already reset by the `didSet`.
+    var onAppLanguageChange: (@MainActor (AppLanguage) -> Void)?
+
     /// Invoked when `refreshCadence` changes so `AppState` can restart the timer (AC3).
     var onRefreshCadenceChange: (@MainActor (RefreshCadence) -> Void)?
 
@@ -328,6 +374,8 @@ final class SettingsStore {
     // MARK: - Keys
 
     private enum Key {
+        /// EXB-2.2 AC4 — the stable, un-namespaced key the localization engine reads directly.
+        static let appLanguage = "appLanguage"
         static let refreshCadence = "settings.refreshCadence"
         static let launchAtLogin = "settings.launchAtLogin"
         static let notificationsEnabled = "settings.notificationsEnabled"
@@ -350,6 +398,7 @@ final class SettingsStore {
 
     /// Immutable, `Sendable` carrier of every persisted value so the write can hop off-main (AC8).
     private struct PersistedSnapshot: Sendable {
+        let appLanguage: String
         let refreshCadence: String
         let launchAtLogin: Bool
         let notificationsEnabled: Bool
@@ -370,6 +419,7 @@ final class SettingsStore {
         let workdayMarkers: String
 
         func write(to defaults: UserDefaults) {
+            defaults.set(appLanguage, forKey: Key.appLanguage)
             defaults.set(refreshCadence, forKey: Key.refreshCadence)
             defaults.set(launchAtLogin, forKey: Key.launchAtLogin)
             defaults.set(notificationsEnabled, forKey: Key.notificationsEnabled)
@@ -395,6 +445,7 @@ final class SettingsStore {
 
     private func persistedSnapshot() -> PersistedSnapshot {
         PersistedSnapshot(
+            appLanguage: appLanguage.rawValue,
             refreshCadence: refreshCadence.rawValue,
             launchAtLogin: launchAtLogin,
             notificationsEnabled: notificationsEnabled,
@@ -418,6 +469,10 @@ final class SettingsStore {
     /// Hydrate from `UserDefaults`. Missing keys keep the code default (AC8 — settings survive
     /// restart; a fresh install starts at the documented defaults). The caller owns `isLoading`.
     private func load() {
+        if let raw = defaults.string(forKey: Key.appLanguage),
+           let value = AppLanguage(rawValue: raw) {
+            appLanguage = value
+        }
         if let raw = defaults.string(forKey: Key.refreshCadence),
            let value = RefreshCadence(rawValue: raw) {
             refreshCadence = value

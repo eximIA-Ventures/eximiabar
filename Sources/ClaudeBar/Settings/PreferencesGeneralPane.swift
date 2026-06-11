@@ -35,10 +35,29 @@ struct PreferencesGeneralPane: View {
 
     private var systemSection: some View {
         SettingsSection(contentSpacing: 12) {
-            SectionHeader("System")
+            SectionHeader(L("settings.general.section.system"))
+
+            // EXB-2.2 AC3: the Language / Idioma picker. Three options (System / English / Português).
+            // The label and the option titles are themselves localized so they adapt to the active
+            // language. The binding is `settings.appLanguage`, whose `didSet` performs the in-process
+            // (Option A) switch — see `SettingsStore.appLanguage`.
+            LabelledRow(
+                title: L("settings.general.language"),
+                subtitle: L("settings.general.language.subtitle"))
+            {
+                Picker(L("settings.general.language"), selection: $settings.appLanguage) {
+                    ForEach(AppLanguage.allCases) { language in
+                        Text(language.label).tag(language)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: 200)
+            }
+
             PreferenceToggleRow(
-                title: "Launch at Login",
-                subtitle: "Start exímIABar automatically when you log in.",
+                title: L("settings.general.launch_at_login"),
+                subtitle: L("settings.general.launch_at_login.subtitle"),
                 binding: launchBinding)
             if let launchError {
                 Text(launchError)
@@ -63,7 +82,7 @@ struct PreferencesGeneralPane: View {
                 } catch {
                     // Keep the persisted state in sync with reality and tell the user.
                     settings.launchAtLogin = launchManager.isEnabled
-                    launchError = "Couldn't update login item: \(error.localizedDescription)"
+                    launchError = L("settings.general.launch_error", error.localizedDescription)
                 }
             })
     }
@@ -72,13 +91,13 @@ struct PreferencesGeneralPane: View {
 
     private var automationSection: some View {
         SettingsSection(contentSpacing: 12) {
-            SectionHeader("Automation")
+            SectionHeader(L("settings.general.section.automation"))
 
             LabelledRow(
-                title: "Refresh Cadence",
-                subtitle: "How often usage is polled in the background.")
+                title: L("settings.general.refresh_cadence"),
+                subtitle: L("settings.general.refresh_cadence.subtitle"))
             {
-                Picker("Refresh Cadence", selection: $settings.refreshCadence) {
+                Picker(L("settings.general.refresh_cadence"), selection: $settings.refreshCadence) {
                     ForEach(RefreshCadence.allCases) { cadence in
                         Text(cadence.label).tag(cadence)
                     }
@@ -88,22 +107,22 @@ struct PreferencesGeneralPane: View {
                 .frame(maxWidth: 200)
             }
             if settings.refreshCadence == .manual {
-                Text("Usage only refreshes on launch or when you open the menu.")
+                Text(L("settings.general.refresh_cadence.manual_note"))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
 
             PreferenceToggleRow(
-                title: "Quota notifications",
-                subtitle: "Warn when remaining quota drops below a threshold.",
+                title: L("settings.general.notifications"),
+                subtitle: L("settings.general.notifications.subtitle"),
                 binding: $settings.notificationsEnabled)
 
             if settings.notificationsEnabled {
                 VStack(alignment: .leading, spacing: 10) {
-                    ThresholdPairField(title: "Session warn at", thresholds: $settings.sessionThresholds)
-                    ThresholdPairField(title: "Weekly warn at", thresholds: $settings.weeklyThresholds)
+                    ThresholdPairField(title: L("settings.threshold.session"), thresholds: $settings.sessionThresholds)
+                    ThresholdPairField(title: L("settings.threshold.weekly"), thresholds: $settings.weeklyThresholds)
                     PreferenceToggleRow(
-                        title: "Play sound",
+                        title: L("settings.general.play_sound"),
                         subtitle: nil,
                         binding: $settings.notificationSound)
                 }
@@ -116,22 +135,26 @@ struct PreferencesGeneralPane: View {
 
     private var usageSection: some View {
         SettingsSection(contentSpacing: 12) {
-            SectionHeader("Usage")
+            SectionHeader(L("settings.general.section.usage"))
             VStack(alignment: .leading, spacing: 4) {
                 Toggle(isOn: $settings.costEnabled) {
-                    Text("Show cost summary")
+                    Text(L("settings.general.show_cost"))
                         .font(.body)
                 }
                 .toggleStyle(.checkbox)
 
-                Text("Scans local Claude usage logs to estimate spend. Nothing leaves your Mac.")
+                Text(L("settings.general.show_cost.subtitle"))
                     .font(.footnote)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 if settings.costEnabled {
                     Stepper(value: $settings.costDays, in: 1...365, step: 1) {
-                        Text("History: \(settings.costDays) day\(settings.costDays == 1 ? "" : "s")")
+                        Text(L(
+                            settings.costDays == 1
+                                ? "settings.general.history_one"
+                                : "settings.general.history_other",
+                            settings.costDays))
                             .font(.footnote)
                     }
                     .padding(.top, 4)
@@ -146,7 +169,7 @@ struct PreferencesGeneralPane: View {
         SettingsSection(contentSpacing: 12) {
             HStack {
                 Spacer()
-                Button("Quit exímIABar") { NSApp.terminate(nil) }
+                Button(L("settings.general.quit")) { NSApp.terminate(nil) }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
             }

@@ -30,8 +30,8 @@ final class StatusItemController {
         if let button = statusItem.button {
             // AC3/AC2: render the template at 1:1, no resampling (crisper edges).
             button.imageScaling = .scaleNone
-            button.setAccessibilityTitle("exímIABar")
-            button.toolTip = "exímIABar"
+            button.setAccessibilityTitle(L("statusitem.tooltip"))
+            button.toolTip = L("statusitem.tooltip")
             button.target = self
             button.action = #selector(handleClick)
         }

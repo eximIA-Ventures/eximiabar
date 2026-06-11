@@ -32,42 +32,42 @@ enum UsagePaceText {
     private static func primaryLabel(for pace: UsagePace) -> String {
         switch pace.status {
         case .onPace:
-            return "On pace"
+            return L("popover.pace.on_pace")
         case let .deficit(value):
-            return "\(Int(abs(value).rounded()))% in deficit"
+            return L("popover.pace.deficit", Int(abs(value).rounded()))
         case let .reserve(value):
-            return "\(Int(abs(value).rounded()))% in reserve"
+            return L("popover.pace.reserve", Int(abs(value).rounded()))
         }
     }
 
     private static func secondaryLabel(for pace: UsagePace, now: Date) -> String? {
         if pace.lastsUntilReset {
-            return "Lasts until reset"
+            return L("popover.pace.lasts_until_reset")
         }
         guard let runOut = pace.projectedRunOut else { return nil }
         let remaining = runOut.timeIntervalSince(now)
         if remaining <= 0 {
-            return "Runs out now"
+            return L("popover.pace.runs_out_now")
         }
-        return "Runs out in \(self.durationText(seconds: remaining))"
+        return L("popover.pace.runs_out_in", self.durationText(seconds: remaining))
     }
 
     /// Format a positive interval as `"Xd Yh"`, dropping a zero day component when under a day and
     /// falling back to `"now"` for sub-minute intervals. Matches AC13 wording (`Runs out in Xd Yh`).
     static func durationText(seconds: TimeInterval) -> String {
         let total = Int(seconds.rounded())
-        if total < 60 { return "now" }
+        if total < 60 { return L("popover.pace.duration_now") }
 
         let days = total / 86_400
         let hours = (total % 86_400) / 3_600
         let minutes = (total % 3_600) / 60
 
         if days > 0 {
-            return "\(days)d \(hours)h"
+            return L("popover.pace.duration_days_hours", days, hours)
         }
         if hours > 0 {
-            return "\(hours)h \(minutes)m"
+            return L("popover.pace.duration_hours_minutes", hours, minutes)
         }
-        return "\(minutes)m"
+        return L("popover.pace.duration_minutes", minutes)
     }
 }

@@ -22,18 +22,22 @@ struct SettingsRootView: View {
     var body: some View {
         TabView {
             PreferencesGeneralPane(settings: settings, launchManager: launchManager)
-                .tabItem { Label("General", systemImage: "gearshape") }
+                .tabItem { Label(L("settings.tab.general"), systemImage: "gearshape") }
 
             PreferencesClaudePane(settings: settings)
-                .tabItem { Label("Claude", systemImage: "key") }
+                .tabItem { Label(L("settings.tab.claude"), systemImage: "key") }
 
             PreferencesDisplayPane(settings: settings)
-                .tabItem { Label("Display", systemImage: "menubar.rectangle") }
+                .tabItem { Label(L("settings.tab.display"), systemImage: "menubar.rectangle") }
 
             PreferencesAboutPane()
-                .tabItem { Label("About", systemImage: "info.circle") }
+                .tabItem { Label(L("settings.tab.about"), systemImage: "info.circle") }
         }
         .padding(.top, Self.titlebarInset)
         .frame(width: 546, height: 638 + Self.titlebarInset)
+        // EXB-2.2 AC5/AC7 (Option A): `L(…)` reads the active `.lproj` table, not an `@Observable`
+        // property, so keying the subtree on the selected language is what forces SwiftUI to rebuild
+        // every localized body the instant the picker changes — an immediate, relaunch-free switch.
+        .id(settings.appLanguage)
     }
 }

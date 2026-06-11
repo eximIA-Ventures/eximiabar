@@ -42,7 +42,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
             backing: .buffered,
             defer: false)
-        window.title = "exímIABar Settings"
+        window.title = L("settings.window.title")
         window.setContentSize(contentSize)
         window.isReleasedWhenClosed = false
         window.delegate = self

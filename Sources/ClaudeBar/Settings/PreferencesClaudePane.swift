@@ -16,10 +16,10 @@ struct PreferencesClaudePane: View {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .auto: "Auto"
-            case .oauth: "OAuth"
-            case .cli: "CLI"
-            case .web: "Web"
+            case .auto: L("settings.claude.source.auto")
+            case .oauth: L("settings.claude.source.oauth")
+            case .cli: L("settings.claude.source.cli")
+            case .web: L("settings.claude.source.web")
             }
         }
     }
@@ -43,12 +43,12 @@ struct PreferencesClaudePane: View {
 
     private var sourceSection: some View {
         SettingsSection(contentSpacing: 12) {
-            SectionHeader("Credential Source")
+            SectionHeader(L("settings.claude.section.source"))
             LabelledRow(
-                title: "Source",
-                subtitle: "Where exímIABar reads your Claude usage from.")
+                title: L("settings.claude.source"),
+                subtitle: L("settings.claude.source.subtitle"))
             {
-                Picker("Source", selection: sourceBinding) {
+                Picker(L("settings.claude.source"), selection: sourceBinding) {
                     ForEach(SourceChoice.allCases) { choice in
                         Text(choice.label)
                             .tag(choice)
@@ -59,7 +59,7 @@ struct PreferencesClaudePane: View {
                 .frame(maxWidth: 200)
             }
             // Web is P2 (out of scope) — surfaced but disabled so the option is visible/greyed.
-            Text("Web is not yet available (P2).")
+            Text(L("settings.claude.source.web_note"))
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
         }
@@ -90,20 +90,19 @@ struct PreferencesClaudePane: View {
 
     private var keychainSection: some View {
         SettingsSection(contentSpacing: 12) {
-            SectionHeader("Keychain")
+            SectionHeader(L("settings.claude.section.keychain"))
             PreferenceToggleRow(
-                title: "Avoid keychain prompts",
-                subtitle: "Read credentials via the security CLI (1.5 s timeout) instead of the "
-                    + "Security framework, which can show a system prompt.",
+                title: L("settings.claude.avoid_prompts"),
+                subtitle: L("settings.claude.avoid_prompts.subtitle"),
                 binding: $settings.useSecurityCLIReader)
 
             // AC4: the prompt-policy picker is only visible when the security CLI reader is ON.
             if settings.useSecurityCLIReader {
                 LabelledRow(
-                    title: "Keychain prompt policy",
-                    subtitle: "When a keychain dialog may be raised.")
+                    title: L("settings.claude.prompt_policy"),
+                    subtitle: L("settings.claude.prompt_policy.subtitle"))
                 {
-                    Picker("Keychain prompt policy", selection: $settings.keychainPromptPolicy) {
+                    Picker(L("settings.claude.prompt_policy"), selection: $settings.keychainPromptPolicy) {
                         ForEach(KeychainPromptPolicy.allCases) { policy in
                             Text(policy.label).tag(policy)
                         }
@@ -120,25 +119,24 @@ struct PreferencesClaudePane: View {
 
     private var advancedSection: some View {
         SettingsSection(contentSpacing: 12) {
-            SectionHeader("Per-window warnings")
-            ThresholdPairField(title: "Session warn at", thresholds: $settings.sessionThresholds)
-            ThresholdPairField(title: "Weekly warn at", thresholds: $settings.weeklyThresholds)
+            SectionHeader(L("settings.claude.section.per_window"))
+            ThresholdPairField(title: L("settings.threshold.session"), thresholds: $settings.sessionThresholds)
+            ThresholdPairField(title: L("settings.threshold.weekly"), thresholds: $settings.weeklyThresholds)
 
-            DisclosureGroup("Developer") {
+            DisclosureGroup(L("settings.claude.developer")) {
                 VStack(alignment: .leading, spacing: 12) {
                     PreferenceToggleRow(
-                        title: "Web extras",
-                        subtitle: "Fetch an extra window-enrichment call from claude.ai on top of "
-                            + "OAuth. Stubbed in this build — toggling it logs and skips.",
+                        title: L("settings.claude.web_extras"),
+                        subtitle: L("settings.claude.web_extras.subtitle"),
                         binding: $settings.webExtrasEnabled)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Custom claude binary path")
+                        Text(L("settings.claude.custom_binary"))
                             .font(.body)
-                        TextField("/usr/local/bin/claude", text: claudeBinaryBinding)
+                        TextField(L("settings.claude.custom_binary.placeholder"), text: claudeBinaryBinding)
                             .textFieldStyle(.roundedBorder)
                             .font(.footnote)
-                        Text("For debugging the CLI source. Leave empty to use the default lookup.")
+                        Text(L("settings.claude.custom_binary.subtitle"))
                             .font(.footnote)
                             .foregroundStyle(.tertiary)
                     }

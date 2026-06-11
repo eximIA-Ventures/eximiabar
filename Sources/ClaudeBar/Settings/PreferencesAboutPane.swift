@@ -24,11 +24,11 @@ struct PreferencesAboutPane: View {
             iconButton
 
             VStack(spacing: 2) {
-                Text("exímIABar")
+                Text(L("about.app_name"))
                     .font(.title3).bold()
-                Text("Version \(versionString)")
+                Text(L("about.version", versionString))
                     .foregroundStyle(.secondary)
-                Text("Live Claude rate-limit monitor for your menu bar.")
+                Text(L("about.tagline"))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -37,11 +37,11 @@ struct PreferencesAboutPane: View {
             VStack(alignment: .center, spacing: 10) {
                 AboutLinkRow(
                     icon: "chevron.left.slash.chevron.right",
-                    title: "GitHub",
+                    title: L("about.github"),
                     url: Self.repoURL)
                 AboutLinkRow(
                     icon: "doc.text",
-                    title: "License",
+                    title: L("about.license"),
                     url: "\(Self.repoURL)/blob/main/LICENSE")
             }
             .padding(.top, 8)
@@ -50,7 +50,7 @@ struct PreferencesAboutPane: View {
 
             Divider()
 
-            Text("Based on CodexBar by Peter Steinberger (MIT).")
+            Text(L("about.attribution"))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

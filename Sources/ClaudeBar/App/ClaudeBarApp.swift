@@ -134,6 +134,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.onKeychainPolicyChange = { [promptPolicyHolder] policy in
             promptPolicyHolder.set(policy)
         }
+        // EXB-2.2 AC5/AC7 (Option A): on a language switch, repaint the menu-bar status item and the
+        // installed main menu immediately. The bundle cache was already reset inside the store's
+        // `didSet`; the open Settings window re-renders via `SettingsRootView.id(appLanguage)` and the
+        // popover rebuilds its card the next time it is opened. No relaunch.
+        settings.onAppLanguageChange = { [weak self] _ in
+            guard let self else { return }
+            self.installSettingsShortcutMenu()
+            self.statusItemController?.update(snapshot: self.appState.snapshot)
+        }
         // EXB-1.6: keep the off-MainActor CLI binary holder in lock-step with the live setting.
         settings.onClaudeBinaryChange = { [claudeBinaryHolder] override in
             claudeBinaryHolder.set(override)
@@ -197,7 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appMenuItem.submenu = appMenu
 
         let settingsItem = NSMenuItem(
-            title: "Settings…",
+            title: L("popover.settings"),
             action: #selector(openSettingsFromMenu),
             keyEquivalent: ",")
         settingsItem.target = self

@@ -58,7 +58,7 @@ private struct HeaderSection: View {
         VStack(alignment: .leading, spacing: PopoverStyle.headerLineSpacing) {
             // Line 1: "Claude" + email.
             HStack(alignment: .firstTextBaseline, spacing: PopoverStyle.headerColumnSpacing) {
-                Text("Claude")
+                Text(L("popover.provider_name"))
                     .font(.headline)
                     .fontWeight(.semibold)
                     .lineLimit(1)
@@ -106,7 +106,7 @@ private struct StatusLine: View {
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
         } else if self.snapshot?.isRefreshing == true {
-            Text("Refreshing…")
+            Text(L("popover.refreshing"))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -116,7 +116,7 @@ private struct StatusLine: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         } else {
-            Text("Not fetched yet")
+            Text(L("popover.not_fetched_yet"))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -149,7 +149,7 @@ private struct CopyIconButton: View {
                 .frame(width: 18, height: 18)
         }
         .buttonStyle(PressScaleButtonStyle())
-        .accessibilityLabel(self.didCopy ? "Copied" : "Copy error")
+        .accessibilityLabel(self.didCopy ? L("popover.copied") : L("popover.copy_error"))
     }
 }
 
@@ -174,12 +174,12 @@ private struct MetricsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: PopoverStyle.metricRowSpacing) {
             if let session = self.snapshot?.session {
-                MetricRow(title: "Session", window: session)
+                MetricRow(title: L("popover.metric.session"), window: session)
             }
             if let weekly = self.snapshot?.weekly {
                 let pace = self.weeklyPace
                 MetricRow(
-                    title: "Weekly",
+                    title: L("popover.metric.weekly"),
                     window: weekly,
                     showPace: pace != nil,
                     pace: pace,
@@ -187,11 +187,11 @@ private struct MetricsSection: View {
             }
             // Sonnet (AC11): hidden when nil.
             if let sonnet = self.snapshot?.sonnet {
-                MetricRow(title: "Sonnet", window: sonnet)
+                MetricRow(title: L("popover.metric.sonnet"), window: sonnet)
             }
             // Daily Routines (AC12): conditional.
             if let daily = self.snapshot?.dailyRoutines {
-                MetricRow(title: "Daily Routines", window: daily)
+                MetricRow(title: L("popover.metric.daily_routines"), window: daily)
             }
         }
     }
@@ -210,18 +210,21 @@ private struct ExtraUsageSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: PopoverStyle.metricInternalSpacing) {
-            Text("Extra usage")
+            Text(L("popover.extra.title"))
                 .font(.body)
                 .fontWeight(.medium)
             UsageProgressBar(
                 percent: self.percentUsed,
                 tint: Color(nsColor: .systemOrange),
-                accessibilityLabel: "Extra usage spent")
+                accessibilityLabel: L("popover.extra.spent_label"))
             HStack(alignment: .firstTextBaseline) {
-                Text("This month: \(PopoverFormatter.currency(self.extra.usedCredits)) / \(PopoverFormatter.currency(self.extra.monthlyLimit))")
+                Text(L(
+                    "popover.extra.this_month",
+                    PopoverFormatter.currency(self.extra.usedCredits),
+                    PopoverFormatter.currency(self.extra.monthlyLimit)))
                     .font(.footnote)
                 Spacer()
-                Text("\(Int(self.percentUsed.rounded()))% used")
+                Text(L("popover.extra.percent_used", Int(self.percentUsed.rounded())))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -244,7 +247,7 @@ private struct CostSection: View {
                 withAnimation(.easeInOut(duration: 0.12)) { self.expanded.toggle() }
             } label: {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("Estimated cost")
+                    Text(L("popover.cost.title"))
                         .font(.body)
                         .fontWeight(.medium)
                     Spacer()
@@ -257,15 +260,25 @@ private struct CostSection: View {
             .buttonStyle(.plain)
             .disabled(self.cost.byModel.isEmpty)
 
-            Text("Today: \(PopoverFormatter.currency(self.cost.today)) · \(PopoverFormatter.tokenCount(self.cost.todayTokens)) tokens")
+            Text(L(
+                "popover.cost.today",
+                PopoverFormatter.currency(self.cost.today),
+                PopoverFormatter.tokenCount(self.cost.todayTokens)))
                 .font(.footnote)
-            Text("Last 30 days: \(PopoverFormatter.currency(self.cost.last30Days)) · \(PopoverFormatter.tokenCount(self.cost.last30DaysTokens)) tokens")
+            Text(L(
+                "popover.cost.last_30_days",
+                PopoverFormatter.currency(self.cost.last30Days),
+                PopoverFormatter.tokenCount(self.cost.last30DaysTokens)))
                 .font(.footnote)
 
             if self.expanded, !self.cost.byModel.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(self.cost.byModel.enumerated()), id: \.offset) { _, entry in
-                        Text("\(entry.model): \(PopoverFormatter.currency(entry.cost)) · \(PopoverFormatter.tokenCount(entry.totalTokens)) tokens")
+                        Text(L(
+                            "popover.cost.model_line",
+                            entry.model,
+                            PopoverFormatter.currency(entry.cost),
+                            PopoverFormatter.tokenCount(entry.totalTokens)))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -285,18 +298,18 @@ private struct ActionSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ActionRow(symbol: "arrow.clockwise", label: "Refresh Now", shortcut: "⌘R", action: self.actions.refresh)
-            ActionRow(symbol: "chart.bar", label: "Usage Dashboard", shortcut: nil, action: self.actions.openUsageDashboard)
-            ActionRow(symbol: "dot.radiowaves.up.forward", label: "Status Page", shortcut: nil, action: self.actions.openStatusPage)
+            ActionRow(symbol: "arrow.clockwise", label: L("popover.refresh_now"), shortcut: "⌘R", action: self.actions.refresh)
+            ActionRow(symbol: "chart.bar", label: L("popover.usage_dashboard"), shortcut: nil, action: self.actions.openUsageDashboard)
+            ActionRow(symbol: "dot.radiowaves.up.forward", label: L("popover.status_page"), shortcut: nil, action: self.actions.openStatusPage)
             if self.showRelogin {
                 ActionRow(
                     symbol: "person.crop.circle.badge.exclamationmark",
-                    label: "Re-login at claude.ai",
+                    label: L("popover.relogin"),
                     shortcut: nil,
                     action: self.actions.openRelogin)
             }
-            ActionRow(symbol: "gearshape", label: "Settings…", shortcut: "⌘,", action: self.actions.openSettings)
-            ActionRow(symbol: "power", label: "Quit", shortcut: "⌘Q", action: self.actions.quit)
+            ActionRow(symbol: "gearshape", label: L("popover.settings"), shortcut: "⌘,", action: self.actions.openSettings)
+            ActionRow(symbol: "power", label: L("popover.quit"), shortcut: "⌘Q", action: self.actions.quit)
         }
     }
 }

@@ -168,7 +168,7 @@ struct ThresholdPairField: View {
                 .font(.footnote.weight(.semibold))
                 .frame(width: 110, alignment: .leading)
 
-            Text("Upper")
+            Text(L("settings.threshold.upper"))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             TextField("50", text: self.$upperText)
@@ -180,7 +180,7 @@ struct ThresholdPairField: View {
                 }
                 .onSubmit { self.commit() }
 
-            Text("Lower")
+            Text(L("settings.threshold.lower"))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             TextField("20", text: self.$lowerText)
@@ -192,7 +192,7 @@ struct ThresholdPairField: View {
                 }
                 .onSubmit { self.commit() }
 
-            Button("Apply") { self.commit() }
+            Button(L("settings.threshold.apply")) { self.commit() }
                 .controlSize(.small)
         }
         .onAppear { self.sync(from: self.thresholds) }

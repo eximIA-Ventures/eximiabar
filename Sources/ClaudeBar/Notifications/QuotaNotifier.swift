@@ -11,8 +11,8 @@ enum WindowKind: String, Sendable, Equatable, CaseIterable {
     /// Human label used in notification bodies ("Session" / "Weekly").
     var label: String {
         switch self {
-        case .session: "Session"
-        case .weekly: "Weekly"
+        case .session: L("notification.window.session")
+        case .weekly: L("notification.window.weekly")
         }
     }
 }
@@ -198,8 +198,8 @@ final class QuotaNotifier {
         self.playSoundIfEnabled(settings)
         self.poster.post(
             idPrefix: "depleted-\(window.rawValue)",
-            title: "Claude",
-            body: "Claude \(window.label) quota exhausted",
+            title: L("popover.provider_name"),
+            body: L("notification.quota_exhausted", window.label),
             soundEnabled: false)
     }
 
@@ -207,8 +207,8 @@ final class QuotaNotifier {
         self.playSoundIfEnabled(settings)
         self.poster.post(
             idPrefix: "restored-\(window.rawValue)",
-            title: "Claude",
-            body: "Claude \(window.label) quota restored",
+            title: L("popover.provider_name"),
+            body: L("notification.quota_restored", window.label),
             soundEnabled: false)
     }
 
@@ -222,8 +222,8 @@ final class QuotaNotifier {
         self.playSoundIfEnabled(settings)
         self.poster.post(
             idPrefix: "threshold-\(window.rawValue)-\(threshold)",
-            title: "Claude",
-            body: "Claude \(window.label) at \(percent)% remaining",
+            title: L("popover.provider_name"),
+            body: L("notification.quota_remaining", window.label, percent),
             soundEnabled: false)
     }
 

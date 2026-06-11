@@ -1,0 +1,168 @@
+/* exímIABar — Português (Brasil).
+   Mesmas chaves do en.lproj (convenção `<tela>.<elemento>`, EXB-2.2 AC8). */
+
+/* MARK: - Cabeçalho / status do popover */
+"popover.provider_name"        = "Claude";
+"popover.refreshing"           = "Atualizando…";
+"popover.not_fetched_yet"      = "Ainda não buscado";
+"popover.copied"               = "Copiado";
+"popover.copy_error"           = "Copiar erro";
+"popover.updated_just_now"     = "Atualizado agora";
+"popover.updated_minutes_ago"  = "Atualizado há %dmin";
+"popover.updated_hours_ago"    = "Atualizado há %dh";
+"popover.updated_days_ago"     = "Atualizado há %dd";
+"popover.resets"               = "Renova %@";
+
+/* MARK: - Linhas de métricas */
+"popover.metric.session"       = "Sessão";
+"popover.metric.weekly"        = "Semanal";
+"popover.metric.sonnet"        = "Sonnet";
+"popover.metric.daily_routines" = "Rotinas Diárias";
+"popover.metric.percent_left"  = "%d%% restante";
+"popover.metric.usage_accessibility" = "Uso de %@";
+
+/* MARK: - Linhas de ritmo (pace) */
+"popover.pace.on_pace"         = "No ritmo";
+"popover.pace.deficit"         = "%d%% em déficit";
+"popover.pace.reserve"         = "%d%% em reserva";
+"popover.pace.lasts_until_reset" = "Dura até a renovação";
+"popover.pace.runs_out_now"    = "Esgota agora";
+"popover.pace.runs_out_in"     = "Esgota em %@";
+"popover.pace.duration_now"    = "agora";
+"popover.pace.duration_days_hours" = "%1$dd %2$dh";
+"popover.pace.duration_hours_minutes" = "%1$dh %2$dmin";
+"popover.pace.duration_minutes" = "%dmin";
+
+/* MARK: - Uso extra */
+"popover.extra.title"          = "Uso extra";
+"popover.extra.spent_label"    = "Uso extra consumido";
+"popover.extra.this_month"     = "Este mês: %1$@ / %2$@";
+"popover.extra.percent_used"   = "%d%% usado";
+
+/* MARK: - Custo */
+"popover.cost.title"           = "Custo estimado";
+"popover.cost.today"           = "Hoje: %1$@ · %2$@ tokens";
+"popover.cost.last_30_days"    = "Últimos 30 dias: %1$@ · %2$@ tokens";
+"popover.cost.model_line"      = "%1$@: %2$@ · %3$@ tokens";
+
+/* MARK: - Linhas de ação */
+"popover.refresh_now"          = "Atualizar Agora";
+"popover.usage_dashboard"      = "Painel de Uso";
+"popover.status_page"          = "Página de Status";
+"popover.relogin"              = "Entrar novamente em claude.ai";
+"popover.settings"             = "Preferências…";
+"popover.quit"                 = "Encerrar";
+
+/* MARK: - Notificações */
+"notification.window.session"  = "Sessão";
+"notification.window.weekly"   = "Semanal";
+"notification.quota_exhausted" = "Cota %@ do Claude esgotada";
+"notification.quota_restored"  = "Cota %@ do Claude restaurada";
+"notification.quota_remaining" = "Claude %1$@ com %2$d%% restante";
+
+/* MARK: - Tooltip / acessibilidade do item de menu */
+"statusitem.tooltip"           = "exímIABar";
+
+/* MARK: - Preferências: janela + abas */
+"settings.window.title"        = "Preferências do exímIABar";
+"settings.tab.general"         = "Geral";
+"settings.tab.claude"          = "Claude";
+"settings.tab.display"         = "Exibição";
+"settings.tab.about"           = "Sobre";
+
+/* MARK: - Preferências → Geral */
+"settings.general.language"            = "Idioma";
+"settings.general.language.subtitle"   = "Escolha o idioma do app. Sistema segue o idioma do macOS.";
+"settings.general.language.system"     = "Sistema";
+"settings.general.language.english"    = "English";
+"settings.general.language.portuguese" = "Português (Brasil)";
+
+"settings.general.section.system"      = "Sistema";
+"settings.general.launch_at_login"          = "Iniciar ao Fazer Login";
+"settings.general.launch_at_login.subtitle" = "Iniciar o exímIABar automaticamente quando você fizer login.";
+"settings.general.launch_error"             = "Não foi possível atualizar o item de login: %@";
+
+"settings.general.section.automation"  = "Automação";
+"settings.general.refresh_cadence"          = "Frequência de Atualização";
+"settings.general.refresh_cadence.subtitle" = "Com que frequência o uso é consultado em segundo plano.";
+"settings.general.refresh_cadence.manual_note" = "O uso só é atualizado ao iniciar ou ao abrir o menu.";
+"settings.general.notifications"            = "Notificações de cota";
+"settings.general.notifications.subtitle"   = "Avisar quando a cota restante cair abaixo de um limite.";
+"settings.general.play_sound"               = "Tocar som";
+
+"settings.general.section.usage"       = "Uso";
+"settings.general.show_cost"           = "Mostrar resumo de custos";
+"settings.general.show_cost.subtitle"  = "Lê os logs de uso locais do Claude para estimar o gasto. Nada sai do seu Mac.";
+"settings.general.history_one"         = "Histórico: %d dia";
+"settings.general.history_other"       = "Histórico: %d dias";
+
+"settings.general.quit"                = "Encerrar exímIABar";
+
+/* MARK: - Rótulos da frequência de atualização */
+"settings.cadence.manual"      = "Manual";
+"settings.cadence.min1"        = "A cada 1 min";
+"settings.cadence.min2"        = "A cada 2 min";
+"settings.cadence.min5"        = "A cada 5 min";
+"settings.cadence.min15"       = "A cada 15 min";
+"settings.cadence.min30"       = "A cada 30 min";
+
+/* MARK: - Editor de pares de limite */
+"settings.threshold.session"   = "Avisar sessão em";
+"settings.threshold.weekly"    = "Avisar semanal em";
+"settings.threshold.upper"     = "Superior";
+"settings.threshold.lower"     = "Inferior";
+"settings.threshold.apply"     = "Aplicar";
+
+/* MARK: - Preferências → Claude */
+"settings.claude.section.source" = "Fonte das Credenciais";
+"settings.claude.source"            = "Fonte";
+"settings.claude.source.subtitle"   = "De onde o exímIABar lê o seu uso do Claude.";
+"settings.claude.source.auto"       = "Automático";
+"settings.claude.source.oauth"      = "OAuth";
+"settings.claude.source.cli"        = "CLI";
+"settings.claude.source.web"        = "Web";
+"settings.claude.source.web_note"   = "Web ainda não está disponível (P2).";
+
+"settings.claude.section.keychain"  = "Keychain";
+"settings.claude.avoid_prompts"          = "Evitar prompts do Keychain";
+"settings.claude.avoid_prompts.subtitle" = "Lê as credenciais pela CLI do security (timeout de 1,5 s) em vez do framework Security, que pode exibir um prompt do sistema.";
+"settings.claude.prompt_policy"          = "Política de prompt do Keychain";
+"settings.claude.prompt_policy.subtitle" = "Quando um diálogo do Keychain pode ser exibido.";
+"settings.claude.policy.never"           = "Nunca";
+"settings.claude.policy.on_user_action"  = "Apenas por ação do usuário";
+"settings.claude.policy.always"          = "Sempre";
+
+"settings.claude.section.per_window" = "Avisos por janela";
+"settings.claude.developer"          = "Desenvolvedor";
+"settings.claude.web_extras"            = "Extras da Web";
+"settings.claude.web_extras.subtitle"   = "Busca uma chamada extra de enriquecimento de janela em claude.ai além do OAuth. Stub nesta build — ativar registra e ignora.";
+"settings.claude.custom_binary"         = "Caminho do binário claude personalizado";
+"settings.claude.custom_binary.placeholder" = "/usr/local/bin/claude";
+"settings.claude.custom_binary.subtitle"    = "Para depurar a fonte CLI. Deixe vazio para usar a busca padrão.";
+
+/* MARK: - Preferências → Exibição */
+"settings.display.section.menu_bar" = "Barra de Menu";
+"settings.display.brand_icon"          = "Ícone da marca + %";
+"settings.display.brand_icon.subtitle" = "Mostrar o ícone da marca Claude com a porcentagem restante em vez do ícone medidor.";
+
+"settings.display.section.menu_content" = "Conteúdo do Menu";
+"settings.display.show_used"           = "Mostrar uso como consumido";
+"settings.display.show_used.subtitle"  = "As barras enchem com a cota consumida. Desative para mostrar a restante.";
+"settings.display.reset_clock"         = "Horário de renovação como relógio";
+"settings.display.reset_clock.subtitle" = "Mostrar \"Renova 14:00\" em vez de \"Renova em 2h 15m\".";
+"settings.display.warning_markers"          = "Marcadores de aviso";
+"settings.display.warning_markers.subtitle" = "Mostrar traços de limite nas barras de uso.";
+"settings.display.workday_markers"          = "Marcadores de dias úteis";
+"settings.display.workday_markers.subtitle" = "Marcadores de ritmo na barra semanal.";
+"settings.display.workday.off"      = "Desligado";
+"settings.display.workday.four_day" = "4 dias";
+"settings.display.workday.five_day" = "5 dias";
+"settings.display.workday.seven_day" = "7 dias";
+
+/* MARK: - Preferências → Sobre */
+"about.app_name"               = "exímIABar";
+"about.version"                = "Versão %@";
+"about.tagline"                = "Monitor de limites do Claude em tempo real para a sua barra de menu.";
+"about.github"                 = "GitHub";
+"about.license"                = "Licença";
+"about.attribution"            = "Baseado no CodexBar de Peter Steinberger (MIT).";
