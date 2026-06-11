@@ -1,5 +1,6 @@
 _reference_codexbar/
 .build/
 build/
+dist/
 .DS_Store
 *.xcuserdata

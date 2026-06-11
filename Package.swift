@@ -27,6 +27,7 @@ let package = Package(
             exclude: ["Info.plist"],
             resources: [
                 .copy("Resources/ProviderIcon-claude.svg"),
+                .copy("Resources/AppIcon.icns"),
             ],
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency"),

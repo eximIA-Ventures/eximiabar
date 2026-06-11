@@ -1,11 +1,10 @@
 MIT License
 
-Copyright (c) 2026 eximIA Ventures
+Copyright (c) 2024 Peter Steinberger (CodexBar — https://github.com/steipete/CodexBar)
+Copyright (c) 2026 exímIA / Hugo Capitelli (exímIABar)
 
-This software is a derivative work of CodexBar.
-Portions Copyright (c) 2026 Peter Steinberger (CodexBar, https://github.com/steipete/codexbar),
-used under the MIT License. exímIABar adapts CodexBar's Claude OAuth pipeline and visual
-design for a Claude-only menu bar monitor.
+exímIABar is a derivative work of CodexBar. It adapts CodexBar's Claude OAuth
+pipeline and visual design into a Claude-only menu bar rate-limit monitor.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

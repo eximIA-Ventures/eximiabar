@@ -8,12 +8,16 @@
 	<string>exímIABar</string>
 	<key>CFBundleDisplayName</key>
 	<string>exímIABar</string>
+	<key>CFBundleExecutable</key>
+	<string>ClaudeBar</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>0.1.0</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>1.0.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.0</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>LSUIElement</key>
@@ -21,6 +25,6 @@
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>Based on CodexBar by Peter Steinberger (MIT).</string>
+	<string>Copyright © 2026 exímIA. Based on CodexBar (MIT) by Peter Steinberger.</string>
 </dict>
 </plist>
