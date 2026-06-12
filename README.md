@@ -17,7 +17,29 @@ It reads the same OAuth credentials your `claude` CLI uses — and never writes 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and logged in (`claude`)
 - Swift 6.2 / Xcode 16+ (to build from source)
 
-## Build & install
+## Installation
+
+### Homebrew (recommended)
+
+The cleanest path — a versioned install with one-command uninstall:
+
+```bash
+brew tap eximia-ventures/tap https://github.com/eximIA-Ventures/homebrew-tap
+brew install --cask eximiabar
+```
+
+To upgrade later: `brew upgrade --cask eximiabar`. To remove: `brew uninstall --cask eximiabar`.
+
+### Build from source (`make install`)
+
+Prefer to build locally from the source tree? See **[Build from source](#build-from-source)** below
+(`make build && sudo make install`).
+
+> **A note on `npm`:** `npm` does not apply to native macOS apps — exímIABar is a signed
+> `.app` bundle, not a JavaScript package. Distribution is via Homebrew (above) or a direct
+> [release download](#releases). There is no `npm install eximiabar`.
+
+## Build from source
 
 ```bash
 make build && sudo make install
