@@ -1,5 +1,6 @@
 import ClaudeBarCore
 import Foundation
+import os
 
 /// One calendar day's roll-up for the dashboard charts (EXB-2.3 / EXB-3.2).
 ///
@@ -85,6 +86,33 @@ struct DashboardData: Equatable, Sendable {
 
     /// `true` when the scan returned no priced entries at all → the empty state is shown.
     var isEmpty: Bool { byModel.isEmpty }
+
+    // MARK: - Period totals (EXB-3.6 AC14)
+
+    /// Total spend over the selected window — the highlight number on the cost card header.
+    var totalCost: Double { dailyCosts.reduce(0) { $0 + $1.costUSD } }
+
+    /// Total tokens (all four token types) over the window — the highlight number on the tokens card.
+    var totalTokens: Int {
+        dailyCosts.reduce(0) { $0 + $1.inputTokens + $1.outputTokens + $1.cacheReadTokens + $1.cacheWriteTokens }
+    }
+
+    /// Total heatmap volume over the window — the highlight number on the heatmap card.
+    var totalHeatmapTokens: Int { heatmap.flatMap { $0 }.reduce(0) { $0 + $1.tokens } }
+
+    // MARK: - Period date range (EXB-3.6 AC13)
+
+    /// The first day of the window (inclusive) — start of the section subtitle range.
+    var rangeStart: Date? { dailyCosts.first?.date }
+    /// The last day of the window (inclusive, normally today) — end of the section subtitle range.
+    var rangeEnd: Date? { dailyCosts.last?.date }
+
+    // MARK: - Consistent model → colour mapping (EXB-3.6 AC12)
+
+    /// The window's models, ordered by cost descending (the donut/table order). The stable order is
+    /// what makes the colour assignment consistent across the donut, the table, and any future
+    /// per-model chart: model *N* always gets palette colour *N* for a given period.
+    var sortedModelNames: [String] { byModel.map(\.model) }
 }
 
 extension DashboardData {
@@ -97,6 +125,11 @@ extension DashboardData {
     ///
     /// Anti-freeze: pure value transformation (no I/O), safe from `Task.detached`.
     static func build(from analytics: UsageAnalytics, period: DashboardPeriod, now: Date = Date()) -> DashboardData {
+        // AC8: instrument the pure aggregation so Instruments can see build vs. scan vs. apply.
+        let signposter = CostScanner.perfSignposter
+        let buildState = signposter.beginInterval("DashboardData.build", "period=\(period.days)d")
+        defer { signposter.endInterval("DashboardData.build", buildState) }
+
         let calendar = Calendar.current
         let todayStart = calendar.startOfDay(for: now)
         let span = max(1, period.days)

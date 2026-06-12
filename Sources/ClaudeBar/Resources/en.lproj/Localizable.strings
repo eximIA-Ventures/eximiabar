@@ -105,6 +105,12 @@
 "dashboard.sessions.col.tokens"    = "Tokens";
 "dashboard.sessions.col.cost"      = "Cost";
 
+/* EXB-3.6 — loading, empty per-period, per-card totals */
+"dashboard.loading.message"        = "Loading…";
+"dashboard.empty.period"           = "No data in this period";
+"dashboard.total.cost"             = "Total: %@";
+"dashboard.total.tokens"           = "Total: %@";
+
 /* MARK: - Notifications (QuotaNotifier) */
 "notification.window.session"  = "Session";
 "notification.window.weekly"   = "Weekly";

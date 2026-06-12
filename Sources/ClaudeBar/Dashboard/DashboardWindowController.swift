@@ -15,6 +15,10 @@ final class DashboardModel {
     var state: DashboardState = .loading
     /// The currently-selected period filter (AC1). Mutating it requests a (cached) reload.
     var period: DashboardPeriod = .thirtyDays
+    /// `true` while a background scan is in flight *and* prior content is still on screen (EXB-3.6
+    /// BUG 2 AC3). Drives a non-blocking overlay so switching period never leaves stale charts looking
+    /// frozen — the `.loading` full-screen state is reserved for the first open with nothing to show.
+    var isRefreshing = false
     /// Invoked when the segmented control changes the period (wired by the controller, AC1).
     var onPeriodChange: (@MainActor (DashboardPeriod) -> Void)?
     /// Invoked by the "Export CSV" button (wired by the controller, AC9).
@@ -119,14 +123,20 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        // Cache hit (AC12): apply without a scan.
+        // Cache hit (AC12): apply without a scan. Clear any in-flight refresh indicator.
         if let cached = cache[period] {
+            model.isRefreshing = false
             model.state = cached.isEmpty ? .empty : .loaded(cached)
             return
         }
 
-        // Show loading while the scan is in flight (unless we already have content on screen).
-        if case .loaded = model.state {} else {
+        // AC3: never leave the UI looking frozen while the (multi-second) scan runs. If content is
+        // already on screen, keep it and flip the non-blocking refresh overlay; otherwise show the
+        // full-screen loading state.
+        if case .loaded = model.state {
+            model.isRefreshing = true
+        } else {
+            model.isRefreshing = false
             model.state = .loading
         }
 
@@ -144,6 +154,10 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
     /// Post the scanned data into the observable model on `@MainActor`, updating the cache (AC12).
     @MainActor
     private func apply(_ data: DashboardData, fingerprint: String) {
+        let signposter = CostScanner.perfSignposter
+        let applyState = signposter.beginInterval("applyOnMain", "period=\(data.period.days)d")
+        defer { signposter.endInterval("applyOnMain", applyState) }
+
         // Invalidate the cache if the source directories changed since it was populated.
         if let existing = cacheFingerprint, existing != fingerprint {
             cache.removeAll()
@@ -152,6 +166,7 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
         cache[data.period] = data
         // Only apply if the result is still for the period the user is looking at.
         guard data.period == model.period else { return }
+        model.isRefreshing = false
         model.state = data.isEmpty ? .empty : .loaded(data)
     }
 
@@ -200,6 +215,7 @@ private struct DashboardRoot: View {
         DashboardView(
             state: model.state,
             period: model.period,
+            isRefreshing: model.isRefreshing,
             selectPeriod: { model.selectPeriod($0) },
             exportCSV: { model.onExportCSV?() },
             openSettings: openSettings)

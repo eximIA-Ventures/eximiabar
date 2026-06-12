@@ -1,6 +1,13 @@
 import Foundation
+import os
 
 extension CostScanner {
+    /// Signpost handle for the dashboard's heavy paths (EXB-3.6 AC8). Categorised `"DashboardPerf"`
+    /// so Instruments' "Points of Interest" / `log stream` can isolate the analytics scan from the
+    /// rest of the app. Static + `nonisolated` so both the actor and the MainActor controller emit
+    /// into the same stream.
+    public nonisolated static let perfSignposter = OSSignposter(
+        logHandle: OSLog(subsystem: CoreLog.subsystem, category: "DashboardPerf"))
     /// Scan the Claude JSONL logs and produce the rich `UsageAnalytics` the EXB-3.2 dashboard needs:
     /// per-`(day, model)` rows with the cache-token split, per-project totals, a weekday × hour
     /// heatmap, and the top sessions.
@@ -20,31 +27,68 @@ extension CostScanner {
         windowDays: Int,
         now: Date = Date()) async -> UsageAnalytics
     {
+        let signposter = Self.perfSignposter
+        let scanID = signposter.makeSignpostID()
+        let scanState = signposter.beginInterval("scanAnalytics", id: scanID, "window=\(windowDays)d")
+        defer { signposter.endInterval("scanAnalytics", scanState) }
+
         let roots = directories ?? Self.defaultDirectories(fileManager: self.fileManager)
         let window = max(1, windowDays)
 
         var rows: [AnalyticsRow] = []
+        var scannedFiles = 0
+        var skippedFiles = 0
         for root in roots {
             guard self.fileManager.fileExists(atPath: root.path) else { continue }
-            for file in self.analyticsJSONLFiles(in: root) {
-                rows.append(contentsOf: await self.parseAnalyticsFile(at: file, now: now, window: window))
+            for file in self.analyticsJSONLFiles(in: root, window: window, now: now) {
+                guard file.inWindow else { skippedFiles += 1; continue }
+                scannedFiles += 1
+                rows.append(contentsOf: await self.parseAnalyticsFile(at: file.url, now: now, window: window))
             }
         }
+        signposter.emitEvent("scanAnalytics.files", id: scanID, "scanned=\(scannedFiles) skipped=\(skippedFiles)")
 
-        return self.makeAnalytics(from: rows, window: window, now: now)
+        let aggregateState = signposter.beginInterval("makeAnalytics", id: scanID, "rows=\(rows.count)")
+        let analytics = self.makeAnalytics(from: rows, window: window, now: now)
+        signposter.endInterval("makeAnalytics", aggregateState)
+        return analytics
     }
 
     // MARK: - File enumeration (mirrors the popover scan, exposed for analytics)
 
-    private func analyticsJSONLFiles(in root: URL) -> [URL] {
+    /// A JSONL file paired with whether its modification date places it inside the scan window
+    /// (EXB-3.6 BUG 2 root cause). A file last written before the window's earliest day cannot hold a
+    /// single in-window entry, so it is read zero bytes. On a 1 GB / ~2 000-file history this turns a
+    /// ~22 s full read into a fraction of it for the common 7 d / 30 d windows.
+    struct AnalyticsFile {
+        let url: URL
+        let inWindow: Bool
+    }
+
+    /// Earliest instant a file may have been modified and still carry an in-window entry: the start
+    /// of the window's first day, minus one day of slop to absorb time-zone / clock skew between the
+    /// log's wall-clock timestamps and the filesystem's modification date. Conservative on purpose —
+    /// we would rather scan a file needlessly than ever drop a real entry.
+    static func windowFileFloor(window: Int, now: Date, calendar: Calendar = .current) -> Date {
+        let todayStart = calendar.startOfDay(for: now)
+        let earliestDay = calendar.date(byAdding: .day, value: -(max(1, window) - 1), to: todayStart) ?? todayStart
+        return calendar.date(byAdding: .day, value: -1, to: earliestDay) ?? earliestDay
+    }
+
+    private func analyticsJSONLFiles(in root: URL, window: Int, now: Date) -> [AnalyticsFile] {
         guard let enumerator = self.fileManager.enumerator(
             at: root,
-            includingPropertiesForKeys: [.isRegularFileKey],
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
             options: [.skipsHiddenFiles])
         else { return [] }
-        var files: [URL] = []
+        let floor = Self.windowFileFloor(window: window, now: now)
+        var files: [AnalyticsFile] = []
         for case let url as URL in enumerator where url.pathExtension == "jsonl" {
-            files.append(url)
+            // mtime pre-filter: keep files modified on/after the floor; mark the rest out-of-window so
+            // the caller skips them without opening a FileHandle. A missing mtime → scan (fail-open).
+            let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            let inWindow = modified.map { $0 >= floor } ?? true
+            files.append(AnalyticsFile(url: url, inWindow: inWindow))
         }
         return files
     }

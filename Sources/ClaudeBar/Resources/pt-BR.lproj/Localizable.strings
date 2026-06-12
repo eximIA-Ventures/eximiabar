@@ -103,6 +103,12 @@
 "dashboard.sessions.col.tokens"    = "Tokens";
 "dashboard.sessions.col.cost"      = "Custo";
 
+/* EXB-3.6 — loading, vazio por período, totais por card */
+"dashboard.loading.message"        = "Carregando…";
+"dashboard.empty.period"           = "Sem dados no período";
+"dashboard.total.cost"             = "Total: %@";
+"dashboard.total.tokens"           = "Total: %@";
+
 /* MARK: - Notificações */
 "notification.window.session"  = "Sessão";
 "notification.window.weekly"   = "Semanal";

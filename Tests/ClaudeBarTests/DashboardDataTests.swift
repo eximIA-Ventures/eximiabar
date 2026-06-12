@@ -141,4 +141,48 @@ struct DashboardDataTests {
         #expect(data.dailyCosts.first?.date == day(89, from: now))
         #expect(data.dailyCosts.last?.date == day(0, from: now))
     }
+
+    // MARK: - Per-card totals (EXB-3.6 AC14)
+
+    @Test
+    func periodTotalsSumTheWindow() {
+        let now = Date()
+        let a = analytics(byDayModel: [
+            model("claude-sonnet-4", day(0, from: now), input: 60, output: 40, cacheRead: 10, cacheWrite: 5, cost: 1.0),
+            model("claude-opus-4", day(3, from: now), input: 120, output: 80, cacheRead: 20, cacheWrite: 0, cost: 2.0),
+        ])
+        let data = DashboardData.build(from: a, period: .thirtyDays, now: now)
+
+        // totalCost = 1.0 + 2.0
+        #expect(data.totalCost == 3.0)
+        // totalTokens = (60+40+10+5) + (120+80+20+0) = 115 + 220 = 335
+        #expect(data.totalTokens == 335)
+        // Date range spans the full window: first = day −29, last = today.
+        #expect(data.rangeStart == day(29, from: now))
+        #expect(data.rangeEnd == day(0, from: now))
+    }
+
+    @Test
+    func totalsAreZeroForEmptyPeriod() {
+        let now = Date()
+        let data = DashboardData.build(from: analytics(byDayModel: []), period: .sevenDays, now: now)
+        #expect(data.totalCost == 0)
+        #expect(data.totalTokens == 0)
+        #expect(data.totalHeatmapTokens == 0)
+        #expect(data.sortedModelNames.isEmpty)
+    }
+
+    // MARK: - Consistent model order for colour mapping (EXB-3.6 AC12)
+
+    @Test
+    func sortedModelNamesFollowCostDescending() {
+        let now = Date()
+        let a = analytics(byDayModel: [
+            model("claude-sonnet-4", day(0, from: now), input: 50, output: 50, cost: 1.0),
+            model("claude-opus-4", day(0, from: now), input: 100, output: 100, cost: 4.0),
+        ])
+        let data = DashboardData.build(from: a, period: .thirtyDays, now: now)
+        // The stable order the donut + table + colour scale all share: opus (costlier) first.
+        #expect(data.sortedModelNames == ["claude-opus-4", "claude-sonnet-4"])
+    }
 }
