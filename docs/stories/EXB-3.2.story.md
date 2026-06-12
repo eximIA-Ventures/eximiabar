@@ -1,7 +1,7 @@
 # Story EXB-3.2: Dashboard Analytics v2
 
 **ID:** EXB-3.2
-**Status:** Ready for Review
+**Status:** InReview (QA PASS — rodada 1; awaiting @devops push → Done)
 **Depends on:** EXB-2.3 (DashboardWindowController + DashboardView + DashboardData base), EXB-1.7 (CostScanner, ProviderCost, ModelCostEntry), EXB-2.2 (localization infrastructure)
 **Epic:** EPIC-EXB
 **Wave:** Onda 5 (v1.2.0)
@@ -282,9 +282,64 @@ Novos:
 - `swift test` — **201 tests in 27 suites passed** (145 baseline + 56 new; no regressions)
 - `make build` — packages `dist/ExímIABar.app` (6.5M); direct-launch smoke test: process alive, no crash
 
+## QA Results — rodada 1
+
+**Reviewer:** Quinn (@qa) · **Date:** 2026-06-12 · **Model:** Opus 4.8 · **Commit:** `442b904`
+
+Verified against the *actual code* with skepticism (per the EXB-2.1 false-pass precedent). Build and tests were run locally, not trusted from the dev report.
+
+### Build & test (run by QA, not trusted)
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Clean release build | `rm -rf .build && swift build -c release` | **Build complete (13.27s) — 0 warnings, 0 errors** ✅ |
+| Full suite | `swift test` | **201 tests / 27 suites passed** (1.796s) ✅ |
+| Refresh-ownership guard | `claudeCLIOwnerNeverCallsRefreshEndpoint` | passed ✅ (no regression to the EXB invariant) |
+| Flaky watch | `CredentialLoadOrderTests` | no failures observed; serial re-run not needed |
+| Anti-freeze grep (changed files) | `DispatchQueue.main.sync` / `Data(contentsOf` / `.synchronize()` / `Thread.sleep` / `contentsOfFile` | **NO HITS** ✅ |
+
+### AC-by-AC (file:line evidence)
+
+| AC | Verdict | Evidence |
+|----|---------|----------|
+| 1 — Global period filter, whole UI re-derives | ✅ | `DashboardView.swift:76` segmented `Picker` → `DashboardModel.selectPeriod` (`DashboardWindowController.swift:23`) → `onPeriodChange` → `loadData`. `model.state` is `@Observable`, so KPIs/charts/tables re-render on change — no reopen. |
+| 2 — KPI cards incl. month projection | ✅ | 5 cards `DashboardView.swift:133-137`. Projection math `DashboardData.swift:186-193`: `(MTD / max(1, elapsed+1)) × daysInMonth` — today counts as day 1, exactly AC2. Unit-proven: mid-month `$150/15×30=$300` and first-day `$10×31=$310` (`DashboardAnalyticsTests:34,46`). |
+| 3 — Cost-per-day bars + cumulative line | ✅ | `CostPerDayChart` `DashboardView.swift:200-214`: `BarMark` + `LineMark(..., series:)` sharing the USD Y axis; running total in `cumulative` (`:188`). |
+| 4 — Stacked tokens by type | ✅ | `StackedTokensChart` `DashboardView.swift:268-272`: `BarMark` with `.foregroundStyle(by:)` over 4 token types (input/output/cacheRead/cacheWrite); Y-label "Tokens". |
+| 5 — Model breakdown (donut + table) | ✅ | `ModelCostDonut` `SectorMark` (`:310`) + `ModelBreakdownTable` model/input/output/cost (`:322`), sorted by cost desc (`DashboardData.swift:142`); K/M via `PopoverFormatter.tokenCount`, currency 4-dp. |
+| 6 — Project breakdown from `cwd` | ✅ | `projectName(fromCWD:)` = basename or "Unknown" (`CostScanner+Analytics.swift:274`); aggregated `:192`; table `DashboardView.swift:371`. Proven on real fixtures (`CostScannerAnalyticsTests:84,93`). |
+| 7 — Weekday×hour heatmap, real data | ✅ | `RectangleMark` 7×24 `DashboardView.swift:437`; bucketing from parsed timestamps `CostScanner+Analytics.swift:143-144,195`; gradient via `chartForegroundStyleScale`. Fixture test asserts the exact `[weekday][hour]` bucket carries all tokens, rest zero (`CostScannerAnalyticsTests:157`). **Heatmap is fed by genuine JSONL parsing, not synthetic.** |
+| 8 — Top 10 sessions by cost | ✅ | `SessionAccumulator` → `.prefix(10)` sorted by cost (`CostScanner+Analytics.swift:236-240`); `dominantModel` = max-cost model; table `DashboardView.swift:467`. Proven (`CostScannerAnalyticsTests:192`). |
+| 9 — CSV export via NSSavePanel | ✅ | `NSSavePanel` presented **on main** (`DashboardWindowController.swift:163`), bytes written **off-main** `Task.detached` (`:172`). `csvExport()` emits exactly the 6 AC columns (`DashboardData.swift:201`); format unit-tested incl. zero-fill rows + ISO date (`DashboardAnalyticsTests:150,180`). |
+| 10 — en + pt-BR localization | ✅ | 44 `dashboard.*` keys in **both** lprojs (count parity verified); zero hardcoded strings in new views (all via `L(...)`). |
+| 11 — Resizable, min 760×560 | ✅ | `window.minSize = 760×560` (`DashboardWindowController.swift:101`); `ScrollView` + `LazyVStack` (`DashboardView.swift:105-106`). |
+| 12 — Off-main load + incremental cache | ✅ | scan in `Task.detached(.utility)`, applied on `@MainActor` (`DashboardWindowController.swift:135-156`); per-period cache (`:52`) with cache-hit fast path (`:123`) and directory-mtime `sourceFingerprint()` invalidation (`:148`, `CostScanner+Analytics.swift:256`). |
+| 13 — Clean build, no regressions, ≥8 new tests | ✅ | See build/test table. 20 new/migrated analytics test functions across 3 files (8 + 6 + 6); 201 total green. |
+
+### Skeptical deep-dives (the things that usually fool a gate)
+
+- **"Parsing reused, not duplicated" — TRUE.** `scanAnalytics` calls the *same* `Self.scanLines` chunked-`FileHandle` reader + `containsAsciiSubsequence` pre-filter + `messageId:requestId` highest-offset dedup as the popover scan (`CostScanner+Analytics.swift:63,106,156-159`). The `CostScanner.swift` diff is **comments + two `private→internal` access changes only** — the popover `scan(...) → ProviderCost` path is byte-for-byte untouched. No second JSONL parser was written.
+- **Pricing parity.** Analytics prices on the same base input/output table as the popover; cache tokens are surfaced as *volume* (heatmap/stack/project), not repriced (`CostScanner+Analytics.swift:84-91`). Cost stays consistent with `ProviderCost`.
+- **Anti-freeze intact.** Dashboard is a standard `NSWindow` (not the popover's `NSPanel`) — unchanged from EXB-2.3 and irrelevant to the menu-bar-freeze class. `UsageAnalytics`/`DashboardData` are `Sendable` value types, so the detached scan hops to `@MainActor` race-free. Cache touched only on `@MainActor`.
+- **Cancellation correctness.** `loadData` cancels the prior `scanTask`; `apply` guards `data.period == model.period` so a slow scan for an abandoned period can't overwrite the visible one (`DashboardWindowController.swift:139,154`).
+
+### 3.1 cross-check (gate item 4 — already committed at `d536fd0`, confirmed here)
+
+- `NSVisualEffectView` with `blendingMode = .behindWindow` (`SettingsWindowController.swift:76`); level→material map `.opaque→.underWindowBackground / .standard→.popover / .frosted→.hudWindow` (`SettingsStore.swift:146-150`).
+- **Immediate application confirmed:** `transparencyLevel` `didSet` → `onTransparencyChange` → `applyTransparency` swaps `effectView.material` live on popover + Settings window, no window recreation (`SettingsStore.swift:350-353`, `ClaudeBarApp.swift:182-185`).
+- The single `NSColor.black.set()` hit (`UsagePanelController.swift:304`) is the **alpha mask fill** for the rounded-corner clip of the vibrancy view — not a solid root background. Glass is preserved.
+
+### Concerns
+
+- **REQ-1 (LOW, non-blocking, deferred to interactive):** All verification is build/test/static + headless. The actual heatmap/charts rendering with the machine's *live* `~/.claude` JSONL and the NSSavePanel save sheet require an interactive GUI session — acceptably deferred per the repo's standing GUI-deferral policy (same as the EXB-1.8 popover-click case). The fixture-driven scan tests substantially de-risk this: the data path that feeds the views is proven against real parsed JSONL.
+- **REQ-2 (informational):** `DashboardData.build` signature change (`ProviderCost`→`UsageAnalytics`) and the `thirtyDayTokens 1000→800` test correction are legitimate per the Onda 5 charter (supersedes EXB-2.3 baseline); legacy tests rewritten with equivalent coverage and the new value derives correctly from the entries (100+200+500=800). Verified, not a regression.
+
+**Decision:** Implementation is real, complete, and matches every AC against the actual code — not documentation theater. Build clean, 201 tests green, anti-freeze and refresh-ownership invariants held. The only open item is interactive live-data GUI verification, which is low-severity and consistent with this repo's deferral policy.
+
 ## Change Log
 
 | Date | Version | Description | Author |
 |------|---------|-------------|--------|
 | 2026-06-12 | 1.0 | Initial draft — Onda 5 (v1.2.0) | @sm River |
 | 2026-06-12 | 1.1 | Implemented all 13 ACs; 56 new tests; analytics scanner + dashboard v2 | @dev Dex |
+| 2026-06-12 | 1.2 | QA gate rodada 1 — PASS. 13/13 ACs verified in code; clean build + 201 tests run by QA; anti-freeze/refresh-ownership intact; parsing reuse confirmed (not duplicated); projection math correct. 2 LOW/info concerns (GUI deferral, signature-change rationale). | @qa Quinn |

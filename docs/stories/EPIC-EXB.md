@@ -143,6 +143,31 @@ Enhancement wave after the v1.0.0 MVP (Onda 1–3 = EXB-1.1 through EXB-1.8, all
 
 ---
 
+## Onda 5 (v1.2.0)
+
+**Status:** Draft | **Target:** v1.2.0 | **Created:** 2026-06-12
+
+Polish and analytics wave after v1.1.0. Fixes the glassmorphism gap left by EXB-2.1 (materials were still effectively opaque), evolves the dashboard into a full analytics suite, and publishes a Homebrew tap for clean distribution.
+
+| Order | Story ID | Title | Executor | Rationale |
+|-------|----------|-------|----------|-----------|
+| 1 | EXB-3.1 | Glassmorphism REAL + Seção Appearance | @dev | Diagnosis confirmed materials are still opaque; adds user-configurable transparency + theme pane |
+| 2 | EXB-3.2 | Dashboard Analytics v2 | @dev | Evolves EXB-2.3 baseline: period filter, projections, stacked tokens, heatmap, project breakdown, CSV export |
+| 3 | EXB-3.3 | Homebrew Tap + Release v1.2.0 | @devops | Publishes tap at eximIA-Ventures/homebrew-tap; release cut after Onda 5 code is done |
+
+**Execution order:** 3.1 → 3.2 → 3.3 (3.3 must be last — it cuts the release from completed code).
+
+**Wave DoD:**
+- [ ] All 3 stories Done
+- [ ] `swift build -c release` zero warnings with all Onda 5 code
+- [ ] `swift test` passing (no regression from Onda 4 baseline of 145 tests)
+- [ ] GitHub release `v1.2.0` at `https://github.com/eximIA-Ventures/eximiabar/releases`
+- [ ] Homebrew tap `eximIA-Ventures/homebrew-tap` public; `brew audit --cask eximiabar` clean
+- [ ] App installed at `/Applications/ExímIABar.app` via cask or make install; `pgrep` confirms live
+- [ ] README updated with Homebrew installation instructions
+
+---
+
 ## Definition of Done (Epic)
 
 - [ ] All 8 stories Done

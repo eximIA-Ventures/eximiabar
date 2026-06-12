@@ -222,3 +222,55 @@ swift test --no-parallel →  ✔ Test run with 187 tests in 25 suites passed af
 |------|---------|-------------|--------|
 | 2026-06-12 | 1.0 | Initial draft — Onda 5 (v1.2.0) | @sm River |
 | 2026-06-12 | 1.1 | Implemented — real glassmorphism (hudWindow/underWindowBackground + explicit behindWindow), Appearance pane (transparency + theme), en/pt-BR, AppearanceTests. Build clean, 187 tests green serial. Status → Ready for Review | @dev Dex |
+
+---
+
+## QA Results — rodada 1
+
+**Gate:** @qa Quinn (Guardian) · 2026-06-12 · commit `d536fd0` (local, não pushed — push é @devops em EXB-3.3)
+**Postura:** cética — a rodada EXB-2.1 passou no gate sem efeito visual real. Foco em provar que os callbacks NÃO ficam órfãos desta vez.
+
+### 1. Acceptance Criteria — verificação no código real
+
+| AC | Veredito | Evidência |
+|----|----------|-----------|
+| **AC1** Painel `.hudWindow` + `blendingMode .behindWindow` | ✅ PASS | `UsagePanelController.swift:56` `effectView.material = transparency.material` (default `.frosted`→`.hudWindow`); `:57` `blendingMode = .behindWindow` explícito; `:58` `state = .active`. Seed vem do nível persistido via `ClaudeBarApp.swift:175`. |
+| **AC2** Settings `.underWindowBackground` + behindWindow, panes sem fundo opaco | ✅ PASS | `SettingsWindowController.swift:75` `effectView.material = settings.transparencyLevel.material` (seed); `:76` `blendingMode = .behindWindow`; `:69-70` `backgroundColor = .clear`/`isOpaque = false`. Grep próprio confirmou: única `.background` em panes de Settings é doc-comment; raízes são `ScrollView`/`VStack` puros. |
+| **AC3** Picker transparência 3 níveis, default Frosted, apply imediato, persistido | ✅ PASS | `AppearancePaneView.swift:41-48` Picker segmented em `$settings.transparencyLevel`; default `.frosted` (`SettingsStore.swift:350`, testado); apply live via `onTransparencyChange` **realmente fiado** em `ClaudeBarApp.swift:182-186` (panel + settings window); persistência em `PersistedSnapshot` (`:544`) + load (`:636`). |
+| **AC4** Override de tema via `NSApp.appearance`, apply imediato, persistido | ✅ PASS | `AppearancePaneView.swift:62-69` Picker; `onThemeChange`→`applyTheme` em `ClaudeBarApp.swift:187-189`/`229-231` (`NSApp.appearance = override.appearance`); re-aplicado no launch `:119`; persistido `:545`/`:640`. |
+| **AC5** Strings localizadas en + pt-BR | ✅ PASS | 13 chaves `appearance.*` em ambos `en.lproj` e `pt-BR.lproj`; espelhamento completo verificado por grep; testes de resolução em ambos idiomas passam. |
+| **AC6** Teste do mapeamento nível→material + grep auditoria backgrounds | ✅ PASS | `AppearanceTests.swift:31-45` mapeia os 3 níveis + guarda de regressão `!= .windowBackground` em `allCases`. Grep documentado na story e re-executado pelo QA. |
+| **AC7** Build zero warnings, test sem regressões | ✅ PASS | Ver §2/§3. |
+
+**Nenhum AC FALTANDO.**
+
+### 2. `swift build -c release` — RODADO pelo QA
+`Build complete!` — grep por `warning|error` no output: **zero hits**. Confirmado limpo.
+
+### 3. `swift test` — RODADO pelo QA (serial)
+`Test run with 187 tests in 25 suites passed after 3.058 seconds.` Suite `AppearanceTests` executou (não pulada) — 11 casos verdes, todos confirmados por grep individual. O flake paralelo de keychain (`PromptPolicyTests`) NÃO ocorre em serial; está fora do path da EXB-3.1 (OAuth/credentials) — desvio justificado aceito.
+
+### 4. Glassmorphism real — checagem cética (o ponto que EXB-2.1 falhou)
+- **Materiais exatos confirmados:** painel `.hudWindow`, settings `.underWindowBackground`. ✅
+- **`blendingMode .behindWindow`** explícito nos dois containers (não default herdado). ✅
+- **Ausência de backgrounds sólidos:** grep próprio do QA em `Sources/ClaudeBar/Settings/` e `Sources/ClaudeBar/Popover/` — só `.clear` em window/panel roots; a única `.background(...)` real (`UsageCardView.swift:352`) é pílula de hover que preenche `.clear` quando não-hover (não é raiz). ✅
+- **Aplicação imediata da preferência — o código OBSERVA a mudança?** ✅ **SIM, e este é o diferencial vs EXB-2.1.** `onTransparencyChange` (`SettingsStore.swift:394`) está efetivamente conectado em `ClaudeBarApp.swift:182-186` chamando `panelController?.applyTransparency` + `settingsWindowController?.applyTransparency`. `onThemeChange` conectado em `:187-189`. Os callbacks NÃO ficam órfãos. `applyTransparency` (`UsagePanelController.swift:168`/`SettingsWindowController.swift:100`) faz swap de `material` in-place sem recriar janela — visível no próximo frame.
+- **Regressão travada:** `noTransparencyLevelUsesOpaqueWindowBackground` impede reintrodução do material sólido culpado.
+
+### 5. EXB-3.2 (heatmap/agregação/projeção mensal)
+**N/A para esta story.** EXB-3.1 cobre exclusivamente glassmorphism + Appearance pane. Heatmap, agregação off-main, parsing do Core e projeção mensal pertencem à EXB-3.2 (story separada, `docs/stories/EXB-3.2.story.md`, ainda não em review). Nenhum código de 3.2 presente neste commit.
+
+### 6. Anti-freeze preservado
+✅ **Mantido.** `applyTransparency`/`applyTheme` são AppKit puro em `@MainActor` — zero I/O, zero parse. Writes de `UserDefaults` continuam debounced 500ms e saltam off-main via `Task.detached(.utility)` (`SettingsStore.swift:458`). Arquitetura NSPanel intocada (`show`/`close`/`position` idênticos a EXB-1.3; nenhum `fittingSize`/`layoutSubtreeIfNeeded` síncrono introduzido). Observação de settings é `@Observable` (callbacks), não polling.
+
+### Limitação documentada (aceita)
+"Reduce transparency" do macOS força todo `NSVisualEffectView` a sólido — limitação do SO, não defeito do app; tema continua funcional. Documentação correta e honesta na story.
+
+### Observações (não-bloqueantes)
+- **C-1 (informativo):** `SettingsWindowController.applyTransparency` é no-op enquanto a janela não foi criada (`effectView?` opcional). Correto — o seed em `:75` cobre a primeira abertura com o valor persistido. Não é defeito.
+- **C-2 (nit, fora de escopo):** `DashboardView.swift` usa `.controlBackgroundColor` sólido, mas é a janela Dashboard (EXB-2.3), não popover/Settings — fora do escopo de 3.1, corretamente classificado pelo dev.
+
+### Veredito
+Implementação genuína e completa. Diferente da EXB-2.1, os callbacks de transparência/tema estão **realmente conectados** no `AppDelegate` e os materiais corretos (`.hudWindow`/`.underWindowBackground` + `.behindWindow`) estão em vigor, dirigidos por preferência persistida com aplicação live verificada no código. Build limpo, 187 testes verdes serial, regressão de material sólido travada por teste. Sem AC faltando, sem violação anti-freeze.
+
+VERDICT: PASS
