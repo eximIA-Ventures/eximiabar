@@ -92,6 +92,21 @@
 "settings.tab.display"         = "Exibição";
 "settings.tab.about"           = "Sobre";
 
+/* MARK: - Preferências → Aparência (EXB-3.1) */
+"appearance.tab"                   = "Aparência";
+"appearance.section.transparency"  = "Transparência";
+"appearance.transparency.label"    = "Material da janela";
+"appearance.transparency.subtitle" = "O quão translúcidos ficam o popover e a janela de Preferências. Aplica imediatamente.";
+"appearance.transparency.opaque"   = "Opaco";
+"appearance.transparency.standard" = "Padrão";
+"appearance.transparency.frosted"  = "Vidro";
+"appearance.section.theme"         = "Tema";
+"appearance.theme.label"           = "Aparência";
+"appearance.theme.subtitle"        = "Force um visual claro ou escuro, ou siga o sistema. Aplica imediatamente.";
+"appearance.theme.system"          = "Sistema";
+"appearance.theme.light"           = "Claro";
+"appearance.theme.dark"            = "Escuro";
+
 /* MARK: - Preferências → Geral */
 "settings.general.language"            = "Idioma";
 "settings.general.language.subtitle"   = "Escolha o idioma do app. Sistema segue o idioma do macOS.";

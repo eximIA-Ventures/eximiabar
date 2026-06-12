@@ -31,7 +31,8 @@ final class UsagePanelController: NSObject, NSWindowDelegate {
 
     init(
         snapshotProvider: @escaping @MainActor () -> DisplaySnapshot?,
-        actions: UsageCardActions)
+        actions: UsageCardActions,
+        transparency: TransparencyLevel = .frosted)
     {
         self.snapshotProvider = snapshotProvider
         self.actions = actions
@@ -43,15 +44,16 @@ final class UsagePanelController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false)
 
-        // EXB-2.1 AC1/AC3/AC4: a `.behindWindow` vibrant background that frosts the desktop content
-        // behind the panel. Material is `.popover` rather than `.menu`: `.menu` only composites its
-        // vibrancy while AppKit is tracking an actual `NSMenu`, so on a free-floating `NSPanel` it
-        // renders nearly opaque. `.popover` is the system material for a floating info card and
-        // produces the same frosted blur in both Light and Dark appearance with no colour branching
-        // (AC3). The rounded subclass clips the card to `PopoverStyle.cornerRadius` so the corners
-        // are not square (AC4).
+        // EXB-3.1 AC1: a `.behindWindow` vibrant background that frosts the desktop content behind the
+        // panel. The default material is `.hudWindow` (strong frost with a darkened backing) — the
+        // EXB-2.1 `.popover` material composited nearly opaque on a free-floating `NSPanel` in Dark
+        // mode, which the EXB-3.1 diagnosis confirmed as the root cause of the "still opaque" result.
+        // The material is driven by `TransparencyLevel` (AC3) and re-applied live via
+        // `applyTransparency(_:)` with no panel recreation. `blendingMode = .behindWindow` is explicit
+        // so the blur samples the desktop, not the window's own backing. The rounded subclass clips
+        // the card to `PopoverStyle.cornerRadius` so the corners are not square (EXB-2.1 AC4).
         self.effectView = RoundedVisualEffectView()
-        self.effectView.material = .popover
+        self.effectView.material = transparency.material
         self.effectView.blendingMode = .behindWindow
         self.effectView.state = .active
         self.effectView.translatesAutoresizingMaskIntoConstraints = false
@@ -155,6 +157,16 @@ final class UsagePanelController: NSObject, NSWindowDelegate {
         self.observationTask?.cancel()
         self.observationTask = nil
         self.panel.orderOut(nil)
+    }
+
+    // MARK: - Transparency (EXB-3.1 AC3)
+
+    /// Apply a new translucency level to the live panel. `NSVisualEffectView.material` is settable at
+    /// any time — this swaps the frost without recreating the panel, so the change is visible the next
+    /// frame even while the panel is open. Pure AppKit on the main thread (anti-freeze invariant: no
+    /// I/O, no parse).
+    func applyTransparency(_ level: TransparencyLevel) {
+        self.effectView.material = level.material
     }
 
     // MARK: - Positioning (Dev Notes)

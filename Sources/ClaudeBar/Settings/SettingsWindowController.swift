@@ -11,6 +11,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let settings: SettingsStore
     private let launchManager: LaunchAtLoginManager
     private var window: NSWindow?
+    /// The window's frosted backing. Held so `applyTransparency(_:)` can swap the material live on the
+    /// already-open window without recreating it (EXB-3.1 AC3).
+    private var effectView: NSVisualEffectView?
 
     init(settings: SettingsStore, launchManager: LaunchAtLoginManager) {
         self.settings = settings
@@ -47,11 +50,17 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.delegate = self
 
-        // EXB-2.1 AC2: a `.behindWindow` visual-effect background gives the Settings window the same
-        // native macOS translucency as the popover. `.fullSizeContentView` plus a transparent
-        // titlebar lets the blur extend under the title area; `.followsWindowActiveState` dims the
-        // material when the window is in the background, matching system preference panels. The
-        // material adapts to Dark/Light automatically with no colour branching (AC3).
+        // EXB-3.1 AC2: a `.behindWindow` visual-effect background gives the Settings window the same
+        // native macOS translucency as the popover. The material is `.underWindowBackground`, NOT the
+        // EXB-2.1 `.windowBackground`: `.windowBackground` renders a near-solid surface on a floating
+        // window by design (it is the material AppKit fills a standard window's content with), which
+        // the EXB-3.1 diagnosis confirmed as the cause of the opaque Settings result.
+        // `.underWindowBackground` is the genuine blur-under-the-window material used by system
+        // preference panels and adapts to Dark/Light with no colour branching. `.fullSizeContentView`
+        // plus a transparent titlebar lets the blur extend under the title area;
+        // `.followsWindowActiveState` dims the material when the window is in the background. The
+        // SwiftUI panes embedded here use plain `ScrollView`/`VStack` roots with NO `.background`
+        // modifier (audited — see Dev Notes), so the blur shows through unobstructed.
         window.titlebarAppearsTransparent = true
         // Title text is hidden so the `TabView`'s tab strip can sit in the titlebar band without
         // colliding with it; the traffic-light buttons stay visible. The window still carries the
@@ -61,7 +70,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         window.isOpaque = false
 
         let effectView = NSVisualEffectView()
-        effectView.material = .windowBackground
+        // EXB-3.1 AC2/AC3: seed the material from the persisted transparency level (`.opaque` →
+        // `.underWindowBackground`, `.standard` → `.popover`, `.frosted` → `.hudWindow`).
+        effectView.material = settings.transparencyLevel.material
         effectView.blendingMode = .behindWindow
         effectView.state = .followsWindowActiveState
         effectView.addSubview(hostingView)
@@ -72,11 +83,22 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             hostingView.bottomAnchor.constraint(equalTo: effectView.bottomAnchor),
         ])
         window.contentView = effectView
+        self.effectView = effectView
 
         window.center()
         self.window = window
 
         window.makeKeyAndOrderFront(nil)
+    }
+
+    // MARK: - Transparency (EXB-3.1 AC3)
+
+    /// Apply a new translucency level to the Settings window's frosted backing. Swaps
+    /// `NSVisualEffectView.material` in place — no window recreation — so the change is visible the
+    /// next frame even while the window is open. No-op until the window has been created once. Pure
+    /// AppKit on the main thread (anti-freeze invariant: no I/O, no parse).
+    func applyTransparency(_ level: TransparencyLevel) {
+        self.effectView?.material = level.material
     }
 
     // MARK: - NSWindowDelegate (AC10)

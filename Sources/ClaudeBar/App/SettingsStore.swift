@@ -1,3 +1,4 @@
+import AppKit
 import ClaudeBarCore
 import Foundation
 import Observation
@@ -121,6 +122,71 @@ enum WorkdayMarkers: String, Sendable, Equatable, CaseIterable, Identifiable {
         case .fourDay: 4
         case .fiveDay: 5
         case .sevenDay: 7
+        }
+    }
+}
+
+/// Window translucency level (EXB-3.1 AC3). Persisted as its raw string in `UserDefaults`.
+///
+/// Maps each level onto the `NSVisualEffectView.Material` the popover and Settings window apply at
+/// runtime — the higher the frost, the more the desktop content behind the window shows through:
+/// - `.opaque` → `.underWindowBackground` (the least-translucent vibrant material; still vibrant, but
+///   reads as a near-solid surface, the "off switch" for users who dislike blur — there is no truly
+///   opaque `NSVisualEffectView.Material`, so this is the closest native equivalent).
+/// - `.standard` → `.popover` (medium, adaptive frost — the legacy EXB-2.1 default).
+/// - `.frosted` → `.hudWindow` (strong frost with a darkened backing — the new v1.2.0 default).
+enum TransparencyLevel: String, Sendable, Equatable, CaseIterable, Identifiable, Codable {
+    case opaque
+    case standard
+    case frosted
+
+    var id: String { rawValue }
+
+    /// The AppKit material this level maps to (AC6 — unit-tested mapping).
+    var material: NSVisualEffectView.Material {
+        switch self {
+        case .opaque: .underWindowBackground
+        case .standard: .popover
+        case .frosted: .hudWindow
+        }
+    }
+
+    /// Localized picker label (AC3/AC5).
+    var label: String {
+        switch self {
+        case .opaque: L("appearance.transparency.opaque")
+        case .standard: L("appearance.transparency.standard")
+        case .frosted: L("appearance.transparency.frosted")
+        }
+    }
+}
+
+/// App appearance override (EXB-3.1 AC4). Persisted as its raw string in `UserDefaults`.
+///
+/// Drives `NSApp.appearance`: `.system` clears the override (follow macOS), `.light`/`.dark` force a
+/// fixed appearance. Applied immediately on change and re-applied at launch from the persisted value.
+enum ThemeOverride: String, Sendable, Equatable, CaseIterable, Identifiable, Codable {
+    case system
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    /// The `NSAppearance` to install on `NSApp`, or `nil` to follow the system (AC4).
+    var appearance: NSAppearance? {
+        switch self {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
+    }
+
+    /// Localized picker label (AC4/AC5).
+    var label: String {
+        switch self {
+        case .system: L("appearance.theme.system")
+        case .light: L("appearance.theme.light")
+        case .dark: L("appearance.theme.dark")
         }
     }
 }
@@ -276,6 +342,29 @@ final class SettingsStore {
         didSet { scheduleSaveIfChanged(workdayMarkers, oldValue) }
     }
 
+    // MARK: - Appearance (EXB-3.1 AC3/AC4)
+
+    /// Window translucency level. Default `.frosted` (strong glass — the v1.2.0 default). Changing
+    /// this re-applies the material to the live popover and Settings window via `onTransparencyChange`
+    /// with no relaunch (AC3).
+    var transparencyLevel: TransparencyLevel = .frosted {
+        didSet {
+            guard transparencyLevel != oldValue else { return }
+            onTransparencyChange?(transparencyLevel)
+            scheduleSave()
+        }
+    }
+
+    /// App theme override. Default `.system` (follow macOS). Changing this re-applies `NSApp.appearance`
+    /// via `onThemeChange` immediately, with no relaunch (AC4).
+    var themeOverride: ThemeOverride = .system {
+        didSet {
+            guard themeOverride != oldValue else { return }
+            onThemeChange?(themeOverride)
+            scheduleSave()
+        }
+    }
+
     // MARK: - Callbacks
 
     /// Invoked when `appLanguage` changes so the app can force an immediate UI repaint (EXB-2.2 AC5,
@@ -299,6 +388,14 @@ final class SettingsStore {
     /// Invoked when `costEnabled` or `costDays` changes so the off-MainActor cost-settings holder
     /// stays in lock-step with the live setting (EXB-1.7 AC9/AC11). Carries `(enabled, days)`.
     var onCostSettingsChange: (@MainActor (Bool, Int) -> Void)?
+
+    /// Invoked when `transparencyLevel` changes so the popover and Settings window re-apply their
+    /// `NSVisualEffectView.material` live, without recreating the window (EXB-3.1 AC3).
+    var onTransparencyChange: (@MainActor (TransparencyLevel) -> Void)?
+
+    /// Invoked when `themeOverride` changes so `NSApp.appearance` is re-applied immediately
+    /// (EXB-3.1 AC4).
+    var onThemeChange: (@MainActor (ThemeOverride) -> Void)?
 
     // MARK: - Persistence (AC8)
 
@@ -394,6 +491,8 @@ final class SettingsStore {
         static let showAbsoluteReset = "settings.showAbsoluteReset"
         static let showWarningMarkers = "settings.showWarningMarkers"
         static let workdayMarkers = "settings.workdayMarkers"
+        static let transparencyLevel = "settings.transparencyLevel"
+        static let themeOverride = "settings.themeOverride"
     }
 
     /// Immutable, `Sendable` carrier of every persisted value so the write can hop off-main (AC8).
@@ -417,6 +516,8 @@ final class SettingsStore {
         let showAbsoluteReset: Bool
         let showWarningMarkers: Bool
         let workdayMarkers: String
+        let transparencyLevel: String
+        let themeOverride: String
 
         func write(to defaults: UserDefaults) {
             defaults.set(appLanguage, forKey: Key.appLanguage)
@@ -440,6 +541,8 @@ final class SettingsStore {
             defaults.set(showAbsoluteReset, forKey: Key.showAbsoluteReset)
             defaults.set(showWarningMarkers, forKey: Key.showWarningMarkers)
             defaults.set(workdayMarkers, forKey: Key.workdayMarkers)
+            defaults.set(transparencyLevel, forKey: Key.transparencyLevel)
+            defaults.set(themeOverride, forKey: Key.themeOverride)
         }
     }
 
@@ -463,7 +566,9 @@ final class SettingsStore {
             showUsed: showUsed,
             showAbsoluteReset: showAbsoluteReset,
             showWarningMarkers: showWarningMarkers,
-            workdayMarkers: workdayMarkers.rawValue)
+            workdayMarkers: workdayMarkers.rawValue,
+            transparencyLevel: transparencyLevel.rawValue,
+            themeOverride: themeOverride.rawValue)
     }
 
     /// Hydrate from `UserDefaults`. Missing keys keep the code default (AC8 — settings survive
@@ -527,6 +632,14 @@ final class SettingsStore {
         if let raw = defaults.string(forKey: Key.workdayMarkers),
            let value = WorkdayMarkers(rawValue: raw) {
             workdayMarkers = value
+        }
+        if let raw = defaults.string(forKey: Key.transparencyLevel),
+           let value = TransparencyLevel(rawValue: raw) {
+            transparencyLevel = value
+        }
+        if let raw = defaults.string(forKey: Key.themeOverride),
+           let value = ThemeOverride(rawValue: raw) {
+            themeOverride = value
         }
     }
 }

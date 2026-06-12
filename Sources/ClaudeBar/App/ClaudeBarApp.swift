@@ -114,6 +114,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the policy holder from the loaded settings (AC11).
         settings.launchAtLogin = launchManager.isEnabled
         promptPolicyHolder.set(settings.corePromptPolicy)
+        // EXB-3.1 AC4: apply the persisted theme override at launch so a forced Light/Dark survives a
+        // restart. `.system` leaves `NSApp.appearance` nil (follow macOS).
+        applyTheme(settings.themeOverride)
         // EXB-1.6: seed the off-MainActor CLI binary holder from the persisted override.
         claudeBinaryHolder.set(settings.claudeBinaryPath)
         // EXB-1.7: seed the off-MainActor cost-settings holder from the persisted settings.
@@ -165,10 +168,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // EXB-1.3: build the popover (NSPanel) and wire its actions. The card reads the live
         // snapshot through the provider closure; opening it triggers a user-initiated refresh (AC6).
+        // EXB-3.1 AC3: seed the panel's frosted material from the persisted transparency level.
         let panel = UsagePanelController(
             snapshotProvider: { [weak self] in self?.appState.snapshot },
-            actions: makeCardActions())
+            actions: makeCardActions(),
+            transparency: settings.transparencyLevel)
         panelController = panel
+
+        // EXB-3.1 AC3: re-apply the material to both the popover and the Settings window the instant
+        // the transparency level changes — no relaunch, no window recreation (the Settings window
+        // applies on next open if not yet created). EXB-3.1 AC4: re-apply `NSApp.appearance` the
+        // instant the theme override changes.
+        settings.onTransparencyChange = { [weak self] level in
+            guard let self else { return }
+            self.panelController?.applyTransparency(level)
+            self.settingsWindowController?.applyTransparency(level)
+        }
+        settings.onThemeChange = { [weak self] theme in
+            self?.applyTheme(theme)
+        }
 
         // Click hook — toggle the popover anchored to the status-item button (EXB-1.3 T7).
         controller.onClick = { [weak panel] button in
@@ -202,6 +220,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc
     private func openSettingsFromMenu() {
         settingsWindowController?.open()
+    }
+
+    /// Apply a theme override to the whole app by setting `NSApp.appearance` (EXB-3.1 AC4). `.system`
+    /// clears the override so the app follows the macOS appearance; `.light`/`.dark` force a fixed one.
+    /// Setting `NSApp.appearance` propagates to every window (popover + Settings) immediately. Pure
+    /// AppKit on the main thread (anti-freeze invariant: no I/O, no parse).
+    private func applyTheme(_ override: ThemeOverride) {
+        NSApp.appearance = override.appearance
     }
 
     /// Build a minimal main menu providing the standard ⌘, "Settings…" shortcut (AC1). Without a

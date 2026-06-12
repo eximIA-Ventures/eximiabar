@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// The four-tab settings surface (AC2).
+/// The five-tab settings surface (AC2; EXB-3.1 adds Appearance).
 ///
 /// A `TabView` with the macOS toolbar-style tab picker at the top — General, Claude, Display,
-/// About. Each tab supplies its own internal scroll/padding (h24/v16, AC1). The hosting window is
-/// fixed to 546×638 pt by `SettingsWindowController` (AC1).
+/// Appearance, About. Each tab supplies its own internal scroll/padding (h24/v16, AC1). The hosting
+/// window is fixed to 546×638 pt by `SettingsWindowController` (AC1).
 ///
 /// EXB-2.1 AC2: the hosting window uses `.fullSizeContentView` so the visual-effect blur extends
 /// under the titlebar. The `titlebarInset` pushes the tab strip below the traffic-light band so the
@@ -29,6 +29,10 @@ struct SettingsRootView: View {
 
             PreferencesDisplayPane(settings: settings)
                 .tabItem { Label(L("settings.tab.display"), systemImage: "menubar.rectangle") }
+
+            // EXB-3.1: the Appearance pane (transparency level + theme override).
+            AppearancePaneView(settings: settings)
+                .tabItem { Label(L("appearance.tab"), systemImage: "paintbrush") }
 
             PreferencesAboutPane()
                 .tabItem { Label(L("settings.tab.about"), systemImage: "info.circle") }
