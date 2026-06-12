@@ -151,6 +151,20 @@ enum TransparencyLevel: String, Sendable, Equatable, CaseIterable, Identifiable,
         }
     }
 
+    /// The macOS 26 Liquid Glass style this level maps to (EXB-3.5 AC4 — unit-tested mapping), or
+    /// `nil` for `.opaque`: there is no "glass" for the off switch, so the macOS 26 path hides the
+    /// glass view and falls back to a solid window background (AC4). `.standard → .regular` (standard
+    /// glass), `.frosted → .clear` (the maximally-translucent Liquid Glass). Mirrors the `material`
+    /// mapping above so both OS paths express the same three-level intent.
+    @available(macOS 26.0, *)
+    var glassStyle: NSGlassEffectView.Style? {
+        switch self {
+        case .opaque: nil
+        case .standard: .regular
+        case .frosted: .clear
+        }
+    }
+
     /// Localized picker label (AC3/AC5).
     var label: String {
         switch self {

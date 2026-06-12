@@ -17,6 +17,11 @@ import SwiftUI
 final class UsagePanelController: NSObject, NSWindowDelegate {
     private let panel: KeyablePanel
     private let effectView: RoundedVisualEffectView
+    /// macOS 26 Liquid Glass backing (EXB-3.5 AC1). Created lazily the first time a non-`.opaque`
+    /// level is applied on macOS 26; `nil` on macOS < 26 and while `.opaque` is selected (the panel
+    /// then falls back to `effectView` exactly as the EXB-3.1 path did). Typed as `NSView?` so the
+    /// stored property needs no availability annotation; downcast under `#available` at use sites.
+    private var glassBacking: NSView?
     private let hostingView: NSHostingView<UsageCardView>
     private let actions: UsageCardActions
 
@@ -66,6 +71,9 @@ final class UsagePanelController: NSObject, NSWindowDelegate {
 
         self.configurePanel()
         self.assembleViewTree()
+        // EXB-3.5 AC1: on macOS 26 adopt the native Liquid Glass backing for the seeded level. On
+        // macOS < 26 this is a no-op and the EXB-3.1 `effectView` path stays in place.
+        self.applyTransparency(transparency)
     }
 
     deinit {
@@ -159,14 +167,99 @@ final class UsagePanelController: NSObject, NSWindowDelegate {
         self.panel.orderOut(nil)
     }
 
-    // MARK: - Transparency (EXB-3.1 AC3)
+    // MARK: - Transparency (EXB-3.1 AC3 / EXB-3.5 AC1)
 
-    /// Apply a new translucency level to the live panel. `NSVisualEffectView.material` is settable at
-    /// any time — this swaps the frost without recreating the panel, so the change is visible the next
-    /// frame even while the panel is open. Pure AppKit on the main thread (anti-freeze invariant: no
-    /// I/O, no parse).
+    /// Apply a new translucency level to the live panel.
+    ///
+    /// **macOS < 26 (EXB-3.1 path, unchanged):** swap `NSVisualEffectView.material` in place — settable
+    /// at any time, so the frost changes the next frame even while the panel is open.
+    ///
+    /// **macOS 26 (EXB-3.5 AC1):** for `.standard`/`.frosted`, install (or update) an
+    /// `NSGlassEffectView` as the panel's content view with the `hostingView` as its `contentView` and
+    /// the mapped `style`; for `.opaque` there is no glass, so fall back to the same
+    /// `NSVisualEffectView(.underWindowBackground)` surface the EXB-3.1 path uses (AC4 — `.opaque`
+    /// stays a near-solid background on both OS versions).
+    ///
+    /// Pure AppKit on the main thread (anti-freeze invariant: no I/O, no parse).
     func applyTransparency(_ level: TransparencyLevel) {
-        self.effectView.material = level.material
+        if #available(macOS 26.0, *) {
+            self.applyGlassTransparency(level)
+        } else {
+            self.effectView.material = level.material
+        }
+    }
+
+    /// macOS 26 glass swap (EXB-3.5 AC1/AC4). Routes `.opaque` to the legacy effect view and
+    /// `.standard`/`.frosted` to the Liquid Glass backing, re-parenting `hostingView` as needed.
+    @available(macOS 26.0, *)
+    private func applyGlassTransparency(_ level: TransparencyLevel) {
+        guard let style = level.glassStyle else {
+            // `.opaque` (AC4): no glass — show the near-solid `NSVisualEffectView` exactly as < 26 does.
+            self.installEffectViewBacking(material: level.material)
+            return
+        }
+        self.installGlassBacking(cornerRadius: PopoverStyle.cornerRadius, style: style)
+    }
+
+    /// Make the legacy `effectView` the panel's content view (with the `hostingView` re-pinned to its
+    /// edges), used on macOS < 26 always and for `.opaque` on macOS 26.
+    private func installEffectViewBacking(material: NSVisualEffectView.Material) {
+        self.effectView.material = material
+        guard self.panel.contentView !== self.effectView else { return }
+        self.glassBacking = nil
+        self.attachHostingViewWithConstraints(to: self.effectView)
+        self.panel.contentView = self.effectView
+    }
+
+    /// Make an `NSGlassEffectView` the panel's content view, creating it on first use and re-parenting
+    /// the `hostingView` as its `contentView` (the only SDK-guaranteed in-glass placement). Reuses the
+    /// existing glass view on subsequent calls — a style change is a single property set.
+    @available(macOS 26.0, *)
+    private func installGlassBacking(cornerRadius: CGFloat, style: NSGlassEffectView.Style) {
+        if let existing = self.glassBacking as? NSGlassEffectView {
+            // A style change is a single property set; the glass keeps sizing itself to the host.
+            existing.style = style
+            if existing.contentView !== self.hostingView {
+                self.detachHostingView()
+                self.hostingView.translatesAutoresizingMaskIntoConstraints = false
+                existing.contentView = self.hostingView
+            }
+            if self.panel.contentView !== existing { self.panel.contentView = existing }
+            return
+        }
+        self.detachHostingView()
+        // CRITICAL (verified by runtime probe on macOS 26.3): keep
+        // `translatesAutoresizingMaskIntoConstraints = false` so the hosting view's Auto Layout
+        // *fitting size* propagates up through the glass to the panel — `NSGlassEffectView` sizes
+        // itself to its `contentView`'s fitting size exactly like the EXB-3.1 constraint chain, so the
+        // panel still grows/shrinks with the SwiftUI card (AC2/AC20). Setting autoresizing here instead
+        // would pin the panel at its seed height and clip the card.
+        self.hostingView.translatesAutoresizingMaskIntoConstraints = false
+        let glassView = GlassEffectBridge.makeGlassView(
+            contentView: self.hostingView,
+            cornerRadius: cornerRadius,
+            style: style)
+        self.glassBacking = glassView
+        self.panel.contentView = glassView
+    }
+
+    /// Remove `hostingView` from whatever parent currently holds it so it can be re-installed.
+    private func detachHostingView() {
+        self.hostingView.removeFromSuperview()
+    }
+
+    /// Re-install `hostingView` inside `container` pinned to all edges (the EXB-3.1 layout).
+    private func attachHostingViewWithConstraints(to container: NSView) {
+        guard self.hostingView.superview !== container else { return }
+        self.detachHostingView()
+        self.hostingView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(self.hostingView)
+        NSLayoutConstraint.activate([
+            self.hostingView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            self.hostingView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            self.hostingView.topAnchor.constraint(equalTo: container.topAnchor),
+            self.hostingView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
     }
 
     // MARK: - Positioning (Dev Notes)

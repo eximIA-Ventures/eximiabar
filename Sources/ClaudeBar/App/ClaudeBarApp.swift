@@ -132,7 +132,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // dashboard reuses the already-computed aggregate and never triggers a rate-limit fetch (AC11).
         dashboardWindowController = DashboardWindowController(
             costSettingsProvider: { [costSettingsHolder] in costSettingsHolder.get() },
-            openSettings: { [weak self] in self?.settingsWindowController?.open() })
+            openSettings: { [weak self] in self?.settingsWindowController?.open() },
+            // EXB-3.5 AC3: seed the dashboard's macOS 26 Liquid Glass backing from the live level.
+            // `settings` is owned by the app delegate (lives for the whole process) and never references
+            // the dashboard, so a strong capture is cycle-free.
+            transparencyProvider: { [settings] in settings.transparencyLevel })
 
         let controller = StatusItemController(settings: settings)
         statusItemController = controller
@@ -183,6 +187,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             self.panelController?.applyTransparency(level)
             self.settingsWindowController?.applyTransparency(level)
+            // EXB-3.5 AC3: re-apply to the dashboard glass backing too (no-op until it is opened once).
+            self.dashboardWindowController?.applyTransparency(level)
         }
         settings.onThemeChange = { [weak self] theme in
             self?.applyTheme(theme)

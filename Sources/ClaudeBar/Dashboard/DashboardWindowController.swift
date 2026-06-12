@@ -50,6 +50,14 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
     private let model = DashboardModel()
     private var window: NSWindow?
     private var scanTask: Task<Void, Never>?
+    /// The SwiftUI host. Held so the macOS 26 glass path can re-parent it under the
+    /// `NSGlassEffectView` when the transparency level changes (EXB-3.5 AC3).
+    private var hostingView: NSView?
+    /// macOS 26 Liquid Glass backing (EXB-3.5 AC3). `nil` on macOS < 26 and while `.opaque` is
+    /// selected. Typed as `NSView?` so the stored property needs no availability annotation.
+    private var glassBacking: NSView?
+    /// The live transparency level, read at `open()` to seed the glass backing on macOS 26.
+    private let transparencyProvider: @MainActor () -> TransparencyLevel
 
     /// In-memory cache: one built `DashboardData` per period (AC12). Cleared when the source
     /// directories change (fingerprint mismatch) or on each fresh `open()`-with-stale-data.
@@ -61,11 +69,13 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
     init(
         costSettingsProvider: @escaping @Sendable () -> LiveUsageProvider.CostSettings,
         costScanner: CostScanner = .shared,
-        openSettings: @escaping @MainActor () -> Void)
+        openSettings: @escaping @MainActor () -> Void,
+        transparencyProvider: @escaping @MainActor () -> TransparencyLevel = { .frosted })
     {
         self.costSettingsProvider = costSettingsProvider
         self.costScanner = costScanner
         self.openSettings = openSettings
+        self.transparencyProvider = transparencyProvider
     }
 
     // MARK: - Open (AC1/AC12)
@@ -108,7 +118,57 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
         window.center()
 
         window.contentView = hostingView
+        self.hostingView = hostingView
         self.window = window
+
+        // EXB-3.5 AC3: on macOS 26 wrap the dashboard content in native Liquid Glass; on macOS < 26
+        // the plain hosting-view content view (the EXB-2.3/3.2 behaviour) stays in place.
+        self.applyTransparency(transparencyProvider())
+    }
+
+    // MARK: - Transparency (EXB-3.5 AC3)
+
+    /// Adopt the macOS 26 Liquid Glass backing for `level`, or keep the plain hosting-view content view
+    /// on macOS < 26 (the EXB-2.3/3.2 fallback). `.opaque` on macOS 26 also keeps the plain content
+    /// view — there is no glass for the off switch (AC4). Re-parents the SwiftUI host as the glass
+    /// `contentView` (the only SDK-guaranteed in-glass placement). Pure AppKit on the main thread
+    /// (anti-freeze invariant: no I/O, no parse). No-op until the window exists.
+    func applyTransparency(_ level: TransparencyLevel) {
+        guard let window, let hostingView else { return }
+        guard #available(macOS 26.0, *) else { return }
+        guard let style = level.glassStyle else {
+            // `.opaque` (AC4): plain content view, no glass — the EXB-3.2 baseline.
+            if window.contentView !== hostingView {
+                self.glassBacking = nil
+                hostingView.removeFromSuperview()
+                hostingView.translatesAutoresizingMaskIntoConstraints = true
+                hostingView.autoresizingMask = [.width, .height]
+                hostingView.frame = window.contentLayoutRect
+                window.contentView = hostingView
+            }
+            window.isOpaque = true
+            window.backgroundColor = .windowBackgroundColor
+            return
+        }
+        if let existing = self.glassBacking as? NSGlassEffectView {
+            existing.style = style
+            if window.contentView !== existing { window.contentView = existing }
+            return
+        }
+        hostingView.removeFromSuperview()
+        hostingView.translatesAutoresizingMaskIntoConstraints = true
+        hostingView.autoresizingMask = [.width, .height]
+        let glassView = GlassEffectBridge.makeGlassView(
+            contentView: hostingView,
+            cornerRadius: 0,
+            style: style)
+        glassView.frame = window.contentLayoutRect
+        self.glassBacking = glassView
+        window.contentView = glassView
+        // AC5: the glass is the view, not the window — keep the window transparent so the desktop
+        // shows through the Liquid Glass.
+        window.isOpaque = false
+        window.backgroundColor = .clear
     }
 
     // MARK: - Off-main data load (AC12)
