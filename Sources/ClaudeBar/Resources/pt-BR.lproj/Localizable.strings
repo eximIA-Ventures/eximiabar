@@ -109,6 +109,15 @@
 "dashboard.total.cost"             = "Total: %@";
 "dashboard.total.tokens"           = "Total: %@";
 
+/* MARK: - Dashboard polish (EXB-3.7) */
+"dashboard.total.tokens_cost"      = "Total: %1$@ tokens · %2$@";
+"dashboard.chart.cost.daily"       = "Custo diário";
+"dashboard.models_by_day.title"    = "Modelos por dia";
+"dashboard.heatmap.less"           = "Menos";
+"dashboard.heatmap.hour_range"     = "%1$@h–%2$@h";
+"dashboard.donut.tooltip.tokens"   = "Entrada %1$@ · Saída %2$@";
+"dashboard.donut.tooltip.cost_share" = "%1$@ · %2$d%% do total";
+
 /* MARK: - Notificações */
 "notification.window.session"  = "Sessão";
 "notification.window.weekly"   = "Semanal";

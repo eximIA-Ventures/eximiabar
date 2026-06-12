@@ -111,6 +111,15 @@
 "dashboard.total.cost"             = "Total: %@";
 "dashboard.total.tokens"           = "Total: %@";
 
+/* MARK: - Dashboard polish (EXB-3.7) */
+"dashboard.total.tokens_cost"      = "Total: %1$@ tokens · %2$@";
+"dashboard.chart.cost.daily"       = "Daily cost";
+"dashboard.models_by_day.title"    = "Models per day";
+"dashboard.heatmap.less"           = "Less";
+"dashboard.heatmap.hour_range"     = "%1$@h–%2$@h";
+"dashboard.donut.tooltip.tokens"   = "In %1$@ · Out %2$@";
+"dashboard.donut.tooltip.cost_share" = "%1$@ · %2$d%% of total";
+
 /* MARK: - Notifications (QuotaNotifier) */
 "notification.window.session"  = "Session";
 "notification.window.weekly"   = "Weekly";

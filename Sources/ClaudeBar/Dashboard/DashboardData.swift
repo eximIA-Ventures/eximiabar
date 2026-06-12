@@ -51,6 +51,23 @@ struct DashboardModelEntry: Equatable, Sendable, Identifiable {
     let costUSD: Double
 }
 
+/// One `(day, model)` token-volume roll-up for the "Models per day" stacked chart (EXB-3.7 AC4).
+///
+/// `tokens` is the combined activity volume (input + output + cache read + cache write) for the day
+/// and model — the same volume metric the heatmap uses, so a busy cache-heavy day reads as activity.
+/// A value type so it is `Sendable` and the aggregation can run inside the off-main `Task.detached`
+/// pipeline (anti-freeze invariant).
+struct DailyModelEntry: Equatable, Sendable, Identifiable {
+    /// Stable identity for `ForEach` — one entry per `(day, model)`.
+    var id: String { "\(date.timeIntervalSinceReferenceDate)-\(modelName)" }
+    /// Start-of-day in the user's local time zone.
+    let date: Date
+    /// The normalized model identifier (matches `DashboardModelEntry.model`).
+    let modelName: String
+    /// Total token volume (input + output + cache read + cache write) for the `(day, model)`.
+    let tokens: Int
+}
+
 /// The fully-derived analytics dashboard view model (EXB-3.2).
 ///
 /// Built off-MainActor from the `UsageAnalytics` the `CostScanner` produces (EXB-1.7 + EXB-3.2) — the
@@ -66,6 +83,9 @@ struct DashboardData: Equatable, Sendable {
 
     /// Per-model totals over the window, sorted by cost descending (AC5).
     let byModel: [DashboardModelEntry]
+    /// Per-`(day, model)` token volume for the "Models per day" stacked chart (EXB-3.7 AC4). Ascending
+    /// by date; one entry per `(day, model)` that has activity.
+    let byDayByModel: [DailyModelEntry]
     /// Per-project totals over the window, sorted by cost descending (AC6).
     let byProject: [ProjectUsageEntry]
     /// Weekday × hour token-volume heatmap, 7 × 24 (AC7).
@@ -83,6 +103,9 @@ struct DashboardData: Equatable, Sendable {
     let averageDailyCost: Double
     /// Current-month run-rate projection: `(month-to-date spend ÷ days elapsed) × days in month` (AC2).
     let monthProjection: Double
+    /// Projected total tokens for the current month, derived from `monthProjection` using the period's
+    /// tokens÷cost ratio (EXB-3.7 AC19). `0` when there is no cost to derive a ratio from.
+    let projectedTokens: Int
 
     /// `true` when the scan returned no priced entries at all → the empty state is shown.
     var isEmpty: Bool { byModel.isEmpty }
@@ -174,6 +197,20 @@ extension DashboardData {
             }
             .sorted { $0.costUSD != $1.costUSD ? $0.costUSD > $1.costUSD : $0.model < $1.model }
 
+        // --- Models-per-day (AC4): fold per-(day, model) token *volume* (in + out + cache r/w) ---
+        // Sum activity volume per (startOfDay, model); emit ascending by date, model name as tiebreak.
+        var byDayModelAcc: [Date: [String: Int]] = [:]
+        for entry in analytics.byDayModel {
+            let day = calendar.startOfDay(for: entry.date)
+            let volume = entry.inputTokens + entry.outputTokens + entry.cacheReadTokens + entry.cacheWriteTokens
+            byDayModelAcc[day, default: [:]][entry.model, default: 0] += volume
+        }
+        let byDayByModel: [DailyModelEntry] = byDayModelAcc
+            .flatMap { day, models in
+                models.map { DailyModelEntry(date: day, modelName: $0.key, tokens: $0.value) }
+            }
+            .sorted { $0.date != $1.date ? $0.date < $1.date : $0.modelName < $1.modelName }
+
         // --- Summary windows (AC2): today / 7d / period totals from the day axis ---
         let sevenDayEarliest = calendar.date(byAdding: .day, value: -6, to: todayStart) ?? todayStart
         var todayCost = 0.0, todayTokens = 0
@@ -197,10 +234,16 @@ extension DashboardData {
         // Average daily over the selected period (clamped span).
         let averageDaily = periodCost / Double(span)
 
+        // --- Projected tokens (AC19): scale the cost projection by the window's tokens÷cost ratio ---
+        // Use the full token volume (all four types) so the ratio matches the tokens-first KPI numbers.
+        let periodTokenVolume = daily.reduce(0) { $0 + $1.inputTokens + $1.outputTokens + $1.cacheReadTokens + $1.cacheWriteTokens }
+        let projectedTokens = Self.projectedTokens(periodTokens: periodTokenVolume, periodCost: periodCost, projectedCost: projection)
+
         return DashboardData(
             period: period,
             dailyCosts: daily,
             byModel: byModel,
+            byDayByModel: byDayByModel,
             byProject: analytics.byProject,
             heatmap: analytics.heatmap,
             topSessions: analytics.topSessions,
@@ -211,7 +254,16 @@ extension DashboardData {
             thirtyDayCost: periodCost,
             thirtyDayTokens: periodTokens,
             averageDailyCost: averageDaily,
-            monthProjection: projection)
+            monthProjection: projection,
+            projectedTokens: projectedTokens)
+    }
+
+    /// Projected monthly tokens (AC19): scale `projectedCost` by the window's tokens÷cost ratio.
+    /// Returns `0` when the window has no cost (no ratio to project from).
+    static func projectedTokens(periodTokens: Int, periodCost: Double, projectedCost: Double) -> Int {
+        guard periodCost > 0 else { return 0 }
+        let ratio = Double(periodTokens) / periodCost
+        return Int((ratio * projectedCost).rounded())
     }
 
     /// Current-month run-rate projection (AC2): `(spent this month ÷ days elapsed) × days in month`.

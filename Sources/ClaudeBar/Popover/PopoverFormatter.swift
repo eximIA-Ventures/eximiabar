@@ -40,9 +40,13 @@ enum PopoverFormatter {
         String(format: "$%.2f", value)
     }
 
-    /// Compact token count: `"27K tokens"` / `"5.4M tokens"` (AC16).
+    /// Compact token count: `"27K"` / `"5.4M"` / `"4.9B"` (AC16; EXB-3.7 AC7 adds the billions
+    /// threshold so huge cache-token totals read as `"4.9B"`, never `"4888.6M"` or scientific notation).
     static func tokenCount(_ count: Int) -> String {
         let absCount = abs(count)
+        if absCount >= 1_000_000_000 {
+            return String(format: "%.1fB", Double(count) / 1_000_000_000)
+        }
         if absCount >= 1_000_000 {
             return String(format: "%.1fM", Double(count) / 1_000_000)
         }
