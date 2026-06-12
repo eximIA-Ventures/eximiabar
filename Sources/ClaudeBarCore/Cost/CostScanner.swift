@@ -24,9 +24,14 @@ public actor CostScanner {
     /// bounds memory.
     static let maxLineBytes = 1024 * 1024
 
-    private let pricing: Pricing
+    /// Internal (not `private`) so the analytics extension (`CostScanner+Analytics.swift`) reuses the
+    /// same injected `Pricing` — keeps analytics pricing deterministic in tests (`networkEnabled:
+    /// false`) and consistent with the popover scan (EXB-3.2).
+    let pricing: Pricing
     private let defaults: CostDefaults
-    private let fileManager: FileManager
+    /// Internal (not `private`) so the analytics extension can reuse the injected `FileManager` for
+    /// its file enumeration (EXB-3.2).
+    let fileManager: FileManager
     private let log = Logger(subsystem: CoreLog.subsystem, category: "cost.scanner")
 
     public init(

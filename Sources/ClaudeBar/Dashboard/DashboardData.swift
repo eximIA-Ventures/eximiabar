@@ -1,23 +1,48 @@
 import ClaudeBarCore
 import Foundation
 
-/// One calendar day's roll-up for the dashboard charts (EXB-2.3 T4 / AC4–AC5).
+/// One calendar day's roll-up for the dashboard charts (EXB-2.3 / EXB-3.2).
 ///
-/// `tokens` is the combined input + output count for the day — the tokens-per-day chart plots it
-/// directly, the cost-per-day chart plots `costUSD`.
+/// `tokens` is the combined input + output count for the day; the cost-per-day chart plots `costUSD`,
+/// the stacked-tokens chart plots the four `cache*`/input/output components (EXB-3.2 AC4).
 struct DashboardDailyEntry: Equatable, Sendable {
     /// Start-of-day in the user's local time zone.
     let date: Date
     /// Total spend for the day, USD.
     let costUSD: Double
-    /// Total tokens (input + output) for the day.
+    /// Total tokens (input + output) for the day. Kept as the historical "tokens per day" semantic.
     let tokens: Int
+    /// Input tokens for the day (stacked-tokens chart, AC4).
+    let inputTokens: Int
+    /// Output tokens for the day (AC4).
+    let outputTokens: Int
+    /// Cache-read tokens for the day (AC4).
+    let cacheReadTokens: Int
+    /// Cache-write (creation) tokens for the day (AC4).
+    let cacheWriteTokens: Int
+
+    init(
+        date: Date,
+        costUSD: Double,
+        tokens: Int,
+        inputTokens: Int = 0,
+        outputTokens: Int = 0,
+        cacheReadTokens: Int = 0,
+        cacheWriteTokens: Int = 0)
+    {
+        self.date = date
+        self.costUSD = costUSD
+        self.tokens = tokens
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.cacheReadTokens = cacheReadTokens
+        self.cacheWriteTokens = cacheWriteTokens
+    }
 }
 
-/// One model's 30-day totals for the breakdown table (EXB-2.3 T4 / AC6).
+/// One model's window totals for the breakdown table (EXB-2.3 / EXB-3.2 AC5).
 struct DashboardModelEntry: Equatable, Sendable, Identifiable {
-    /// The normalized model identifier (e.g. `"claude-sonnet-4"`). Doubles as the row `id` — the
-    /// builder folds per-`(day, model)` rows into one row per model, so model names are unique.
+    /// The normalized model identifier — doubles as the row `id` (one row per model).
     var id: String { model }
     let model: String
     let inputTokens: Int
@@ -25,22 +50,27 @@ struct DashboardModelEntry: Equatable, Sendable, Identifiable {
     let costUSD: Double
 }
 
-/// The fully-derived dashboard view model (EXB-2.3 T4).
+/// The fully-derived analytics dashboard view model (EXB-3.2).
 ///
-/// Built off-MainActor from the `ProviderCost` that `CostScanner` already produces (EXB-1.7) — the
-/// dashboard does **no** JSONL parsing of its own (it reuses the scanner's aggregation). `dailyCosts`
-/// and `dailyTokens` share the same day axis (one entry per calendar day in the window, zero-filled
-/// so the charts show a continuous 30-day span even on days with no usage).
+/// Built off-MainActor from the `UsageAnalytics` the `CostScanner` produces (EXB-1.7 + EXB-3.2) — the
+/// dashboard does **no** JSONL parsing of its own. `dailyCosts` is the zero-filled day axis shared by
+/// the cost and stacked-tokens charts.
 struct DashboardData: Equatable, Sendable {
-    /// Per-day cost + tokens, ascending by date, zero-filled across the full window (AC4/AC5).
+    /// The period this data was built for (drives labels + CSV filename, AC1/AC9).
+    let period: DashboardPeriod
+    /// Per-day cost + token split, ascending by date, zero-filled across the full window (AC3/AC4).
     let dailyCosts: [DashboardDailyEntry]
-    /// Alias of `dailyCosts` for the tokens chart — same day axis, same entries (AC5). Kept as a
-    /// distinct property so each chart binds to an explicit array per the story's `DashboardData`
-    /// shape, but the two are identical by construction.
+    /// Alias for the tokens chart — same day axis (AC4).
     var dailyTokens: [DashboardDailyEntry] { dailyCosts }
 
-    /// Per-model 30-day totals, sorted by cost descending (AC6).
+    /// Per-model totals over the window, sorted by cost descending (AC5).
     let byModel: [DashboardModelEntry]
+    /// Per-project totals over the window, sorted by cost descending (AC6).
+    let byProject: [ProjectUsageEntry]
+    /// Weekday × hour token-volume heatmap, 7 × 24 (AC7).
+    let heatmap: [[HeatmapBucket]]
+    /// Top 10 sessions by cost (AC8).
+    let topSessions: [SessionUsageEntry]
 
     let todayCost: Double
     let todayTokens: Int
@@ -48,87 +78,132 @@ struct DashboardData: Equatable, Sendable {
     let sevenDayTokens: Int
     let thirtyDayCost: Double
     let thirtyDayTokens: Int
+    /// Average daily spend over the selected period (AC2).
+    let averageDailyCost: Double
+    /// Current-month run-rate projection: `(month-to-date spend ÷ days elapsed) × days in month` (AC2).
+    let monthProjection: Double
 
-    /// `true` when the scan returned no priced entries at all → the empty state is shown (AC10).
+    /// `true` when the scan returned no priced entries at all → the empty state is shown.
     var isEmpty: Bool { byModel.isEmpty }
 }
 
 extension DashboardData {
-    /// Build the dashboard view model from a `ProviderCost` (EXB-1.7).
+    /// Build the analytics dashboard view model from a `UsageAnalytics` scan (EXB-3.2).
     ///
-    /// - `cost`: the scanner output. Its `byModel` carries per-`(day, model)` rows with priced
-    ///   cost and token counts — everything the charts and table need, already parsed.
-    /// - `windowDays`: how many trailing calendar days the day axis spans (the `costDays` setting,
-    ///   AC4). The axis is zero-filled for that whole span so a sparse history still renders a full
-    ///   30-day chart.
+    /// - `analytics`: the rich scan output (per-`(day, model)` rows with cache split, projects,
+    ///   heatmap, sessions, month-to-date spend).
+    /// - `period`: the selected period (its `.days` is the day-axis span).
     /// - `now`: injected for deterministic day bucketing in tests.
     ///
-    /// Anti-freeze: this is pure value transformation (no I/O), safe to call from `Task.detached`.
-    static func build(from cost: ProviderCost, windowDays: Int, now: Date = Date()) -> DashboardData {
+    /// Anti-freeze: pure value transformation (no I/O), safe from `Task.detached`.
+    static func build(from analytics: UsageAnalytics, period: DashboardPeriod, now: Date = Date()) -> DashboardData {
         let calendar = Calendar.current
         let todayStart = calendar.startOfDay(for: now)
-        let span = max(1, windowDays)
+        let span = max(1, period.days)
 
-        // --- Daily axis (AC4/AC5): one zero-filled entry per day across the window ---
-        // Sum cost + tokens per calendar day from the scanner's per-(day, model) rows.
-        var costByDay: [Date: Double] = [:]
-        var tokensByDay: [Date: Int] = [:]
-        for entry in cost.byModel {
+        // --- Daily axis (AC3/AC4): one zero-filled entry per day, summing the token split ---
+        struct DayAcc { var cost = 0.0; var input = 0; var output = 0; var cacheRead = 0; var cacheWrite = 0 }
+        var byDay: [Date: DayAcc] = [:]
+        for entry in analytics.byDayModel {
             let day = calendar.startOfDay(for: entry.date)
-            costByDay[day, default: 0] += entry.cost
-            tokensByDay[day, default: 0] += entry.totalTokens
+            byDay[day, default: DayAcc()].cost += entry.cost
+            byDay[day]!.input += entry.inputTokens
+            byDay[day]!.output += entry.outputTokens
+            byDay[day]!.cacheRead += entry.cacheReadTokens
+            byDay[day]!.cacheWrite += entry.cacheWriteTokens
         }
 
         var daily: [DashboardDailyEntry] = []
         daily.reserveCapacity(span)
-        // Walk oldest → newest so the chart's X axis is ascending.
         for offset in stride(from: span - 1, through: 0, by: -1) {
             guard let day = calendar.date(byAdding: .day, value: -offset, to: todayStart) else { continue }
+            let acc = byDay[day] ?? DayAcc()
             daily.append(DashboardDailyEntry(
                 date: day,
-                costUSD: costByDay[day] ?? 0,
-                tokens: tokensByDay[day] ?? 0))
+                costUSD: acc.cost,
+                tokens: acc.input + acc.output,
+                inputTokens: acc.input,
+                outputTokens: acc.output,
+                cacheReadTokens: acc.cacheRead,
+                cacheWriteTokens: acc.cacheWrite))
         }
 
-        // --- Model breakdown (AC6): fold per-(day, model) rows into one row per model ---
+        // --- Model breakdown (AC5): fold per-(day, model) into one row per model ---
         var byModelAcc: [String: (input: Int, output: Int, cost: Double)] = [:]
-        for entry in cost.byModel {
+        for entry in analytics.byDayModel {
             byModelAcc[entry.model, default: (0, 0, 0)].input += entry.inputTokens
             byModelAcc[entry.model, default: (0, 0, 0)].output += entry.outputTokens
             byModelAcc[entry.model, default: (0, 0, 0)].cost += entry.cost
         }
         let byModel = byModelAcc
             .map { model, totals in
-                DashboardModelEntry(
-                    model: model,
-                    inputTokens: totals.input,
-                    outputTokens: totals.output,
-                    costUSD: totals.cost)
+                DashboardModelEntry(model: model, inputTokens: totals.input, outputTokens: totals.output, costUSD: totals.cost)
             }
-            // Sort by cost desc, then model asc for a stable order (AC6).
             .sorted { $0.costUSD != $1.costUSD ? $0.costUSD > $1.costUSD : $0.model < $1.model }
 
-        // --- Summary cards (AC7): today / last 7 / last 30 (window) totals ---
+        // --- Summary windows (AC2): today / 7d / period totals from the day axis ---
         let sevenDayEarliest = calendar.date(byAdding: .day, value: -6, to: todayStart) ?? todayStart
+        var todayCost = 0.0, todayTokens = 0
         var sevenDayCost = 0.0, sevenDayTokens = 0
-        for entry in cost.byModel {
-            let day = calendar.startOfDay(for: entry.date)
-            if day >= sevenDayEarliest, day <= todayStart {
-                sevenDayCost += entry.cost
-                sevenDayTokens += entry.totalTokens
+        var periodCost = 0.0, periodTokens = 0
+        for entry in daily {
+            periodCost += entry.costUSD
+            periodTokens += entry.tokens
+            if entry.date == todayStart {
+                todayCost += entry.costUSD
+                todayTokens += entry.tokens
+            }
+            if entry.date >= sevenDayEarliest, entry.date <= todayStart {
+                sevenDayCost += entry.costUSD
+                sevenDayTokens += entry.tokens
             }
         }
 
+        // --- Run-rate projection (AC2) ---
+        let projection = Self.monthProjection(monthToDateCost: analytics.monthToDateCost, now: now, calendar: calendar)
+        // Average daily over the selected period (clamped span).
+        let averageDaily = periodCost / Double(span)
+
         return DashboardData(
+            period: period,
             dailyCosts: daily,
             byModel: byModel,
-            // `ProviderCost.today*` are already today's totals over the scan window (EXB-1.7).
-            todayCost: cost.today,
-            todayTokens: cost.todayTokens,
+            byProject: analytics.byProject,
+            heatmap: analytics.heatmap,
+            topSessions: analytics.topSessions,
+            todayCost: todayCost,
+            todayTokens: todayTokens,
             sevenDayCost: sevenDayCost,
             sevenDayTokens: sevenDayTokens,
-            // `last30Days*` are the window totals — the window is `costDays` (default 30).
-            thirtyDayCost: cost.last30Days,
-            thirtyDayTokens: cost.last30DaysTokens)
+            thirtyDayCost: periodCost,
+            thirtyDayTokens: periodTokens,
+            averageDailyCost: averageDaily,
+            monthProjection: projection)
+    }
+
+    /// Current-month run-rate projection (AC2): `(spent this month ÷ days elapsed) × days in month`.
+    /// Days elapsed counts today as day 1; guards against a zero divisor.
+    static func monthProjection(monthToDateCost: Double, now: Date, calendar: Calendar = .current) -> Double {
+        guard let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: now)),
+              let daysInMonth = calendar.range(of: .day, in: .month, for: now)?.count
+        else { return monthToDateCost }
+        let elapsedComponent = calendar.dateComponents([.day], from: startOfMonth, to: now).day ?? 0
+        let daysElapsed = max(1, elapsedComponent + 1)
+        return (monthToDateCost / Double(daysElapsed)) * Double(daysInMonth)
+    }
+
+    /// Render the period's daily aggregate as CSV (AC9). Header + one row per day in the axis:
+    /// `date,cost_usd,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens`.
+    func csvExport() -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate]
+        formatter.timeZone = .current
+        var lines = ["date,cost_usd,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens"]
+        for entry in dailyCosts {
+            let date = formatter.string(from: entry.date)
+            let cost = String(format: "%.4f", entry.costUSD)
+            lines.append("\(date),\(cost),\(entry.inputTokens),\(entry.outputTokens),\(entry.cacheReadTokens),\(entry.cacheWriteTokens)")
+        }
+        return lines.joined(separator: "\n") + "\n"
     }
 }

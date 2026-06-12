@@ -13,18 +13,34 @@ public struct ModelCostEntry: Sendable, Equatable {
     public let inputTokens: Int
     /// Output tokens billed for this `(day, model)`.
     public let outputTokens: Int
+    /// Cache-read input tokens for this `(day, model)` (`cache_read_input_tokens`, EXB-3.2).
+    public let cacheReadTokens: Int
+    /// Cache-creation / write input tokens for this `(day, model)`
+    /// (`cache_creation_input_tokens`, EXB-3.2).
+    public let cacheWriteTokens: Int
     /// Estimated cost in USD for this `(day, model)`.
     public let cost: Double
 
-    public init(model: String, date: Date, inputTokens: Int, outputTokens: Int, cost: Double) {
+    public init(
+        model: String,
+        date: Date,
+        inputTokens: Int,
+        outputTokens: Int,
+        cacheReadTokens: Int = 0,
+        cacheWriteTokens: Int = 0,
+        cost: Double)
+    {
         self.model = model
         self.date = date
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
+        self.cacheReadTokens = cacheReadTokens
+        self.cacheWriteTokens = cacheWriteTokens
         self.cost = cost
     }
 
-    /// Total tokens (input + output) for convenience formatting.
+    /// Total tokens (input + output) for convenience formatting. Excludes cache tokens so the value
+    /// matches the historical popover "tokens" semantics (EXB-1.7 callers unaffected by EXB-3.2).
     public var totalTokens: Int { self.inputTokens + self.outputTokens }
 }
 

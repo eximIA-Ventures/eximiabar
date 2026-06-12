@@ -66,7 +66,7 @@
 "dashboard.chart.tokens.title"     = "Tokens por dia";
 "dashboard.chart.tokens.y_label"   = "Tokens";
 "dashboard.chart.axis.date"        = "Data";
-"dashboard.models.title"           = "Detalhamento por modelo (30 dias)";
+"dashboard.models.title"           = "Detalhamento por modelo";
 "dashboard.models.col.model"       = "Modelo";
 "dashboard.models.col.input"       = "Entrada";
 "dashboard.models.col.output"      = "Saída";
@@ -74,6 +74,34 @@
 "dashboard.empty.message"          = "Nenhum dado de uso encontrado. Verifique se o Claude Code está instalado e foi utilizado.";
 "dashboard.disabled.message"       = "O rastreamento de custo está desativado. Ative em Preferências → Custo.";
 "dashboard.disabled.open_settings" = "Abrir Preferências";
+
+/* MARK: - Painel de Análise v2 (EXB-3.2) */
+"dashboard.period.7d"              = "7d";
+"dashboard.period.30d"             = "30d";
+"dashboard.period.90d"             = "90d";
+"dashboard.export.csv"             = "Exportar CSV";
+"dashboard.summary.avg_daily"      = "Média diária";
+"dashboard.summary.projection"     = "Projeção do mês";
+"dashboard.chart.cost.cumulative"  = "Acumulado";
+"dashboard.tokens.type"            = "Tipo";
+"dashboard.tokens.input"           = "Entrada";
+"dashboard.tokens.output"          = "Saída";
+"dashboard.tokens.cache_read"      = "Cache (leitura)";
+"dashboard.tokens.cache_write"     = "Cache (escrita)";
+"dashboard.projects.title"         = "Detalhamento por projeto";
+"dashboard.projects.col.project"   = "Projeto";
+"dashboard.projects.col.cost"      = "Custo";
+"dashboard.projects.col.tokens"    = "Tokens";
+"dashboard.heatmap.title"          = "Mapa de calor de atividade (dia × hora)";
+"dashboard.heatmap.hour"           = "Hora";
+"dashboard.heatmap.day"            = "Dia";
+"dashboard.heatmap.tokens"         = "Tokens";
+"dashboard.sessions.title"         = "Top 10 sessões por custo";
+"dashboard.sessions.col.date"      = "Data";
+"dashboard.sessions.col.project"   = "Projeto";
+"dashboard.sessions.col.model"     = "Modelo";
+"dashboard.sessions.col.tokens"    = "Tokens";
+"dashboard.sessions.col.cost"      = "Custo";
 
 /* MARK: - Notificações */
 "notification.window.session"  = "Sessão";

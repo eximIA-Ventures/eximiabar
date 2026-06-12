@@ -68,7 +68,7 @@
 "dashboard.chart.tokens.title"     = "Tokens per day";
 "dashboard.chart.tokens.y_label"   = "Tokens";
 "dashboard.chart.axis.date"        = "Date";
-"dashboard.models.title"           = "Model breakdown (30 days)";
+"dashboard.models.title"           = "Model breakdown";
 "dashboard.models.col.model"       = "Model";
 "dashboard.models.col.input"       = "Input";
 "dashboard.models.col.output"      = "Output";
@@ -76,6 +76,34 @@
 "dashboard.empty.message"          = "No usage data found. Make sure Claude Code is installed and has been used.";
 "dashboard.disabled.message"       = "Cost tracking is disabled. Enable it in Settings → Cost.";
 "dashboard.disabled.open_settings" = "Open Settings";
+
+/* MARK: - Dashboard Analytics v2 (EXB-3.2) */
+"dashboard.period.7d"              = "7d";
+"dashboard.period.30d"             = "30d";
+"dashboard.period.90d"             = "90d";
+"dashboard.export.csv"             = "Export CSV";
+"dashboard.summary.avg_daily"      = "Daily average";
+"dashboard.summary.projection"     = "Month projection";
+"dashboard.chart.cost.cumulative"  = "Cumulative";
+"dashboard.tokens.type"            = "Type";
+"dashboard.tokens.input"           = "Input";
+"dashboard.tokens.output"          = "Output";
+"dashboard.tokens.cache_read"      = "Cache read";
+"dashboard.tokens.cache_write"     = "Cache write";
+"dashboard.projects.title"         = "Project breakdown";
+"dashboard.projects.col.project"   = "Project";
+"dashboard.projects.col.cost"      = "Cost";
+"dashboard.projects.col.tokens"    = "Tokens";
+"dashboard.heatmap.title"          = "Activity heatmap (weekday × hour)";
+"dashboard.heatmap.hour"           = "Hour";
+"dashboard.heatmap.day"            = "Day";
+"dashboard.heatmap.tokens"         = "Tokens";
+"dashboard.sessions.title"         = "Top 10 sessions by cost";
+"dashboard.sessions.col.date"      = "Date";
+"dashboard.sessions.col.project"   = "Project";
+"dashboard.sessions.col.model"     = "Model";
+"dashboard.sessions.col.tokens"    = "Tokens";
+"dashboard.sessions.col.cost"      = "Cost";
 
 /* MARK: - Notifications (QuotaNotifier) */
 "notification.window.session"  = "Session";
