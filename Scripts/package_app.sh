@@ -95,12 +95,26 @@ cp -R "${RES_BUNDLE_SRC}" "${APP_BUNDLE}/Contents/Resources/${RES_BUNDLE_NAME}"
 # Goes to Contents/Info.plist (NOT Contents/Resources/Info.plist).
 cp "${INFO_PLIST}" "${APP_BUNDLE}/Contents/Info.plist"
 
-# ── Step 7 — ad-hoc codesign (AC2g) ────────────────────────────────────────────
-# Sign helpers first (inside-out), then the bundle. --deep is convenient here;
-# the nested helper is the only inner Mach-O, so an explicit pass keeps it valid.
-echo "==> Ad-hoc codesigning"
-codesign --force --sign - --timestamp=none "${APP_BUNDLE}/Contents/Helpers/${WATCHDOG}"
-codesign --force --sign - --deep --timestamp=none "${APP_BUNDLE}"
+# ── Step 7 — codesign (AC2g) ───────────────────────────────────────────────────
+# Sign helpers first (inside-out), then the bundle.
+#
+# Identity selection: a STABLE identity (EXIMIA_SIGN_IDENTITY) keeps the app's
+# designated requirement constant across rebuilds, so a keychain "Always Allow"
+# (e.g. for the Claude Code OAuth credential) persists instead of re-prompting on
+# every reinstall. Falls back to ad-hoc ("-") when no identity is configured.
+# Run Scripts/setup-signing-identity.sh once to create the identity.
+SIGN_IDENTITY="${EXIMIA_SIGN_IDENTITY:-eximIA Code Signing}"
+if security find-identity -v -p codesigning 2>/dev/null | grep -qF "${SIGN_IDENTITY}"; then
+  echo "==> Codesigning with stable identity: ${SIGN_IDENTITY}"
+  SIGN_ARGS=(--force --sign "${SIGN_IDENTITY}" --options runtime --timestamp=none)
+else
+  echo "==> Stable identity '${SIGN_IDENTITY}' not found — falling back to ad-hoc"
+  echo "    (keychain prompts will recur on reinstall; run Scripts/setup-signing-identity.sh to fix)"
+  SIGN_ARGS=(--force --sign - --timestamp=none)
+fi
+
+codesign "${SIGN_ARGS[@]}" "${APP_BUNDLE}/Contents/Helpers/${WATCHDOG}"
+codesign "${SIGN_ARGS[@]}" --deep "${APP_BUNDLE}"
 
 echo "==> Verifying signature"
 codesign -vvv "${APP_BUNDLE}"
