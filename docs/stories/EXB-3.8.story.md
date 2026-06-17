@@ -96,3 +96,63 @@ The reference returns `nil` for the background account, so `security ... -w` run
 | Date | Version | Description | Author |
 |------|---------|-------------|--------|
 | 2026-06-17 | 1.0 | Implemented all 6 ACs — `/usr/bin/security` CLI reader as primary layer-(e) path (off-main, 1.5s timeout), no-UI fallback, prompt path eliminated, orphan setting wired (default ON), 7 new tests. Status → Ready for Review | @dev Dex |
+
+---
+
+## QA Results — keychain CLI fix (rodada 1)
+
+**Reviewer:** Quinn (Guardian) — Test Architect
+**Date:** 2026-06-17
+**Commit:** `ce058e3`
+**Gate type:** results-criteria (não checklist) — verifiquei resultado real, não documentação
+
+### 1. Primary read path IS the `/usr/bin/security` subprocess — CONFIRMED
+
+`CredentialsStore.loadFromClaudeKeychain(strategy:)` — `CredentialsStore.swift:309-316`: quando `strategy == .securityCLIPrimary` (o default), chama `loadFromClaudeKeychainViaSecurityCLI()` ANTES de qualquer `SecItemCopyMatching` que leia o segredo. O subprocess em si: `CredentialsStore+SecurityCLI.swift:128` (`runClaudeSecurityCLIRead`) → `/usr/bin/security find-generic-password -s "Claude Code-credentials" -w`. O `SecItemCopyMatching` de leitura do segredo (`readKeychainData`, linha 390) só é alcançado em fallback. PASS.
+
+### 2. Nenhum caminho pode promptar — CONFIRMED
+
+- `grep allowPrompt Sources/ Tests/` → **zero ocorrências**. A branch que removia o no-UI foi eliminada.
+- 3 call-sites REAIS de `SecItemCopyMatching` em `CredentialsStore.swift` (linhas 228, 354, 390). Auditei cada um: os 3 têm `KeychainNoUIQuery.apply(to: &query)` nas linhas imediatamente anteriores (verificado por inspeção das 12 linhas precedentes de cada site). Os "hits" do grep nas linhas 24/113/318 são docstrings/comentários, não chamadas.
+- `KeychainNoUIQuery` (`Support/KeychainNoUIQuery.swift:22-30`) aplica DUAS defesas: `kSecUseAuthenticationContext` com `interactionNotAllowed=true` E `kSecUseAuthenticationUIFail` (resolvido via dlsym). Primitivo no-UI robusto, portado do CodexBar.
+- `readKeychainData` (linha 381-404): aplica `KeychainNoUIQuery` incondicionalmente; em `errSecInteractionNotAllowed`/`errSecItemNotFound` retorna `nil`; em `errSecUserCanceled`/`errSecAuthFailed`/`errSecNoAccessForItem` registra denial e retorna `nil`. Nunca lança prompt, nunca throwa nesses casos. NEUTRALIZADO. PASS.
+
+### 3. Build + test — RODEI
+
+- `swift build -c release` → Build complete, zero warnings. PASS.
+- `swift test --no-parallel` → **230 tests passed in 32 suites** (223 baseline + 7 novos), zero falhas, run serial limpo. Zero regressão. PASS.
+
+### 4. Seleção do token válido/não-expirado — SÓLIDA
+
+`loadFromClaudeKeychainViaSecurityCLI` (`CredentialsStore+SecurityCLI.swift:104-107`): após parse, `guard !credentials.isExpired` — um token expirado retorna `nil` e roteia para o fallback `newestClaudeKeychainCandidate()` (linhas 343-374), que ordena candidatos por `modificationDate` (desc) e pega o mais recente. Lógica correta para múltiplos itens de renovação. Teste `expiredCLITokenIsNotUsed` garante que o token expirado NUNCA é exposto. PASS.
+
+**Achado relevante (não-bloqueante):** o payload real do keychain contém DOIS top-level keys: `mcpOAuth` E `claudeAiOauth`. O parser (`ClaudeOAuthCredentialModels.swift:66`) lê `claudeAiOauth` — que ESTÁ presente. Confirmei contra o item real: `claudeAiOauth.accessToken` presente (108 chars), `expiresAt` futuro (não-expirado), scopes completos. O `head -c 20` mostrou só `mcpOAuth` por ordem de serialização, mas o parser localiza `claudeAiOauth` corretamente. Sem impacto no fix.
+
+### 5. Subprocess hygiene — COMPLETA
+
+- **Timeout:** 1.5s hard (`securityCLIReadTimeout`, linha 35); loop de polling até deadline (linhas 164-167).
+- **Off-main:** roda dentro do actor `CredentialsStore` (não `@MainActor`); callers usam `await`.
+- **Process-group kill:** `setpgid` (linha 160) + `terminate()` faz SIGTERM no grupo, depois SIGKILL no grupo e no pid se persistir (linhas 189-205). Um `security` travado nunca wedge o actor.
+- **exit≠0:** `guard status == 0` → lança `nonZeroExit`, capturado pelo `catch` que retorna `nil` (linha 111-114).
+- **stdout vazio:** `sanitizeSecurityCLIOutput` tira newlines; `guard !sanitized.isEmpty else return nil` (linha 92).
+- Nunca throwa para fora do reader. PASS.
+
+### 6. Testes funcionais REAIS — EXECUTADOS
+
+- `/usr/bin/security find-generic-password -s "Claude Code-credentials" -w | head -c 20` → **exit 0, sem prompt**, payload real retornado. A fonte que o app usa lê sem prompt. CONFIRMADO.
+- Item count: **1 item canônico** com esse service (não 4 nesta máquina); `acct=hugocapitelli`. A leitura `-w` (sem `-a`) retorna o match canônico — comportamento esperado.
+- App buildado: bundle universal assinado (x86_64 + arm64), `codesign --verify --deep --strict` → exit 0. Launch direto do binário → processo vive 4s sem crash, sem erros de keychain no log de startup, termina limpo. CONFIRMADO.
+
+### Risco residual & notas
+
+- Em produção esta máquina tem 1 item (não os 4 da descrição); a lógica de seleção do mais-recente existe e é defensável, mas o cenário multi-item não foi exercitado contra keychain real (apenas via teste unitário do guard de expiração). Risco baixo — a lógica de ordenação por `modificationDate` é sound.
+- Account-pinning do CodexBar não portado: justificado, já que o fallback no-UI não pode promptar de qualquer forma.
+- Verificação por design (não consegui reproduzir o prompt recorrente original em sessão de QA, mas a causa-raiz — ACL sem nosso app + recriação por renovação — está empiricamente confirmada na story e o caminho primário agora usa a ferramenta que o item confia).
+
+### Gate Decision
+
+Todos os 6 critérios de resultado satisfeitos. Caminho primário é o subprocess confiável, prompt path neutralizado e auditado (zero `allowPrompt`, 3/3 SecItemCopyMatching no-UI), 230 testes verdes sem regressão, seleção de token sólida, subprocess com timeout/off-main/kill/error-handling completos, e fonte real lê com exit 0 sem prompt. App assinado roda sem crash.
+
+— Quinn, guardião da qualidade 🛡️
+
+VERDICT: PASS

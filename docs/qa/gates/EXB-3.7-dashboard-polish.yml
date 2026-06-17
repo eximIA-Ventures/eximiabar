@@ -1,0 +1,16 @@
+schema: 1
+story: 'EXB-3.7'
+gate: PASS
+status_reason: 'All 25 ACs verified against committed source (6924ba0); clean release build with zero warnings and 223/223 tests green (11 new), single K/M/B formatting point with zero scientific notation, anti-freeze and EXB-3.6 features intact.'
+reviewer: 'Quinn'
+updated: '2026-06-12T20:30:00Z'
+top_issues:
+  - id: 'MNT-001'
+    severity: low
+    finding: 'ModelBreakdownTable.onHover dismiss expression is correct but dense; a brief comment on the exit branch would aid readability.'
+    suggested_action: 'Optional: add a one-line comment on the dismiss branch (DashboardView.swift:851). No functional change.'
+  - id: 'REQ-001'
+    severity: low
+    finding: 'Hover highlight, gradient ramp and tooltip pixel placement are inherently GUI-validated; only data/formatting contracts are test-pinned.'
+    suggested_action: 'Final visual sign-off on a live popover with real data rests with Hugo — acceptable per the story''s own DashboardPolishTests note.'
+waiver: { active: false }

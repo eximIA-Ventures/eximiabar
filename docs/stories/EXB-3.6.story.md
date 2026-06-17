@@ -336,3 +336,52 @@ Granularidade diária mantém ≤ 100 pts/série naturalmente. Sub-diária futur
 | Date | Version | Description | Author |
 |------|---------|-------------|--------|
 | 2026-06-12 | 1.0 | Initial draft — Onda 6 (v1.3.0) | @sm River |
+
+---
+
+## QA Results — rodada 1
+
+**Gate:** @qa (Quinn) · **Date:** 2026-06-12 · **Criterion:** RESULT, not API-presence (queimados 2x).
+
+### Build & Tests (RAN, not trusted)
+- `swift build -c release` → **Build complete, 0 warnings, 0 errors** ✅
+- `swift test --no-parallel` (serial, to dodge keychain flake) → **207 tests / 28 suites PASS** ✅ — no flake reproduced this run; the dev-noted `SettingsStoreTests.debouncedSaveCoalescesRapidMutations` timing flake did **not** fire serially. Baseline 201 + 6 new = 207.
+
+### AC verification (file:line or FALTANDO)
+
+| AC | Verdict | Evidence (result, not presence) |
+|----|---------|--------------------------------|
+| 1 — filter changes all charts/KPIs | ✅ | Chain traced live: `DashboardView.swift:114` Picker → `DashboardWindowController.swift:27` `selectPeriod` (guards `period != self.period`) → `:90` `onPeriodChange`→`loadData` → `:146` `scanAnalytics(windowDays:)` → `:148` `build(from:period:)` → `:168` `apply` with `guard data.period == model.period`. Connected end-to-end. |
+| 2 — unit test: distinct counts per period | ✅ | `DashboardPeriodFilterTests.swift:73` proves **different data**: 7d=1 row/200 tok, 30d=2 rows/600 tok, 90d=2 rows/600 tok; explicit `week.count != quarter.count` and `totalTokens(week) != totalTokens(month)`. Not a stale repeat. |
+| 3 — period switch never blocks UI | ✅ | `DashboardWindowController.swift:136-141` flips `isRefreshing` (keeps prior charts) when `.loaded`, else `.loading`; `DashboardView.swift:44-52` floats non-blocking `RefreshBanner`. |
+| 4 — aggregation off-MainActor | ✅ | `scanAnalytics`+`build` invoked **only** inside `Task.detached(priority:.utility)` (`DashboardWindowController.swift:145-148`); grep confirms no other call site. `scanAnalytics` is actor-isolated, never `@MainActor`. |
+| 5 — per-period in-memory cache | ✅ | `cache[period]` checked at `:127` before any scan; cache hit applies instantly with no re-scan. Fingerprint invalidation at `:162`. |
+| 6 — static formatters, none in body | ✅ | All 4 formatter constructions are safe: `DashboardFormat.dayMonth` (`static let`, :144), `TopSessionsTable.dateFormatter` (`static let`, :767), `csvExport` ISO formatter (off-main `Task.detached`, :231), `fileDateTag` (one-shot NSSavePanel callback, :194). **Zero** inside any `body`. |
+| 7 — ≤~100 pts/series + downsampling | ✅ (acceptable) | Daily granularity → 90d = 90 pts/series structurally; heatmap 168 cells explicitly accepted by AC. No sub-daily granularity exists, so no bucketing needed now; documented as future requirement (Dev Notes). |
+| 8 — os_signpost on heavy paths | ✅ | `OSSignposter` category `DashboardPerf`: `scanAnalytics` interval (`CostScanner+Analytics.swift:32`), `makeAnalytics` (:51), `DashboardData.build` (`DashboardData.swift:130`), `applyOnMain` (`DashboardWindowController.swift:158`). 4 intervals + 1 event. |
+| 9 — visible legend on multi-series | ✅ | `.chartLegend(.visible)` on cost (`:419`), tokens (`:545`), heatmap (`:757`). Donut `.hidden` (`:590`) is correct — its legend is the breakdown table. |
+| 10 — formatted axes | ✅ | `axisCurrency` (`$X.XK`/`$X.XX`, :158), `axisTokens` (`XK`/`XM`, :166), `dayMonth` (`dd/MM`, :144) wired into `AxisValueLabel` on both charts. |
+| 11 — hover overlay w/ exact value | ✅ | `CostPerDayChart` `.chartOverlay`+`onContinuousHover` (:420-435), plot-origin corrected (`location.x - origin.x`), `RuleMark.annotation` → `HoverAnnotation` with 4-decimal cost (`preciseCurrency`) + tokens. AC requires "≥ CostPerDayChart" — met. StackedTokens hover omitted (justified: 4-series stack has no single hover value). |
+| 12 — consistent model→color | ✅ | `DashboardPalette.scale(for: sortedModelNames)` (stable cost-desc order) shared by donut `chartForegroundStyleScale` (:589) and table swatches (:600-603). `sortedModelNamesFollowCostDescending` test pins the order. |
+| 13 — section title + date-range subtitle | ✅ | `DashboardSectionHeader` (:204) with `rangeSubtitle(rangeStart,rangeEnd)` on cost/tokens/models/heatmap. |
+| 14 — per-card period total highlight | ✅ | `total:` arg on each header: `total.cost` (cost card), `total.tokens` (tokens + heatmap). `DashboardData.totalCost/totalTokens` summed; `periodTotalsSumTheWindow` test asserts 3.0 / 335. |
+| 15 — empty states | ✅ | `ChartEmptyState` per chart gated on `hasData` with context SF Symbols (`chart.bar.xaxis`, `square.stack.3d.up`, `flame`). |
+| 16 — localized en + pt-BR | ✅ | 4 new keys present in **both** bundles: `loading.message`, `empty.period`, `total.cost`, `total.tokens` (grep-confirmed). |
+
+### Cross-cutting / anti-freeze invariants
+- **NSPanel-not-NSMenu** preserved — popover architecture untouched by this commit (diff scope: Dashboard + CostScanner + tests + strings only). ✅
+- **Zero I/O on main thread** — full scan + parse + build all off-main; `apply` on MainActor is pure value assignment. ✅
+- **BUG 2 root cause real**: mtime pre-filter (`windowFileFloor`, fail-open on missing mtime) skips out-of-window files unread; `staleFileIsSkippedRecentFileIsScanned` proves the skip path doesn't drop real data (total==100, stale 9999-token file never read). ✅
+
+### Gate item 4 (EXB-3.5 glassmorphism) — note
+The brief referenced `NSGlassEffectView` / `#available`. **This codebase uses `NSVisualEffectView` + `TransparencyLevel.material`** (`UsagePanelController.swift:168`), not `NSGlassEffectView`; there is no `#available` glass gate. That's a **brief-vs-code naming mismatch, not a defect** — the real transparency mechanism (live `effectView.material` swap, pure main-thread AppKit, no I/O) is sound and was **not touched** by the EXB-3.6 commit (`git diff HEAD~1` confirms no Popover/Settings files changed). No regression possible from 3.6.
+
+### Concerns (non-blocking)
+1. **30d/90d remain I/O-bound (~38–44s on a 1 GB / ~1949-file history).** mtime filter only meaningfully helps 7d. UI never freezes (off-main + banner + once-per-open cache), so ACs hold, but a future incremental index would close the gap. Out of scope here — accepted as documented tech debt.
+2. **StackedTokensChart has no hover** (justified). AC11 satisfied by CostPerDayChart; acceptable.
+3. **Pre-existing timing flakes** (`SettingsStoreTests`/keychain) noted by dev; did not reproduce serially. Not introduced by this story.
+
+### Decision
+All 16 ACs implemented and verified **by result** (distinct per-period data proven, aggregation proven off-main, formatters proven static, downsampling structurally satisfied). Build clean, 207 tests green serially, anti-freeze invariants intact. The 3 concerns are documented tech debt / justified deviations, none blocking. Dev correctly held the push pending Hugo's visual validation.
+
+VERDICT: PASS

@@ -1,7 +1,7 @@
 # Story EXB-3.5: Liquid Glass Nativo (macOS 26)
 
 **ID:** EXB-3.5
-**Status:** Ready for Review
+**Status:** Done
 **Depends on:** EXB-3.1 (TransparencyLevel enum + Appearance pane + SettingsStore wiring), EXB-1.3 (NSPanel architecture)
 **Epic:** EPIC-EXB
 **Wave:** Onda 6 (v1.3.0)
@@ -244,3 +244,44 @@ Para cada hit: avaliar se o texto é legível sobre vidro translúcido. `MetricR
 |------|---------|-------------|--------|
 | 2026-06-12 | 1.0 | Initial draft — Onda 6 (v1.3.0) | @sm River |
 | 2026-06-12 | 1.1 | Implementação completa — NSGlassEffectView em painel/Settings/Dashboard com fallback macOS < 26; `glassStyle` mapping; GlassEffectBridge + 5 testes (incl. runtime smoke); auditoria de legibilidade. 212 testes verdes, 0 warnings. Status → Ready for Review | @dev Dex |
+| 2026-06-12 | 1.2 | QA Gate PASS — Status: InReview → Done | @qa Quinn |
+
+---
+
+## QA Results — rodada 1
+
+**Gate:** @qa (Quinn) · **Date:** 2026-06-12 · **Criterion:** RESULT, not API-presence (queimados 2x — esta story usa de fato `NSGlassEffectView`, e provei em runtime).
+
+### Build & Tests (RAN, not trusted from the report)
+- `swift build -c release` (clean rebuild, `.build/release` removed) → **Build complete! 0 warnings, 0 errors** ✅
+- `swift test --no-parallel` (serial, to dodge keychain flake) → **212 tests / 30 suites PASS** in 3.185s ✅
+- **Glass suite executed, not availability-skipped** (re-ran in isolation on macOS 26.3.1): `GlassEffectTests` (4 tests) + `GlassRuntimeSmoke` (1 test) → **5/5 PASS in 0.083s**. The `#available(macOS 26.0, *)` tests genuinely fired their assertions (not `0 tests`) — this machine is macOS 26, so the glass path was compiled AND executed.
+
+### AC verification (result, file:line — not presence)
+
+| AC | Verdict | Evidence (RESULT, not presence) |
+|----|---------|--------------------------------|
+| 1 — popover NSGlassEffectView, host as contentView, mapped style, < 26 fallback intact | ✅ | `UsagePanelController.swift:185-244`: `applyTransparency` branches on `#available(macOS 26.0,*)` → `applyGlassTransparency`. `installGlassBacking:238` builds glass via `GlassEffectBridge.makeGlassView(contentView: hostingView, …)` — host is the **glass `contentView`** (line 239), not a sibling. `cornerRadius = PopoverStyle.cornerRadius` (:201). Style from `glassStyle`. < 26 path (`effectView.material`, :188) untouched. **Proven end-to-end by `GlassRuntimeSmoke.panelAdoptsGlassAndHostsAsContentView`** — drives the real controller, asserts `glass.contentView === host`, `host.isDescendant(of: glass)`, style swaps `.clear→.regular`, and `.opaque` → `NSVisualEffectView`. |
+| 2 — Settings window conditional adoption + < 26 `.underWindowBackground` | ✅ | `SettingsWindowController.swift:119-176`: glass path (:128) with host as `contentView` (:147); `.opaque`/`< 26` → `installEffectViewBacking` (:157) restores `NSVisualEffectView`. `cornerRadius:0` correct (titled-window frame supplies corners). |
+| 3 — Dashboard conditional adoption + EXB-2.3/3.2 fallback | ✅ | `DashboardWindowController.swift:136-172`: glass path (:161) with host as `contentView`; `< 26` early-returns to plain hosting content view (:138); `.opaque` keeps plain content view + solid bg (:139-152). `transparencyProvider` seeds at construction (`ClaudeBarApp.swift:139`), live updates via `onTransparencyChange` (:191). |
+| 4 — TransparencyLevel → glassStyle (3 casos) | ✅ | `SettingsStore.swift:159-166`: `.opaque→nil`, `.standard→.regular`, `.frosted→.clear`. **Unit-tested all 3** (`GlassEffectTests.transparencyLevelMapsToGlassStyle` + `opaqueLevelHasNoGlassStyle` + `glassAndMaterialMappingsAgreeOnOpaque` — the last guards the glass/material mappings from drifting). Picker labels kept — justified `[AUTO-DECISION]`, AC4 allows "podem ser atualizados". |
+| 5 — window stays borderless/transparent | ✅ | Panel `isOpaque=false`/`backgroundColor=.clear` (`UsagePanelController.swift:96-97`) untouched; NSPanel structure (EXB-1.3) intact — diff shows no change to `KeyablePanel`/`configurePanel`. Settings/Dashboard set `isOpaque=false`/`.clear` on the glass path (`:170-171` dashboard). The glass is the **view**, not the window. |
+| 6 — legibility audit (.secondary/.tertiary over glass) | ✅ | Audit documented (Dev Notes): contrast-critical values (percentuais, custo, tokens, títulos, pace primário) já `.primary`; `.secondary` só em labels auxiliares — nível vibrancy-aware correto sobre Liquid Glass. No override correct — forcing `.primary` flattens hierarchy and fights Apple's Liquid Glass guideline. |
+| 7 — tests: mapping (3 casos) + no deprecation warnings + no regressions | ✅ | `GlassEffectTests` covers the 3-case mapping + bridge wiring (`bridgeInstallsContentViewAndStyle` asserts `contentView===content`, radius, style, autoresizing). Build is **0 warnings** (no deprecation). 212 tests green (baseline 201 + EXB-3.6 6 + 5 new). |
+
+### Cross-cutting / invariants
+- **Anti-freeze preserved** — `glassView.style = newStyle` is pure AppKit on `@MainActor`, zero I/O (same class of work as the EXB-3.1 `material` swap). The transition matrix (frosted→standard→opaque→frosted) re-parents the host with correct `translatesAutoresizingMaskIntoConstraints` handling: `false` for the glass path (so the host's fitting size propagates up — the documented runtime discovery that keeps the panel sized by SwiftUI), `false`+constraints for the effect-view path. **Verified by the runtime smoke's full transition cycle.** ✅
+- **NSPanel-not-NSMenu** intact — the glass view replaces the `NSVisualEffectView` as the panel's `contentView`; the `NSPanel` class and run-loop architecture are untouched. ✅
+- **Diff scope clean** — commit `53eb7ba` touches exactly the 9 declared files (5 source + 1 bridge + 2 tests + story). No application source outside the glass adoption; no scope creep. ✅
+- **EXB-3.6 (bundled in working tree, re-checked per brief)** — filter→scan→aggregation→chart chain re-traced line-by-line: `period.days` drives `span`/`isWithinWindow`; `scanReturnsDistinctDataPerPeriod` proves 7/30/90 yield genuinely distinct data (200≠600 tokens, 1≠2 rows); aggregation in `Task.detached(.utility)` off-main (`DashboardWindowController.loadData:205`); formatters all `static let` (`DashboardFormat`/`TopSessionsTable.dateFormatter`), none in `body`; downsampling structurally satisfied (≤90 pts/series at 90d). 3.6 already PASSED its own round 1 — no regression from 3.5 (3.5 diff doesn't touch Dashboard data/view, only the glass backing). ✅
+
+### Concerns (non-blocking)
+1. **Visual validation pending** — Liquid Glass legibility/appearance over real desktop content (dark + light) is a human judgment the dev correctly flagged. The code is sound; final visual sign-off is Hugo's. Not a code defect.
+2. **`NSGlassEffectContainerView` not used** — single glass surface per window; the `spacing`-based merge of adjacent effects is unused. Correct for this UI (one card per surface); no action.
+
+### Decision
+All 7 ACs implemented and verified **by result** — the glass path was compiled AND executed on macOS 26.3.1, the runtime smoke proves the real controller wires `NSGlassEffectView` with the host as its `contentView` and swaps style correctly, the < 26 fallback is intact, and the 3-level mapping is unit-pinned. Build clean (0 warnings), 212 tests green serially, anti-freeze + NSPanel invariants preserved, diff scope tight. The two concerns are a pending human visual sign-off (correctly flagged) and an unused-API note — neither blocking.
+
+Gate: PASS → docs/qa/gates/EXB-3.5-liquid-glass-macos-26.yml
+
+VERDICT: PASS

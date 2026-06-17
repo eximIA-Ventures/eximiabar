@@ -1,0 +1,35 @@
+{
+  "name": "eximiabar",
+  "version": "1.2.0",
+  "description": "Installer for exímIABar — live Claude rate-limit monitor for your macOS menu bar. Based on CodexBar by Peter Steinberger (MIT).",
+  "bin": {
+    "eximiabar": "bin/install.js"
+  },
+  "files": [
+    "bin"
+  ],
+  "os": [
+    "darwin"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eximIA-Ventures/eximiabar.git"
+  },
+  "homepage": "https://github.com/eximIA-Ventures/eximiabar",
+  "bugs": {
+    "url": "https://github.com/eximIA-Ventures/eximiabar/issues"
+  },
+  "license": "MIT",
+  "keywords": [
+    "claude",
+    "anthropic",
+    "menubar",
+    "macos",
+    "rate-limit",
+    "usage",
+    "monitor"
+  ]
+}

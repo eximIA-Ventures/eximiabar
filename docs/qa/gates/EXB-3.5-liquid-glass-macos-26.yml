@@ -1,0 +1,38 @@
+schema: 1
+story: 'EXB-3.5'
+gate: PASS
+status_reason: 'Native NSGlassEffectView adopted on macOS 26 with intact NSVisualEffectView fallback; glass path compiled AND executed on macOS 26.3.1 (runtime smoke proves host-as-contentView + style swap), 3-level mapping unit-pinned, build clean (0 warnings), 212 tests green.'
+reviewer: 'Quinn'
+updated: '2026-06-12T16:32:00Z'
+
+evidence:
+  build: 'swift build -c release → Build complete! 0 warnings, 0 errors (clean rebuild)'
+  tests: 'swift test --no-parallel → 212 tests / 30 suites PASS in 3.185s'
+  glass_suite: 'GlassEffectTests (4) + GlassRuntimeSmoke (1) → 5/5 PASS in 0.083s — executed (not availability-skipped) on macOS 26.3.1'
+  diff_scope: 'commit 53eb7ba — exactly 9 declared files, no scope creep'
+
+acceptance_criteria:
+  AC1_popover_glass: 'PASS — UsagePanelController.swift:185-244; host as glassView.contentView (:239); proven by GlassRuntimeSmoke.panelAdoptsGlassAndHostsAsContentView'
+  AC2_settings_glass: 'PASS — SettingsWindowController.swift:119-176; cornerRadius 0 (frame supplies corners); .opaque/<26 → NSVisualEffectView'
+  AC3_dashboard_glass: 'PASS — DashboardWindowController.swift:136-172; transparencyProvider seed + onTransparencyChange live (ClaudeBarApp.swift:139,191)'
+  AC4_mapping: 'PASS — SettingsStore.swift:159-166; .opaque→nil/.standard→.regular/.frosted→.clear; all 3 unit-tested + drift guard'
+  AC5_borderless: 'PASS — panel isOpaque=false/.clear untouched; NSPanel (EXB-1.3) intact; glass is the view, not the window'
+  AC6_legibility: 'PASS — contrast-critical values already .primary; .secondary only on vibrancy-aware auxiliary labels (Apple Liquid Glass guideline)'
+  AC7_tests: 'PASS — 3-case mapping + bridge wiring tested; 0 deprecation warnings; no regressions'
+
+invariants:
+  anti_freeze: 'PRESERVED — glass style swap is pure AppKit @MainActor, zero I/O; transition matrix re-parents host with correct autoresizing handling (runtime-verified)'
+  nspanel_not_nsmenu: 'PRESERVED — glass replaces NSVisualEffectView as panel contentView; NSPanel class + run-loop untouched'
+  exb_3_6_no_regression: 'CONFIRMED — 3.5 diff does not touch Dashboard data/view; 3.6 chain re-traced, distinct-per-period proven, off-main aggregation + static formatters intact'
+
+top_issues:
+  - id: 'REQ-001'
+    severity: low
+    finding: 'Liquid Glass visual legibility over real desktop (dark + light) is pending human sign-off — correctly flagged by dev, not a code defect.'
+    suggested_action: 'Hugo performs visual validation before release; code is sound and merge-ready.'
+  - id: 'MNT-001'
+    severity: low
+    finding: 'NSGlassEffectContainerView (spacing-based merge of adjacent effects) unused.'
+    suggested_action: 'No action — single glass surface per window is correct for this UI.'
+
+waiver: { active: false }
