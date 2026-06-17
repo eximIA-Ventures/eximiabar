@@ -16,6 +16,19 @@ private final class PromptPolicyHolder: Sendable {
     func set(_ policy: PromptPolicy) { lock.withLock { $0 = policy } }
 }
 
+/// Thread-safe holder for the live keychain read strategy.
+///
+/// `CredentialsStore` reads this off-MainActor on every fetch via a `@Sendable` closure. It maps
+/// the user's "Avoid keychain prompts" Settings toggle onto the Core strategy: ON →
+/// `.securityCLIPrimary` (read via the trusted `/usr/bin/security` tool, prompt-free); OFF →
+/// `.securityFramework` (legacy no-UI `SecItemCopyMatching` only). Default ON.
+private final class KeychainReadStrategyHolder: Sendable {
+    private let lock = OSAllocatedUnfairLock(initialState: KeychainReadStrategy.securityCLIPrimary)
+
+    func get() -> KeychainReadStrategy { lock.withLock { $0 } }
+    func set(_ strategy: KeychainReadStrategy) { lock.withLock { $0 = strategy } }
+}
+
 /// Thread-safe holder for the configured `claude` binary path override (EXB-1.6).
 ///
 /// The CLI fallback resolves the binary off-MainActor on every fetch: the holder stores the user's
@@ -82,12 +95,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let launchManager = LaunchAtLoginManager()
     /// Shared policy source read by `CredentialsStore` off-MainActor (AC11).
     private let promptPolicyHolder = PromptPolicyHolder()
+    /// Shared keychain read-strategy source read by `CredentialsStore` off-MainActor.
+    private let readStrategyHolder = KeychainReadStrategyHolder()
     /// Shared `claude` binary source read by the CLI fallback off-MainActor (EXB-1.6).
     private let claudeBinaryHolder = ClaudeBinaryHolder()
     /// Shared cost-scan settings source read by the cost scanner off-MainActor (EXB-1.7).
     private let costSettingsHolder = CostSettingsHolder()
     private lazy var provider = LiveUsageProvider(
         promptPolicyProvider: { [promptPolicyHolder] in promptPolicyHolder.get() },
+        readStrategyProvider: { [readStrategyHolder] in readStrategyHolder.get() },
         claudeBinaryProvider: { [claudeBinaryHolder] in claudeBinaryHolder.resolve() },
         costSettingsProvider: { [costSettingsHolder] in costSettingsHolder.get() })
     private let notificationPoster = SystemNotificationPoster()
@@ -114,6 +130,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the policy holder from the loaded settings (AC11).
         settings.launchAtLogin = launchManager.isEnabled
         promptPolicyHolder.set(settings.corePromptPolicy)
+        // Seed the off-MainActor read-strategy holder from the persisted "Avoid keychain prompts"
+        // toggle so layer (e) uses the trusted `/usr/bin/security` reader from the first fetch.
+        readStrategyHolder.set(settings.coreReadStrategy)
         // EXB-3.1 AC4: apply the persisted theme override at launch so a forced Light/Dark survives a
         // restart. `.system` leaves `NSApp.appearance` nil (follow macOS).
         applyTheme(settings.themeOverride)
@@ -149,6 +168,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         settings.onKeychainPolicyChange = { [promptPolicyHolder] policy in
             promptPolicyHolder.set(policy)
+        }
+        // Keep the off-MainActor read-strategy holder in lock-step with the live "Avoid keychain
+        // prompts" toggle so flipping it takes effect on the next fetch without a relaunch.
+        settings.onSecurityCLIReaderChange = { [readStrategyHolder] strategy in
+            readStrategyHolder.set(strategy)
         }
         // EXB-2.2 AC5/AC7 (Option A): on a language switch, repaint the menu-bar status item and the
         // installed main menu immediately. The bundle cache was already reset inside the store's

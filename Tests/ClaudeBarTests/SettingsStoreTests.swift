@@ -27,7 +27,8 @@ struct SettingsStoreTests {
         #expect(store.costDays == 30)
         #expect(store.source == nil)
         #expect(store.keychainPromptPolicy == .onUserAction)
-        #expect(store.useSecurityCLIReader == false)
+        // CLI reader is the prompt-free default (eliminates the recurring keychain dialog).
+        #expect(store.useSecurityCLIReader == true)
         #expect(store.webExtrasEnabled == false)
         #expect(store.claudeBinaryPath == nil)
         #expect(store.displayMode == .meterIcon)
@@ -52,7 +53,7 @@ struct SettingsStoreTests {
         first.costDays = 90
         first.source = .oauth
         first.keychainPromptPolicy = .always
-        first.useSecurityCLIReader = true
+        first.useSecurityCLIReader = false // persist the non-default (CLI reader opt-out)
         first.claudeBinaryPath = "/opt/claude"
         first.displayMode = .brandIconPercent
         first.showUsed = false
@@ -70,7 +71,7 @@ struct SettingsStoreTests {
         #expect(second.costDays == 90)
         #expect(second.source == .oauth)
         #expect(second.keychainPromptPolicy == .always)
-        #expect(second.useSecurityCLIReader == true)
+        #expect(second.useSecurityCLIReader == false)
         #expect(second.claudeBinaryPath == "/opt/claude")
         #expect(second.displayMode == .brandIconPercent)
         #expect(second.showUsed == false)

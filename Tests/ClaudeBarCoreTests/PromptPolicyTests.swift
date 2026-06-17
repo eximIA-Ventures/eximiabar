@@ -59,16 +59,21 @@ struct PromptPolicyTests {
         #expect(record.source == .credentialsFile)
     }
 
-    /// The provider is read on **every** `load` that reaches the keychain layer (e), never memoized.
+    /// The read-strategy provider is read on **every** `load` that reaches the keychain layer (e),
+    /// never memoized.
+    ///
+    /// Layer (e) no longer raises keychain prompts (the `/usr/bin/security` CLI reader supplies the
+    /// secret prompt-free), so the prompt policy is no longer consulted there. The live, non-memoized
+    /// provider that (e) now samples on every load is the **read strategy** — this test guards that
+    /// same no-memoization contract on it.
     ///
     /// With no env token, no cache, and no credentials file, every `load` falls through layers (a)–(d)
-    /// straight into (e) where the policy is consulted (`CredentialsStore.load`, line 129) — exactly
-    /// once per call, before `loadFromClaudeKeychain`. Each load throws `.notFound` (no system keychain
-    /// item under test), so nothing is memoized and the next load reaches (e) again. Asserting an exact
-    /// read-count == number of (e)-reaching loads is a tight regression guard on the no-memoization
-    /// guarantee (AC11) — strictly stronger than "≥ 1".
+    /// straight into (e) where the strategy is consulted — exactly once per call. Each load throws
+    /// `.notFound` (no system keychain item under test), so nothing is memoized and the next load
+    /// reaches (e) again. Asserting an exact read-count == number of (e)-reaching loads is a tight
+    /// regression guard — strictly stronger than "≥ 1".
     @Test
-    func policyProviderIsReadOnEveryLoadReachingKeychain() async throws {
+    func readStrategyProviderIsReadOnEveryLoadReachingKeychain() async throws {
         // An empty home dir: no `~/.claude/.credentials.json`, so layer (d) always misses and every
         // load reaches (e).
         let home = FileManager.default.temporaryDirectory
@@ -81,9 +86,12 @@ struct PromptPolicyTests {
             environment: [:],
             homeDirectory: home,
             defaults: UserDefaults(suiteName: "exb.policy.\(UUID().uuidString)")!,
-            // System keychain enabled so the policy provider is consulted in layer (e).
-            promptPolicyProvider: { reads.bump(); return .never },
-            enableSystemKeychain: true)
+            promptPolicyProvider: { .never },
+            // System keychain enabled so the strategy provider is consulted in layer (e). Use the
+            // legacy strategy so the (DEBUG) CLI override is never consulted and the load reliably
+            // reaches the no-UI fallback → `.notFound` under test.
+            enableSystemKeychain: true,
+            readStrategyProvider: { reads.bump(); return .securityFramework })
 
         let loadCount = 3
         for _ in 0 ..< loadCount {
@@ -95,8 +103,8 @@ struct PromptPolicyTests {
             await store.invalidateCaches()
         }
 
-        // Exactly one provider read per load that reached (e) — proves the policy is re-sampled on
-        // every load, never captured once at init. Tight `== loadCount` regression guard on AC11.
+        // Exactly one provider read per load that reached (e) — proves the strategy is re-sampled on
+        // every load, never captured once at init. Tight `== loadCount` regression guard.
         #expect(reads.value == loadCount)
     }
 }

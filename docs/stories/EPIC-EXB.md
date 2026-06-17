@@ -168,6 +168,73 @@ Polish and analytics wave after v1.1.0. Fixes the glassmorphism gap left by EXB-
 
 ---
 
+## Onda 6 (v1.3.0)
+
+**Status:** Draft | **Target:** v1.3.0 | **Created:** 2026-06-12
+
+Bug-fix and polish wave. Fixes two production bugs in the dashboard (broken period filters, UI jank), completes the visual layer with proper legends/axes/hover/empty states, and adopts macOS 26 Liquid Glass (`NSGlassEffectView`) with full fallback for macOS < 26.
+
+| Order | Story ID | Title | Executor | Rationale |
+|-------|----------|-------|----------|-----------|
+| 1 | EXB-3.6 | Dashboard: filtros, performance e completude visual | @dev | Bugs reportados em produção: filtros de período não funcionam + UI trava ao trocar período; completa visual com legendas, eixos, hover, empty states |
+| 2 | EXB-3.5 | Liquid Glass nativo (macOS 26) | @dev | Substitui NSVisualEffectView por NSGlassEffectView em macOS 26; fallback automático em < 26; depende de SettingsStore/TransparencyLevel de EXB-3.1 |
+
+**Execution order:** 3.6 primeiro (bugs de produção têm prioridade); 3.5 depois (feature de polish que não bloqueia fixes).
+
+**Wave DoD:**
+- [ ] All 2 stories Done
+- [ ] `swift build -c release` zero warnings com todo o código Onda 6
+- [ ] `swift test` passando (sem regressões da baseline de 201 testes)
+- [ ] Trocar período no dashboard altera visivelmente todos os charts (BUG 1 resolvido)
+- [ ] Abrir dashboard e trocar período nunca congela a UI (BUG 2 resolvido)
+- [ ] Em macOS 26: painel, Settings e Dashboard usam `NSGlassEffectView`; em macOS < 26: comportamento Onda 5 preservado
+
+---
+
+## Onda 7 (v1.4.0)
+
+**Status:** Draft | **Target:** v1.4.0 | **Created:** 2026-06-12
+
+Polish visual profundo: tokens como protagonista nos KPI cards, heatmap com células uniformes e legível, gráficos interativos (hover em donut, tokens empilhados e novo gráfico modelos por dia), formatação K/M/B universal e correções de bugs visuais (truncagem de labels, overflow de tooltips).
+
+| Order | Story ID | Title | Executor | Rationale |
+|-------|----------|-------|----------|-----------|
+| 1 | EXB-3.7 | Dashboard polish: tokens-first, interatividade e visual | @dev | Feedback visual do usuário após ver screenshots reais: heatmap visual ruim, donut estático, tokens não estão em destaque, notação científica na legenda, labels truncados |
+
+**Execution order:** 3.7 (única story da onda).
+
+**Wave DoD:**
+- [ ] EXB-3.7 Done
+- [ ] `swift build -c release` zero warnings com todo o código Onda 7
+- [ ] `swift test` passando (sem regressões da baseline de 207 testes)
+- [ ] KPI cards exibem tokens como número principal em todos os 5 cards
+- [ ] Heatmap legível: células uniformes, gradiente brand, legenda K/M/B (zero notação científica)
+- [ ] Donut com hover interativo e tooltip completo
+- [ ] Novo gráfico "Modelos por dia" visível com cores consistentes
+
+---
+
+### Onda 8 — Keychain prompt fix (v1.5.0)
+
+**Status:** Draft | **Target:** v1.5.0 | **Created:** 2026-06-17
+
+Elimina o pop-up recorrente de keychain (Allow/Deny). O item `"Claude Code-credentials"` é criado pelo Claude Code com partition list que confia em `/usr/bin/security` mas não no nosso app, e é recriado a cada renovação de token → o `SecItemCopyMatching` promptava periodicamente. Solução: ler o segredo via `/usr/bin/security ... -w` (caminho confiável, sem prompt) como estratégia PRIMÁRIA, com fallback no-UI; nenhum caminho de código promanta mais.
+
+| Order | Story ID | Title | Executor | Rationale |
+|-------|----------|-------|----------|-----------|
+| 1 | EXB-3.8 | Keychain: eliminar pop-up recorrente via `/usr/bin/security` CLI | @dev | Bug de produção pós-EXB-1.5/signing: leitura via Security.framework prompta porque o item do Claude CLI não confia no nosso app; CLI `/usr/bin/security` lê sem prompt (caminho do CodexBar original) |
+
+**Execution order:** 3.8 (única story da onda).
+
+**Wave DoD:**
+- [ ] EXB-3.8 Done
+- [ ] CLI `/usr/bin/security` é a estratégia primária da camada (e); fallback no-UI mantido
+- [ ] Nenhum caminho de código levanta o diálogo de keychain (zero `allowPrompt`, NoUI incondicional)
+- [ ] Setting `useSecurityCLIReader` conectado e default ON
+- [ ] `make build` assinado zero warnings + `swift test` sem regressão da baseline (223 → 230)
+
+---
+
 ## Definition of Done (Epic)
 
 - [ ] All 8 stories Done

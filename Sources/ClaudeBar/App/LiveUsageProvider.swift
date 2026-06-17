@@ -53,12 +53,15 @@ struct LiveUsageProvider: Sendable {
     /// settings change is honoured immediately with no memoization.
     init(
         promptPolicyProvider: @escaping @Sendable () -> PromptPolicy,
+        readStrategyProvider: @escaping @Sendable () -> KeychainReadStrategy = { .securityCLIPrimary },
         fetcher: UsageFetcher = UsageFetcher(),
         claudeBinaryProvider: @escaping @Sendable () -> String? = { nil },
         costSettingsProvider: @escaping @Sendable () -> CostSettings = { CostSettings(enabled: false, days: 30) },
         costScanner: CostScanner = .shared)
     {
-        let credentials = CredentialsStore(promptPolicyProvider: promptPolicyProvider)
+        let credentials = CredentialsStore(
+            promptPolicyProvider: promptPolicyProvider,
+            readStrategyProvider: readStrategyProvider)
         self.credentials = credentials
         self.fetcher = fetcher
         self.claudeBinaryProvider = claudeBinaryProvider

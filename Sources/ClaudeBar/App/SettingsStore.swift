@@ -307,10 +307,15 @@ final class SettingsStore {
         }
     }
 
-    /// When ON, reads credentials via `/usr/bin/security` CLI instead of the direct
-    /// Security.framework call to avoid keychain prompts (AC4). Default off.
-    var useSecurityCLIReader: Bool = false {
-        didSet { scheduleSaveIfChanged(useSecurityCLIReader, oldValue) }
+    /// When ON, layer (e) reads credentials via the trusted `/usr/bin/security` CLI first
+    /// (prompt-free) and only falls back to the direct Security.framework call. This is the path
+    /// that eliminates the recurring Allow/Deny keychain dialog, so it defaults **ON**.
+    var useSecurityCLIReader: Bool = true {
+        didSet {
+            guard useSecurityCLIReader != oldValue else { return }
+            onSecurityCLIReaderChange?(coreReadStrategy)
+            scheduleSave()
+        }
     }
 
     /// Developer option — extra web fetch on top of OAuth (AC4). Default off; stubbed in P0/P1.
@@ -395,6 +400,10 @@ final class SettingsStore {
     /// lock-step with the live setting (AC11). Carries the mapped Core policy.
     var onKeychainPolicyChange: (@MainActor (PromptPolicy) -> Void)?
 
+    /// Invoked when `useSecurityCLIReader` changes so the off-MainActor read-strategy holder stays
+    /// in lock-step with the live setting. Carries the mapped Core strategy.
+    var onSecurityCLIReaderChange: (@MainActor (KeychainReadStrategy) -> Void)?
+
     /// Invoked when `claudeBinaryPath` changes so the off-MainActor CLI binary holder stays in
     /// lock-step with the live setting (EXB-1.6). Carries the optional override path.
     var onClaudeBinaryChange: (@MainActor (String?) -> Void)?
@@ -452,6 +461,12 @@ final class SettingsStore {
     /// Plain-value snapshot of the keychain prompt policy for off-MainActor reads (AC11).
     /// `CredentialsStore` reads this through the provider closure on every fetch — no memoization.
     var corePromptPolicy: PromptPolicy { keychainPromptPolicy.corePolicy }
+
+    /// Plain-value snapshot of the keychain read strategy for off-MainActor reads.
+    /// `CredentialsStore` reads this through the provider closure on every fetch — no memoization.
+    var coreReadStrategy: KeychainReadStrategy {
+        useSecurityCLIReader ? .securityCLIPrimary : .securityFramework
+    }
 
     // MARK: - Debounced save (AC8)
 
