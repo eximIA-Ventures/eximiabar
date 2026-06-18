@@ -216,9 +216,68 @@ Dex (@dev) — Opus 4.8
 
 ---
 
+## QA Results — rodada 1
+
+**Gate:** @qa Quinn (Guardian) — 2026-06-18
+**Verdict:** **PASS**
+**Method:** result-based — built + tested myself, did not trust the dev report. Read every new/modified source file. Anti-freeze grep + localization parity verified independently.
+
+### Build & Test (verified by me)
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Release build, zero warnings (AC15) | `swift build -c release --arch arm64` | ✅ `Build complete!` — zero warnings |
+| Full suite, no regressions (AC16) | `swift test --arch arm64 --no-parallel` | ✅ **262 tests / 35 suites, all passing** (baseline 223+ → +15 new, zero regressions) |
+| Keychain untouched | (no test prompt observed) | ✅ no `/usr/bin/security` path modified; suite ran clean without keychain prompt |
+
+### AC traceability — every AC implemented
+
+| AC | Requirement | Evidence | Verdict |
+|----|-------------|----------|---------|
+| AC1 §1 | 5 content options picker | `SettingsStore.swift:17-41` (`MenuBarContent` enum, 5 cases); `PreferencesDisplayPane.swift:41` (Picker) | ✅ |
+| AC1 §2 | persisted as `MenuBarContent` (String raw) | `SettingsStore.swift:456-462` + `Key.menuBarContent` (`:641`), raw-string write/load (`:701`,`:807-810`) | ✅ |
+| AC1 §3 | applies immediately, no restart | `onMenuBarContentChange` callback (`SettingsStore.swift:510`) → wired `ClaudeBarApp.swift:172` → `StatusItemController.update` | ✅ |
+| AC2 §4 | sparkline of last N (6–8) samples | `SparklineRenderer.maxSamples = 8` (`:19`); source `ExhaustionPredictor.recentUtilizations(windowId:limit:)` (`:267`) | ✅ |
+| AC2 §5 | `NSBitmapImageRep`, off-main, `isTemplate`, ≤32×18 | `SparklineRenderer.swift:104-138` (bitmap rep), `outputSize 28×14` (`:24`), `isTemplate=true` (`:136`) | ✅ |
+| AC2 §6 | ≤2 pts → neutral flat line, no crash | `render` (`:45` `count<=1 → drawFlatLine`); test `sparklineEmptyFallback`/`sparklineMinPoints` green | ✅ |
+| AC3 §7 | `update(snapshot:)` computes in `Task.detached`, applies on `@MainActor` | `StatusItemController.swift:85-105` (detached render) → `:108 apply` (MainActor) | ✅ |
+| AC3 §8 | sparkline render + composite off-main via bitmap rep | `composite` is `nonisolated static`, uses `NSBitmapImageRep` not `lockFocus` (`:123-175`) | ✅ |
+| AC4 §9 | global shortcut toggles popover | `GlobalHotkeyManager` + `registerHotkey` → `panelController.toggle(near:)` (`ClaudeBarApp.swift:272-275`) | ✅ |
+| AC4 §10 | `addGlobalMonitorForEvents`, no Carbon/3rd-party | `GlobalHotkeyManager.swift:61`; grep confirms **no `import Carbon`, no `RegisterEventHotKey`, no third-party HotKey** | ✅ |
+| AC4 §11 | configurable capture field, shows current | `HotkeyCaptureField.swift` (recorder, Esc cancels, Delete clears, requires modifier `:149-155`); `PreferencesDisplayPane.swift:56-59` | ✅ |
+| AC4 §12 | works unfocused; closes if open | global monitor fires when another app frontmost; `toggle` closes when `isVisible` (`UsagePanelController.swift:129-133`) | ✅ |
+| AC4 §13 | persisted as `HotkeyBinding?` (Int raw, Codable) | `HotkeyBinding` struct (Int modifiers+keyCode, `:46-87`); JSON persist + `globalHotkeyCleared` flag (`:702-708`, `:813-818`) | ✅ |
+| AC5 §14 | new strings in en + pt-BR | 13 keys each; **key-set parity verified identical** (diff clean) | ✅ |
+| AC6 §15 | release build zero warnings | verified above | ✅ |
+| AC6 §16 | ≥4 new tests, no regressions | 4 required (`menuBarContentRoundtrip`, `sparklineEmptyFallback`, `sparklineMinPoints`, `hotkeyBindingCodable`) + 11 more = 15 new, all green | ✅ |
+
+### Specific gate questions (from spawn brief)
+
+1. **Hotkey global registra de fato?** Yes — via `NSEvent.addGlobalMonitorForEvents` (NOT Carbon). The dev's [AUTO-DECISION] to use the global monitor instead of Carbon `RegisterEventHotKey` is **correct and AC-mandated**: AC10 explicitly forbids Carbon if it requires entitlements. The companion *local* monitor (fires when the app's own window is key, since global monitors skip the active app) is a sound, necessary complement. Gated behind `AXIsProcessTrusted()`, never prompts, popover always reachable by click (additive). Approved.
+2. **Preferência aplica imediato?** Yes — `onMenuBarContentChange`/`onDisplayModeChange` callbacks re-render the status item live; `@Observable` store; no relaunch. Same pattern proven across EXB-3.1 settings.
+3. **Sparkline leve e anti-freeze?** Yes — stateless `enum SparklineRenderer`, drawn into off-screen `NSBitmapImageRep` (2× scale), `isTemplate=true`, composited off-main. Data source reuses the `ExhaustionPredictor` actor (single source of utilization truth, no duplicate buffer) — samples cross the actor boundary off the MainActor in `AppState.enrich` (`:173`). Clean reuse, no duplication.
+
+### Anti-freeze & regression integrity (repo invariants)
+
+- ✅ **Zero blocking I/O on MainActor:** grep for `Data(contentsOf` / `.synchronize()` / `DispatchQueue.main.sync` / `Thread.sleep` / `contentsOfFile` in `Sources/ClaudeBar/` → **no hits**. The only `lockFocus` occurrences (`SparklineRenderer.swift:131`, `IconRenderer.swift:366`) are inside `if NSBitmapImageRep(...) == nil` fallback branches — the established EXB-1.2 pattern, not the hot path.
+- ✅ **Popover stays `NSPanel`, never `NSMenu`:** `UsagePanelController` unchanged; the only `NSMenu` is the minimal ⌘, main-menu carrier in `ClaudeBarApp.swift:290` (required for LSUIElement key equivalents).
+- ✅ **No POST to refresh endpoint:** fetch/usage path untouched; keychain CLI reader (`/usr/bin/security`) intocada.
+- ✅ **EXB-4.1/4.2/4.3 intact:** predictor change is additive (`recentUtilizations` read-only tail accessor, `:267`); forecast/predictive-alert path unchanged; suite grew 223+→262 with zero failures.
+
+### Notes (non-blocking)
+
+- **REQ-1 (low, informational):** Story `Status` field is `Ready for Review`. Per repo epic-closeout gotcha, the SM/lead should transition it to `Done` after this PASS (the InReview→Done transition is a separate manual step that has been missed before on this epic).
+- **OBS-1 (none):** Both dev [AUTO-DECISIONS] (global-monitor-over-Carbon; predictor-as-sparkline-source) are well-reasoned, AC-compliant, and documented in the Dev Agent Record. No concerns.
+- Both `swift build --arch arm64` (debug) and the universal `make build` were NOT run by the dev per the anti-stall constraint; gate validated on `swift build -c release --arch arm64` + `swift test`. Cold universal-build + signing verification is deferred to the @devops release gate (EXB-1.8 pipeline), consistent with prior story gates.
+
+**Decision rationale:** all 6 ACs and 16 numbered criteria implemented and verified by independent build/test; zero warnings; 262 green tests with zero regressions; anti-freeze invariants intact; both autonomous decisions correct and AC-aligned. No blocking issues.
+
+---
+
 ## Change Log
 
 | Date | Version | Description | Author |
 |------|---------|-------------|--------|
 | 2026-06-18 | 1.0 | Initial draft — Onda 9 (v1.6.0) | @sm River |
 | 2026-06-18 | 1.1 | Implemented all ACs — menu bar content + global hotkey | @dev Dex |
+| 2026-06-18 | 1.2 | QA gate PASS — rodada 1 (262 tests green, zero warnings, anti-freeze intact) | @qa Quinn |

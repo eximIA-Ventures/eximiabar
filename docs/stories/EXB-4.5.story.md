@@ -1,7 +1,7 @@
 # Story EXB-4.5: Insights de Eficiência no Dashboard
 
 **ID:** EXB-4.5
-**Status:** Ready for Review
+**Status:** Done
 **Depends on:** EXB-3.7 (Dashboard baseline completo — `DashboardData`, `CostScanner.scanAnalytics`, K/M/B formatter, KPI cards, período 7/30/90d), EXB-4.3 (opcional — cache hit rate pode vir de `ExhaustionPredictor` se já persistir amostras; mas EXB-4.5 pode usar dados de `UsageAnalytics` diretamente)
 **Epic:** EPIC-EXB
 **Wave:** Onda 9 (v1.6.0)
@@ -224,9 +224,84 @@ Exemplos de SF Symbols:
 
 ---
 
+## QA Results — rodada 1
+
+**Reviewed by:** Quinn (Test Architect & Quality Advisor)
+**Review date:** 2026-06-18
+**Commit reviewed:** `9d00913` (local, não pushed)
+**Method:** verificação de resultado — código real lido linha a linha, `swift build --arch arm64` + `swift test --arch arm64` executados por mim (sem tocar keychain).
+
+### Validação executada (não confiei no relatório do dev)
+
+| Comando | Resultado |
+|---------|-----------|
+| `swift build --arch arm64` | **Build complete!** — zero erros, zero warnings |
+| `swift test --arch arm64 --filter DashboardInsightsTests` | **13/13 verdes** |
+| `swift test --arch arm64 --filter DashboardDataTests\|DashboardAnalyticsTests\|DashboardPolishTests` | **28/28 verdes** (regressão dashboard) |
+| `swift test --arch arm64` (suíte completa) | **275/275 verdes em 36 suites** — zero regressões |
+
+> Nota: o dev reportou "223+ baseline"; a suíte real total hoje é 275 testes (todos passam). O número da story (AC6) é um piso histórico, não uma contagem exata — não é discrepância de qualidade.
+
+### Acceptance Criteria — resultado por critério
+
+| AC | Veredito | Evidência |
+|----|----------|-----------|
+| **AC1.1** cache hit rate `cacheRead/(input+cacheRead)` | ✅ | `DashboardData.swift:321-323` + helper puro `cacheHitRate(input:cacheRead:)` `:370-374` (guarda divisão-por-zero, nunca NaN) |
+| **AC1.2** exibido como % 1 decimal em card | ✅ | `CacheHitCard` `DashboardView.swift:427-454`, `DashboardFormat.percent1` `:188-190` (`0.634 → "63.4%"`) |
+| **AC1.3** economia estimada em USD 2 decimais | ✅ | `DashboardData.swift:326-327` `cacheRead × max(0, output − cacheRead)`; render via `compactCurrency` `:442` |
+| **AC1.4** preços do `Pricing`, sem hardcoding na view | ✅ | `CostScanner.modelPrice(for:)` `CostScanner+Analytics.swift:29-31` → `Pricing` actor; ratio único `CachePricing.cacheReadInputRatio = 0.1` `:109`. View não referencia `Pricing`/`ProviderCost` (grep limpo) |
+| **AC2.5** delta `(today−avg)/avg` | ✅ | helper `dailyDelta` `:379-383` |
+| **AC2.6** badge +/−/"na média" com cor | ✅ | `DeltaBadge` `:395-423` — warm se >0, verde se <0, neutro se zero; strings `delta.above/below/on_average` |
+| **AC2.7** "Sem uso hoje" sem dados | ✅ | `dailyDelta` retorna `nil` quando `todayTokens==0 && todayCost==0` `:380`; `DeltaBadge` `:399` mapeia nil → `delta.no_usage` |
+| **AC3.8** seção "Esta semana" 4 cards | ✅ | `WeeklySummarySection` `:461-522` — busiest day, top model, week total, peak hour |
+| **AC3 peakHour** do heatmap existente | ✅ | helper `peakHour(heatmap:)` `:387-396` argmax por hora; reusa `analytics.heatmap` (sem novo scan) |
+| **AC3.9** usa `DashboardSectionHeader` + estilo dos cards | ✅ | `:499-501`, rounded-rect `controlBackgroundColor` igual aos demais KPI cards |
+| **AC3.10** NÃO aparece em 30d/90d | ✅ | gate `if data.period == .sevenDays` `DashboardView.swift:294` |
+| **AC4.11** campos em `DashboardData.build` off-main | ✅ | `DashboardData.swift:318-339`; `build` chamado dentro de `Task.detached` `DashboardWindowController.swift:205-211` |
+| **AC4.12** nada calculado em `body`/`@MainActor` | ✅ | grep: zero `await`, zero `Pricing` em `DashboardView.swift`; `DashboardData` sem `FileManager`/`URLSession`/`await` |
+| **AC4.13** reusa heatmap/byModel/daily, sem novo scan | ✅ | todos os campos derivam de `analytics.byDayModel`/`.heatmap` já dobrados; `cachePricing(for:)` `:220-230` folda em memória, sem `scanAnalytics` extra |
+| **AC5.14** strings en + pt-BR | ✅ | 16 chaves `dashboard.insights.*` em cada arquivo (`en` linhas 94-107, `pt-BR` 92-105), paridade exata |
+| **AC5.15** tokens via `DashboardFormat.tokenCount` | ✅ | `:487,494,518` — ponto único K/M/B |
+| **AC5.16** custo via formatter existente | ✅ | `compactCurrency` / `PopoverFormatter.currency` `:442,481,493` |
+| **AC6.17** build zero warnings | ✅ | verificado (`--arch arm64`; `-c release` final é do @devops na release da onda, conforme DoD) |
+| **AC6.18** 5+ testes novos | ✅ | 13 testes; os 5 requeridos nominais presentes: `cacheHitRateZeroWhenNoCache`, `cacheHitRateCalculation`, `dailyDeltaPositive`, `dailyDeltaNegative`, `peakHourFromHeatmap` |
+
+**18/18 ACs implementados e verificados no código real.**
+
+### Verificações específicas pedidas no gate (4.5)
+
+- **Cache hit rate correto?** ✅ Fórmula e teste batem: `cacheHitRateCalculation` confirma `300/(100+300)=0.75`. Guarda denominador-zero impede NaN. Savings usa `max(0, output−cacheRead)` — não produz economia negativa se preços invertidos.
+- **Reusa agregador (não duplica)?** ✅ Zero novo `scanAnalytics`; pricing do modelo dominante folda `analytics.byDayModel` já escaneado. Nenhum parsing JSONL duplicado.
+- **Off-main?** ✅ `modelPrice` + `build` dentro de `Task.detached(.utility)`; só `apply()` toca `@MainActor`. O `await Pricing` ocorre exclusivamente fora da main (anti-freeze AC12 preservado — a razão exata pela qual a story EXB-4.x existe).
+- **Integra ao período global?** ✅ `build(from:period:)` usa o eixo do período selecionado; cache hit/delta/busiest day respeitam a janela 7/30/90d. Weekly section corretamente restrita a 7d.
+
+### Regressão e features anteriores (4.1/4.2/4.3/4.4 + keychain CLI)
+
+- ✅ **Suíte completa 275/275** — inclui `RefreshOwnershipTests` (`claudeCLIOwnerNeverCallsRefreshEndpoint`, `claudebarOwnerCallsRefreshEndpointDirectly`): invariante **no-refresh-POST para CLI owner** intacto.
+- ✅ Dashboard 4.1 (heatmap log scale) e 3.7 (formatters/cards) — 28 testes verdes, sem regressão. `DashboardData.build` ganhou parâmetro `cachePricing` com default zerado preservando os ~30 call sites existentes.
+- ✅ Anti-freeze global preservado: nenhuma I/O ou `await Pricing` migrou para `body`/`@MainActor`.
+
+### Desvios do dev — avaliados e aceitos
+
+1. **`ProviderCost.cost(for:)` das Dev Notes não existe** → era pseudocódigo. A solução real (`CachePricing.claude` derivando cache-read = 0.1× input via `Pricing` actor off-main) satisfaz AC1.4 melhor que o proposto: ratio único fora da view, sem hardcoding. **Aceito.**
+2. **Tuplas → structs `BusiestDay`/`TopModel`** → necessário para `DashboardData` permanecer `Equatable`/`Sendable` plano. Correto. **Aceito.**
+3. **T2 card dedicado** em vez de linha no Total → mais descobrível, flui no grid adaptativo. Decisão de UX razoável dentro do escopo. **Aceito.**
+
+### Observações menores (não-bloqueantes, sem ação requerida)
+
+- `[low][MNT]` `WeeklySummarySection.weekdayName` usa `standaloneWeekdaySymbols` (índice 0 = Sunday) enquanto `busiestDay.dayOfWeek` também é 0=Sun (`Calendar.component(.weekday)-1`). Alinhados corretamente — verificado, sem bug. Apenas registro de que o mapeamento weekday foi conferido.
+- `[low][DOC]` AC6 cita "223+ baseline"; a contagem real evoluiu para 275. Sugestão: @sm atualizar o piso em futuras stories da onda. Cosmético.
+
+### Gate
+
+**Gate: PASS** — 18/18 ACs verificados no código real, 275/275 testes verdes, zero regressões, anti-freeze e invariante CLI no-refresh intactos. Pronto para o @devops empacotar o build universal `-c release` da release da Onda 9.
+
+---
+
 ## Change Log
 
 | Date | Version | Description | Author |
 |------|---------|-------------|--------|
 | 2026-06-18 | 1.0 | Initial draft — Onda 9 (v1.6.0) | @sm River |
 | 2026-06-18 | 1.1 | Implementação completa: cache hit + savings, delta badge, seção "Esta semana", 13 testes. Ready for Review | @dev Dex |
+| 2026-06-18 | 1.2 | QA Gate PASS — 18/18 ACs verificados, 275/275 testes verdes, zero regressões. Status: Ready for Review → Done | @qa Quinn |
