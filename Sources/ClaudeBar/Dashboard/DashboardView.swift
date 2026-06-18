@@ -1087,7 +1087,10 @@ private struct ActivityHeatmapChart: View {
     }
 
     private var chart: some View {
-        Chart {
+        // EXB-4.1 AC1/AC2: `max` is captured once here (never recomputed inside the cell closure) and
+        // each cell's fill comes from the log-scale type, replacing the linear `chartForegroundStyleScale`.
+        let max = maxTokens
+        return Chart {
             ForEach(cells, id: \.cellID) { cell in
                 RectangleMark(
                     x: .value(L("dashboard.heatmap.hour"), cell.hour),
@@ -1095,15 +1098,14 @@ private struct ActivityHeatmapChart: View {
                     width: .ratio(0.92),
                     height: .ratio(0.92))
                     .cornerRadius(3)
-                    .foregroundStyle(by: .value(L("dashboard.heatmap.tokens"), cell.tokens))
+                    // EXB-4.1: log-normalized brand opacity per cell — every non-zero hour clears the
+                    // 0.08 visibility floor; zero hours get the neutral wash.
+                    .foregroundStyle(HeatmapColorScale.color(tokens: cell.tokens, max: max))
                     .opacity(hoveredCell == nil || hoveredCell == cell ? 1 : 0.45)
             }
         }
-        // EXB-3.7 AC2: brand gradient — low contrast (no colour) → full brand `#CC7C5E`.
-        .chartForegroundStyleScale(range: Gradient(colors: [
-            PopoverStyle.brand.opacity(0.08),
-            PopoverStyle.brand,
-        ]))
+        // The per-cell `.foregroundStyle` is a fixed `Color`, so no `chartForegroundStyleScale` /
+        // legend domain is involved — the custom `HeatmapLegend` documents the (log) scale instead.
         .chartXAxis {
             AxisMarks(values: [0, 6, 12, 18, 23]) { value in
                 AxisValueLabel {
@@ -1184,24 +1186,48 @@ private struct HeatmapTooltip: View {
     }
 }
 
-/// Custom heatmap intensity legend (EXB-3.7 AC3): a brand gradient bar with `0 … max` K/M/B labels,
-/// replacing the auto-legend that rendered raw Int ticks in scientific notation.
+/// Custom heatmap intensity legend (EXB-4.1 AC3): a brand gradient bar whose three anchor labels
+/// (`0`, the log mid-point, `max`) are spaced to match the **logarithmic** cell scale, plus a
+/// "Log scale" caption so the non-linear mapping is self-documenting. All token labels go through
+/// `DashboardFormat.tokenCount` (K/M/B) — never scientific notation (AC3-#7).
 private struct HeatmapLegend: View {
     let maxTokens: Int
 
+    /// The three log-space anchor token values: zero, the geometric mid-point, and the peak (AC3-#7).
+    private var anchors: [Int] {
+        [0, HeatmapColorScale.logMidpoint(max: maxTokens), maxTokens]
+    }
+
     var body: some View {
-        HStack(spacing: 8) {
-            Text(L("dashboard.heatmap.less"))
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text(L("dashboard.heatmap.less"))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                // The bar shades from the zero/neutral wash through the floor-clamped non-zero range
+                // up to the saturated brand — the same dark→colour ramp the cells use.
+                LinearGradient(
+                    colors: [
+                        HeatmapColorScale.zeroFill,
+                        PopoverStyle.brand.opacity(HeatmapColorScale.minimumNonZero),
+                        PopoverStyle.brand,
+                    ],
+                    startPoint: .leading, endPoint: .trailing)
+                    .frame(width: 120, height: 10)
+                    .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+                // Three K/M/B anchor labels under the log scale: 0 · mid · max.
+                HStack(spacing: 6) {
+                    ForEach(Array(anchors.enumerated()), id: \.offset) { _, value in
+                        Text(DashboardFormat.tokenCount(value))
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            // AC3-#8: surface that the scale is logarithmic.
+            Text(L("dashboard.heatmap.log_scale"))
                 .font(.caption2)
-                .foregroundStyle(.secondary)
-            LinearGradient(
-                colors: [PopoverStyle.brand.opacity(0.08), PopoverStyle.brand],
-                startPoint: .leading, endPoint: .trailing)
-                .frame(width: 120, height: 10)
-                .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
-            Text(DashboardFormat.tokenCount(maxTokens))
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.tertiary)
         }
     }
 }

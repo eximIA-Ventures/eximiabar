@@ -114,6 +114,7 @@
 "dashboard.chart.cost.daily"       = "Custo diário";
 "dashboard.models_by_day.title"    = "Modelos por dia";
 "dashboard.heatmap.less"           = "Menos";
+"dashboard.heatmap.log_scale"      = "Escala log";
 "dashboard.heatmap.hour_range"     = "%1$@h–%2$@h";
 "dashboard.donut.tooltip.tokens"   = "Entrada %1$@ · Saída %2$@";
 "dashboard.donut.tooltip.cost_share" = "%1$@ · %2$d%% do total";
