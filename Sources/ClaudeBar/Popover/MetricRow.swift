@@ -15,6 +15,8 @@ struct MetricRow: View {
     var paceDetail: UsagePaceText.Detail? = nil
     /// Warning markers (percent-remaining positions, e.g. 50, 20).
     var warningMarkerPercents: [Double] = []
+    /// Pre-formatted exhaustion forecast line (EXB-4.3 AC4 §12), or `nil` to render nothing (§13).
+    var forecastText: String? = nil
 
     private var remaining: Double { min(100, max(0, self.window.remaining)) }
 
@@ -59,6 +61,15 @@ struct MetricRow: View {
                                 .lineLimit(1)
                         }
                     }
+                }
+
+                // Exhaustion forecast line (EXB-4.3 AC4 §12) — discrete `.caption`, secondary colour,
+                // shown only when the predictor produced an honest estimate (§13).
+                if let forecastText = self.forecastText {
+                    Text(forecastText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

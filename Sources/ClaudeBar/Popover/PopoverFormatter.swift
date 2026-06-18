@@ -40,6 +40,29 @@ enum PopoverFormatter {
         String(format: "$%.2f", value)
     }
 
+    /// The full localized forecast line for a window (EXB-4.3 AC4 §12), e.g.
+    /// `"At current pace, runs out in ~2h 15m"` / `"…~45min"`. Returns `nil` when there is no honest
+    /// forecast (`minutesRemaining == nil`), so the caller renders nothing — no empty line (AC4 §13).
+    ///
+    /// - `< 1h`  → `"~Xmin"` (rounded to the nearest minute, floored at 1 so it never shows `~0min`).
+    /// - `>= 1h` → `"~Xh Ym"`.
+    static func forecastText(minutesRemaining: Double?) -> String? {
+        guard let minutes = minutesRemaining, minutes.isFinite, minutes >= 0 else { return nil }
+        return L("popover.forecast.line", forecastDuration(minutes: minutes))
+    }
+
+    /// The bare `~Xh Ym` / `~Xmin` duration fragment used inside the forecast line. Split out so it is
+    /// unit-testable in isolation and so the surrounding sentence stays in the `.strings` table.
+    static func forecastDuration(minutes: Double) -> String {
+        let totalMinutes = max(1, Int(minutes.rounded()))
+        if totalMinutes < 60 {
+            return L("popover.forecast.minutes", totalMinutes)
+        }
+        let hours = totalMinutes / 60
+        let mins = totalMinutes % 60
+        return L("popover.forecast.hours_minutes", hours, mins)
+    }
+
     /// Compact token count: `"27K"` / `"5.4M"` / `"4.9B"` (AC16; EXB-3.7 AC7 adds the billions
     /// threshold so huge cache-token totals read as `"4.9B"`, never `"4888.6M"` or scientific notation).
     static func tokenCount(_ count: Int) -> String {

@@ -275,6 +275,13 @@ final class SettingsStore {
         didSet { scheduleSaveIfChanged(notificationSound, oldValue) }
     }
 
+    /// Whether the predictive exhaustion alert (EXB-4.3 AC5) fires when a window is forecast to
+    /// run out in ≤ 30 minutes at the current pace. Default **on**. Gated by `notificationsEnabled`
+    /// at the call site, so turning the master switch off silences this too.
+    var predictiveAlertsEnabled: Bool = true {
+        didSet { scheduleSaveIfChanged(predictiveAlertsEnabled, oldValue) }
+    }
+
     /// Whether the local cost scan runs (AC3). Default on.
     var costEnabled: Bool = true {
         didSet {
@@ -508,6 +515,7 @@ final class SettingsStore {
         static let sessionThresholds = "settings.sessionThresholds"
         static let weeklyThresholds = "settings.weeklyThresholds"
         static let notificationSound = "settings.notificationSound"
+        static let predictiveAlertsEnabled = "settings.predictiveAlertsEnabled"
         static let costEnabled = "settings.costEnabled"
         static let costDays = "settings.costDays"
         static let source = "settings.source"
@@ -533,6 +541,7 @@ final class SettingsStore {
         let sessionThresholds: [Int]
         let weeklyThresholds: [Int]
         let notificationSound: Bool
+        let predictiveAlertsEnabled: Bool
         let costEnabled: Bool
         let costDays: Int
         let source: String?
@@ -556,6 +565,7 @@ final class SettingsStore {
             defaults.set(sessionThresholds, forKey: Key.sessionThresholds)
             defaults.set(weeklyThresholds, forKey: Key.weeklyThresholds)
             defaults.set(notificationSound, forKey: Key.notificationSound)
+            defaults.set(predictiveAlertsEnabled, forKey: Key.predictiveAlertsEnabled)
             defaults.set(costEnabled, forKey: Key.costEnabled)
             defaults.set(costDays, forKey: Key.costDays)
             if let source { defaults.set(source, forKey: Key.source) }
@@ -584,6 +594,7 @@ final class SettingsStore {
             sessionThresholds: sessionThresholds,
             weeklyThresholds: weeklyThresholds,
             notificationSound: notificationSound,
+            predictiveAlertsEnabled: predictiveAlertsEnabled,
             costEnabled: costEnabled,
             costDays: costDays,
             source: source?.rawValue,
@@ -625,6 +636,9 @@ final class SettingsStore {
         }
         if defaults.object(forKey: Key.notificationSound) != nil {
             notificationSound = defaults.bool(forKey: Key.notificationSound)
+        }
+        if defaults.object(forKey: Key.predictiveAlertsEnabled) != nil {
+            predictiveAlertsEnabled = defaults.bool(forKey: Key.predictiveAlertsEnabled)
         }
         if defaults.object(forKey: Key.costEnabled) != nil {
             costEnabled = defaults.bool(forKey: Key.costEnabled)

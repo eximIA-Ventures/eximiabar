@@ -235,6 +235,34 @@ Elimina o pop-up recorrente de keychain (Allow/Deny). O item `"Claude Code-crede
 
 ---
 
+## Onda 9 (v1.6.0)
+
+**Status:** Draft | **Target:** v1.6.0 | **Created:** 2026-06-18
+
+Feature wave com 5 histórias independentes: correção definitiva de visibilidade do heatmap (escala logarítmica), ícone próprio da marca, previsão de esgotamento com alerta preditivo, menu bar configurável com hotkey global, e insights de eficiência no dashboard (cache hit, comparação com média, resumo semanal).
+
+| Order | Story ID | Title | Executor | Rationale |
+|-------|----------|-------|----------|-----------|
+| 1 | EXB-4.1 | Heatmap fix — escala logarítmica e contraste | @dev | Bug confirmado: escala linear torna células quase invisíveis em dados com pico; fix cirúrgico sem tocar em outros charts |
+| 2 | EXB-4.2 | Ícone customizado do app | @dev | Placeholder "eB" não representa a marca; pipeline dependency-free com símbolo eximIA real |
+| 3 | EXB-4.3 | Previsão de esgotamento | @dev | Feature nova sem dependência de código novo (EXB-4.1/4.2 podem rodar em paralelo) |
+| 4 | EXB-4.4 | Menu bar inteligente + hotkey | @dev | Depende de EXB-4.3 (forecasts no DisplaySnapshot); estende StatusItemController e SettingsStore |
+| 5 | EXB-4.5 | Insights de eficiência | @dev | Depende do dashboard baseline EXB-3.7; independente dos demais da onda |
+
+**Execução sugerida:** 4.1 e 4.2 em paralelo → 4.3 → 4.4 → 4.5 (ou 4.5 em paralelo com 4.3/4.4).
+
+**Wave DoD:**
+- [ ] All 5 stories Done
+- [ ] `swift build -c release` zero warnings com todo o código Onda 9
+- [ ] `swift test --no-parallel` passando (sem regressões — baseline antes da onda = 223+ testes)
+- [ ] Heatmap: células não-zero visivelmente distinguíveis do fundo em dados com distribuição exponencial
+- [ ] Ícone do app exibe símbolo eximIA real + arco gauge `#CC7C5E` no Finder/Dock/Spotlight
+- [ ] Popover: linha de previsão de esgotamento aparece quando há dados suficientes (>= 3 amostras)
+- [ ] Settings: picker de conteúdo da menu bar + campo de captura de hotkey funcionais
+- [ ] Dashboard: cache hit rate, delta vs média, e seção "Esta semana" (só em 7d) visíveis
+
+---
+
 ## Definition of Done (Epic)
 
 - [ ] All 8 stories Done

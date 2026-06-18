@@ -23,6 +23,11 @@
 "popover.metric.percent_left"  = "%d%% left";
 "popover.metric.usage_accessibility" = "%@ usage";
 
+/* MARK: - Exhaustion forecast line (EXB-4.3 AC4) */
+"popover.forecast.line"          = "At current pace, runs out in ~%@";
+"popover.forecast.minutes"       = "%dmin";
+"popover.forecast.hours_minutes" = "%1$dh %2$dm";
+
 /* MARK: - Pace lines (UsagePaceText). Stable keys — tests assert these EN values. */
 "popover.pace.on_pace"         = "On pace";
 "popover.pace.deficit"         = "%d%% in deficit";
@@ -127,6 +132,7 @@
 "notification.quota_exhausted" = "Claude %@ quota exhausted";
 "notification.quota_restored"  = "Claude %@ quota restored";
 "notification.quota_remaining" = "Claude %1$@ at %2$d%% remaining";
+"notification.predictive_exhaustion" = "Claude %1$@ runs out in ~%2$d min at current pace";
 
 /* MARK: - Status item tooltip / accessibility */
 "statusitem.tooltip"           = "exímIABar";
@@ -172,6 +178,8 @@
 "settings.general.notifications"            = "Quota notifications";
 "settings.general.notifications.subtitle"   = "Warn when remaining quota drops below a threshold.";
 "settings.general.play_sound"               = "Play sound";
+"settings.general.predictive_alerts"          = "Predictive exhaustion alert";
+"settings.general.predictive_alerts.subtitle" = "Warn when a window is on pace to run out within 30 minutes.";
 
 "settings.general.section.usage"       = "Usage";
 "settings.general.show_cost"           = "Show cost summary";

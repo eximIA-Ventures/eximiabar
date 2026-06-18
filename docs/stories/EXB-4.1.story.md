@@ -203,3 +203,57 @@ A escala linear empurrava a maioria das células ao terço inferior de opacidade
 | Date | Version | Description | Author |
 |------|---------|-------------|--------|
 | 2026-06-18 | 1.0 | Initial draft — Onda 9 (v1.6.0) | @sm River |
+
+---
+
+## QA Results — rodada 1
+
+**Gate:** @qa (Quinn) · **Date:** 2026-06-18 · **Commit:** `1554740` (local, no push) · **Criterion:** RESULTADO, não presença
+
+### 1. AC-by-AC (resultado verificado, não documentação)
+
+| AC | Requisito | Evidência (arquivo:linha) | Veredicto |
+|----|-----------|---------------------------|-----------|
+| AC1-#1 | Escala NÃO-linear; linear `0..max` eliminada | `HeatmapColorScale.swift:39-43` (log1p) + `DashboardView.swift` diff: `chartForegroundStyleScale` REMOVIDO, `.foregroundStyle(by:)` REMOVIDO | ✅ |
+| AC1-#2 | `color(for:)` em tipo dedicado, testável, não inline | `HeatmapColorScale.swift:20,51` (enum, static) — lógica movida da view | ✅ |
+| AC1-#3 | `log1p` p/ evitar `log(0)` | `HeatmapColorScale.swift:41` `log1p(Double(tokens)) / log1p(Double(max))` | ✅ |
+| AC2-#4 | Não-zero nunca abaixo de `0.08` | `HeatmapColorScale.swift:42` clamp `Swift.max(0.08, …)`; teste `normalizedNonZeroMinimum008` verde | ✅ |
+| AC2-#5 | Extremo superior = `#CC7C5E` | `PopoverStyle.swift:12` = RGB(204,124,94) = `#CC7C5E`; usado em `color()`:53 e legenda | ✅ |
+| AC2-#6 | Zero = cor neutra distinta | `HeatmapColorScale.swift:28,52` `zeroFill = Color.secondary.opacity(0.10)`; teste `zeroCellUsesNeutralFillDistinctFromBrand` verde | ✅ |
+| AC3-#7 | Legenda: 3 âncoras K/M/B, sem sci-notation | `DashboardView.swift` legend diff: anchors `[0, logMidpoint, max]` via `DashboardFormat.tokenCount`; teste `legendLabelsNoScientificNotation` verde | ✅ |
+| AC3-#8 | Indica escala log (label) | `DashboardView.swift` `Text(L("dashboard.heatmap.log_scale"))`; en="Log scale", pt-BR="Escala log" | ✅ |
+| AC4-#9 | ≥4 faixas perceptíveis (pico 238.9M + 100K–5M) | teste `normalized4DistinctBands` verde (`Set.count == 4`, estritamente crescente) | ✅ |
+| AC4-#10 | Zero → `normalized == 0.0` exato | `HeatmapColorScale.swift:40` guard; teste `normalizedZeroReturnsZero` verde (inclui `max==0` e degenerados) | ✅ |
+| AC5-#11 | `swift build -c release` zero warnings (clean) | RODADO por mim: `rm -rf .build && swift build -c release` → `Build complete! (18.44s)`, zero warnings | ✅ |
+| AC5-#12 | `swift test --no-parallel` sem regressões, ≥4 novos testes | RODADO por mim: **237 tests / 33 suites passed** (3.341s). HeatmapColorScaleTests = **7/7 verdes** (>4 exigidos) | ✅ |
+
+**12/12 ACs implementados e verificados.**
+
+### 2. Build + Test (rodados pelo gate, não confiando no relatório)
+
+- `rm -rf .build && swift build -c release` → **Build complete! (18.44s), zero warnings**.
+- `swift test --no-parallel` → **237 tests in 33 suites passed (3.341s)**. Serial, **sem prompt de keychain**, sem hang — confirmado contra a flakiness histórica.
+- Baseline 223 → 237 (+14; os 7 de `HeatmapColorScale` confirmados nominalmente no output). Floor 227 superado.
+
+### 3. Específico da story (4.1) — a função de cor é log e células com atividade ficam visíveis?
+
+- **Log, não linear:** `normalized` é exatamente `log1p(tokens)/log1p(max)`. Teste `normalizedMatchesLog1pFormula` pina a fórmula (`abs(…) < 1e-12`) sobre o pico real 480.5M — blindagem contra refactor silencioso para outra curva.
+- **Visibilidade garantida por RESULTADO:** o clamp `0.08` + o teste `normalizedNonZeroMinimum008` provam que mesmo 1 token contra 1B mapeia ≥ 0.08. A validação OLHO do dev (mediana 12.96%→89.78%, menor célula 0.29%→70.70% sobre 1.833 JSONL reais) é coerente com a matemática verificada. **Efeito real, não presença de código.**
+- **Anti-freeze (invariante transversal do epic):** `let max = maxTokens` capturado **uma vez** antes do `Chart` (`DashboardView.swift:1089-1091`), nunca dentro do closure do `RectangleMark`. `HeatmapColorScale` é enum puro/static, zero estado, zero `DateFormatter`/`NumberFormatter` em `body`. `maxTokens` é flatMap+max sobre grid fixo 7×24 (168 itens) — custo trivial. ✅
+- **IDS — desvio justificado e correto:** story citava `Color.brandOrange` (inexistente no código). Dev usou `PopoverStyle.brand` = `#CC7C5E` (token canônico real, baseline EXB-3.7). Confirmei a equivalência RGB. `grep brandOrange` em `Sources/` = zero ocorrências. Desvio aceito.
+
+### 4. Regressão de features anteriores
+
+- Suite completa (33 suites, 237 testes) verde — inclui filtros, banner, cache, keychain CLI (EXB-3.8), dashboard polish (EXB-3.7). Zero regressões.
+- O único ponto de toque na view foi `ActivityHeatmapChart.chart` + `HeatmapLegend`; o restante de `DashboardView` intacto (diff cirúrgico, 66 linhas, +46/-20).
+- Keychain serializado e isolado (commit `5ffbe1a` anterior) — teste serial não promptou.
+
+### Observação (não-bloqueante)
+
+- O escopo deste gate é **EXB-4.1**. As stories 4.2–4.5 referenciadas no briefing existem como arquivos untracked (`EXB-4.2..4.5.story.md`) mas **não foram implementadas neste commit** e não são objeto desta rodada. Quando entrarem em InReview, gates próprios (símbolo eximIA real do LOGO + `.icns` regenerado, taxa suavizada off-main, hotkey global + render anti-freeze, cache hit rate + reuso de agregador).
+
+### Veredicto
+
+Resultado real entregue: a escala é genuinamente logarítmica (fórmula pinada por teste), toda célula com atividade clareia o piso de contraste 0.08 (provado por teste, não por inspeção visual apenas), zero é distinto, legenda log-coerente sem sci-notation, build limpo, 237 testes verdes em serial sem keychain. Nenhum "presença sem efeito" detectado.
+
+**VERDICT: PASS**

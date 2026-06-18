@@ -34,6 +34,9 @@ struct DisplaySnapshot: Sendable, Equatable {
     let error: UsageError?
     /// `true` while a refresh is in flight (drives the spinner / dimmed-but-not-stale UI).
     let isRefreshing: Bool
+    /// Per-window exhaustion forecasts (EXB-4.3 AC1). Empty until the predictor has enough samples;
+    /// the popover renders a forecast line only for entries whose `minutesRemaining != nil`.
+    let forecasts: [ExhaustionForecast]
 
     /// Identity pair, kept as a small value type so `DisplaySnapshot` stays `Equatable`.
     struct Identity: Sendable, Equatable {
@@ -58,7 +61,8 @@ struct DisplaySnapshot: Sendable, Equatable {
         updatedAt: Date,
         source: DataSource = .oauth,
         error: UsageError? = nil,
-        isRefreshing: Bool = false)
+        isRefreshing: Bool = false,
+        forecasts: [ExhaustionForecast] = [])
     {
         self.session = session
         self.weekly = weekly
@@ -72,6 +76,7 @@ struct DisplaySnapshot: Sendable, Equatable {
         self.source = source
         self.error = error
         self.isRefreshing = isRefreshing
+        self.forecasts = forecasts
     }
 }
 
@@ -140,6 +145,51 @@ extension DisplaySnapshot {
             updatedAt: previous.updatedAt,
             source: previous.source,
             error: previous.error,
-            isRefreshing: true)
+            isRefreshing: true,
+            forecasts: previous.forecasts)
+    }
+
+    /// Returns a copy of this snapshot with `forecasts` replaced — used by `AppState` to attach the
+    /// predictor's output after the off-main fetch produced the base snapshot (EXB-4.3 AC1/T2).
+    func withForecasts(_ forecasts: [ExhaustionForecast]) -> DisplaySnapshot {
+        DisplaySnapshot(
+            session: session,
+            weekly: weekly,
+            sonnet: sonnet,
+            dailyRoutines: dailyRoutines,
+            extraUsage: extraUsage,
+            cost: cost,
+            plan: plan,
+            identity: identity,
+            updatedAt: updatedAt,
+            source: source,
+            error: error,
+            isRefreshing: isRefreshing,
+            forecasts: forecasts)
+    }
+
+    /// The forecast for `windowId`, if one exists. The popover uses this to attach the line under
+    /// the matching metric row (EXB-4.3 AC4).
+    func forecast(for windowId: String) -> ExhaustionForecast? {
+        forecasts.first { $0.windowId == windowId }
+    }
+
+    /// A window paired with its stable predictor id.
+    struct PredictableWindow: Sendable, Equatable {
+        let id: String
+        let window: RateWindow
+    }
+
+    /// The windows present in this snapshot that the predictor should sample, each with its stable
+    /// id (EXB-4.3 AC1 §1). Absent windows are simply not included.
+    var predictableWindows: [PredictableWindow] {
+        var result: [PredictableWindow] = []
+        if let session { result.append(.init(id: RateWindowID.session, window: session)) }
+        if let weekly { result.append(.init(id: RateWindowID.weekly, window: weekly)) }
+        if let sonnet { result.append(.init(id: RateWindowID.sonnet, window: sonnet)) }
+        if let dailyRoutines {
+            result.append(.init(id: RateWindowID.dailyRoutines, window: dailyRoutines))
+        }
+        return result
     }
 }

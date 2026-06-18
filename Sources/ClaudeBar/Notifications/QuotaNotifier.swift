@@ -119,6 +119,13 @@ final class QuotaNotifier {
     private(set) var firedThresholds: Set<ThresholdKey> = []
     /// Windows currently flagged depleted (AC9a/AC9b).
     private(set) var depletedWindows: Set<WindowKind> = []
+    /// Window ids for which a predictive (≤30 min) alert has already fired this cycle (EXB-4.3 AC5
+    /// §15). Cleared per window once its forecast no longer fires (a window reset removes the
+    /// forecast), so the next approach to exhaustion can alert again.
+    private(set) var predictiveAlertedWindows: Set<String> = []
+
+    /// The forecast horizon (minutes) at or below which a predictive alert fires (EXB-4.3 AC5 §15).
+    static let predictiveThresholdMinutes: Double = 30
 
     init(poster: QuotaNotificationPosting? = nil) {
         self.poster = poster ?? SystemNotificationPoster()
@@ -142,6 +149,63 @@ final class QuotaNotifier {
                 newRemaining: newWindow.remaining,
                 settings: settings)
         }
+    }
+
+    // MARK: - Predictive alert (EXB-4.3 AC5)
+
+    /// Fire a one-shot predictive alert for any window whose forecast says it exhausts in
+    /// ≤ 30 minutes at the current pace (AC5 §15). Complementary to the fixed-threshold path, never
+    /// a duplicate of it (AC5 §16):
+    ///
+    /// - A window already flagged depleted has had its fixed alert; predictive is suppressed for it.
+    /// - Each window alerts at most once per cycle (`predictiveAlertedWindows`); the flag clears when
+    ///   the forecast stops firing (a reset drops `minutesRemaining` to `nil`), so a fresh approach
+    ///   to exhaustion alerts again.
+    ///
+    /// - Parameters:
+    ///   - forecasts: the snapshot's per-window forecasts.
+    ///   - enabled: master gate (`predictiveAlertsEnabled && notificationsEnabled`). When `false`,
+    ///     nothing is posted, but dedup bookkeeping is skipped too so toggling back on re-arms.
+    func evaluatePredictive(forecasts: [ExhaustionForecast], enabled: Bool) {
+        guard enabled else { return }
+        for forecast in forecasts {
+            let firingNow = (forecast.minutesRemaining ?? .infinity) <= Self.predictiveThresholdMinutes
+
+            // Clear the per-window flag once the forecast recedes, so it can fire again next time.
+            if !firingNow {
+                self.predictiveAlertedWindows.remove(forecast.windowId)
+                continue
+            }
+
+            // Don't alert twice in one cycle for the same window.
+            guard !self.predictiveAlertedWindows.contains(forecast.windowId) else { continue }
+
+            // AC5 §16 — defer to the fixed-threshold path: a window already depleted has been
+            // covered by `postDepleted`; sending a predictive "≈X min left" on top is noise.
+            if let kind = WindowKind(rawValue: forecast.windowId),
+               self.depletedWindows.contains(kind) {
+                self.predictiveAlertedWindows.insert(forecast.windowId)
+                continue
+            }
+
+            self.predictiveAlertedWindows.insert(forecast.windowId)
+            self.postPredictive(forecast)
+        }
+    }
+
+    private func postPredictive(_ forecast: ExhaustionForecast) {
+        let minutes = Int((forecast.minutesRemaining ?? 0).rounded())
+        self.poster.post(
+            idPrefix: "predictive-\(forecast.windowId)",
+            title: L("popover.provider_name"),
+            body: L("notification.predictive_exhaustion", Self.windowLabel(forecast.windowId), minutes),
+            soundEnabled: false)
+    }
+
+    /// Localized label for a window id used in the predictive notification body. Falls back to the
+    /// raw id for non-`WindowKind` windows (e.g. sonnet), so the alert is never empty.
+    private static func windowLabel(_ windowId: String) -> String {
+        WindowKind(rawValue: windowId)?.label ?? windowId.capitalized
     }
 
     // MARK: - Per-window evaluation

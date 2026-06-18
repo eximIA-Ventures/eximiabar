@@ -29,6 +29,8 @@ final class AppState {
     @ObservationIgnored private let settingsStore: SettingsStore
     @ObservationIgnored private let notifier: QuotaNotifier
     @ObservationIgnored private let clock: @Sendable () -> Date
+    /// Off-main actor that records utilization samples and computes exhaustion forecasts (EXB-4.3).
+    @ObservationIgnored private let predictor: ExhaustionPredictor
     @ObservationIgnored private let log = Logger(subsystem: CoreLog.subsystem, category: "appstate")
 
     /// The repeating refresh timer task (AC3 / AC14).
@@ -43,12 +45,14 @@ final class AppState {
         settingsStore: SettingsStore,
         notifier: QuotaNotifier? = nil,
         clock: @escaping @Sendable () -> Date = { Date() },
+        predictor: ExhaustionPredictor = .shared,
         snapshot: DisplaySnapshot? = nil)
     {
         self.fetch = fetch
         self.settingsStore = settingsStore
         self.notifier = notifier ?? QuotaNotifier()
         self.clock = clock
+        self.predictor = predictor
         self.snapshot = snapshot
 
         // Restart the timer when the cadence changes (AC14).
@@ -118,14 +122,52 @@ final class AppState {
         self.snapshot = DisplaySnapshot.refreshing(self.snapshot)
 
         let fetch = self.fetch
+        let predictor = self.predictor
+        let clock = self.clock
         // `Task.detached` so the fetch (network I/O, parsing) runs OFF the MainActor (AC13). Only
         // the `completeFetch` call below hops back to the main actor for the single assignment.
         self.fetchInFlight = Task.detached(priority: .utility) { [weak self] in
             let newSnapshot = await RefreshContext.$phase.withValue(phase) {
                 await fetch(phase)
             }
-            await self?.completeFetch(newSnapshot, phase: phase)
+            // EXB-4.3 (T2): record one sample per active window and compute forecasts — all off the
+            // MainActor, inside the predictor actor — then attach the forecasts to the snapshot
+            // before the single main-actor assignment in `completeFetch`.
+            let enriched: DisplaySnapshot?
+            if let newSnapshot {
+                enriched = await Self.enrich(newSnapshot, predictor: predictor, now: clock())
+            } else {
+                enriched = nil
+            }
+            await self?.completeFetch(enriched, phase: phase)
         }
+    }
+
+    /// Off-main: feed each active window's utilization into the predictor and read back a forecast
+    /// for it, returning a copy of `snapshot` with the forecasts attached (EXB-4.3 AC1/AC2/AC3).
+    private static func enrich(
+        _ snapshot: DisplaySnapshot,
+        predictor: ExhaustionPredictor,
+        now: Date) async -> DisplaySnapshot
+    {
+        let windows = snapshot.predictableWindows
+        guard !windows.isEmpty else { return snapshot }
+
+        var forecasts: [ExhaustionForecast] = []
+        for entry in windows {
+            await predictor.addSample(
+                windowId: entry.id,
+                timestamp: now,
+                utilization: entry.window.utilization)
+            let secondsUntilReset = entry.window.resetsAt
+                .map { max(0, $0.timeIntervalSince(now)) } ?? .infinity
+            let forecast = await predictor.forecast(
+                windowId: entry.id,
+                currentUtilization: entry.window.utilization,
+                secondsUntilReset: secondsUntilReset)
+            forecasts.append(forecast)
+        }
+        return snapshot.withForecasts(forecasts)
     }
 
     /// Runs on the MainActor: publishes the new snapshot, fires notifications, then drains a
@@ -143,6 +185,12 @@ final class AppState {
                     old: previous,
                     new: newSnapshot,
                     settings: self.settingsStore.notificationSettings)
+                // EXB-4.3 (AC5): predictive alert runs after the threshold notifier so it can defer
+                // to a fixed-threshold alert already sent for the same window this cycle.
+                self.notifier.evaluatePredictive(
+                    forecasts: newSnapshot.forecasts,
+                    enabled: self.settingsStore.predictiveAlertsEnabled
+                        && self.settingsStore.notificationsEnabled)
             } else {
                 // Seed baseline depleted/threshold state silently so the first real refresh
                 // diffs against truth, not against the placeholder.
@@ -169,7 +217,8 @@ final class AppState {
                     updatedAt: current.updatedAt,
                     source: current.source,
                     error: current.error,
-                    isRefreshing: false)
+                    isRefreshing: false,
+                    forecasts: current.forecasts)
             }
         }
 

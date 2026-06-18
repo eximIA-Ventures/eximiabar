@@ -125,6 +125,12 @@ struct PreferencesGeneralPane: View {
                         title: L("settings.general.play_sound"),
                         subtitle: nil,
                         binding: $settings.notificationSound)
+                    // EXB-4.3 AC5 §17 — predictive exhaustion alert. Default ON; suppressed entirely
+                    // when the master "Quota notifications" switch above is off.
+                    PreferenceToggleRow(
+                        title: L("settings.general.predictive_alerts"),
+                        subtitle: L("settings.general.predictive_alerts.subtitle"),
+                        binding: $settings.predictiveAlertsEnabled)
                 }
                 .padding(.leading, 20)
             }

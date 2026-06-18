@@ -174,10 +174,20 @@ private struct MetricsSection: View {
         return UsagePace.compute(window: weekly)
     }
 
+    /// The localized exhaustion-forecast line for `windowId` (EXB-4.3 AC4), or `nil` when the
+    /// predictor has no honest estimate — in which case `MetricRow` renders no forecast line (§13).
+    private func forecastText(for windowId: String) -> String? {
+        guard let forecast = self.snapshot?.forecast(for: windowId) else { return nil }
+        return PopoverFormatter.forecastText(minutesRemaining: forecast.minutesRemaining)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: PopoverStyle.metricRowSpacing) {
             if let session = self.snapshot?.session {
-                MetricRow(title: L("popover.metric.session"), window: session)
+                MetricRow(
+                    title: L("popover.metric.session"),
+                    window: session,
+                    forecastText: self.forecastText(for: RateWindowID.session))
             }
             if let weekly = self.snapshot?.weekly {
                 let pace = self.weeklyPace
@@ -186,15 +196,22 @@ private struct MetricsSection: View {
                     window: weekly,
                     showPace: pace != nil,
                     pace: pace,
-                    paceDetail: pace.map { UsagePaceText.detail(for: $0) })
+                    paceDetail: pace.map { UsagePaceText.detail(for: $0) },
+                    forecastText: self.forecastText(for: RateWindowID.weekly))
             }
             // Sonnet (AC11): hidden when nil.
             if let sonnet = self.snapshot?.sonnet {
-                MetricRow(title: L("popover.metric.sonnet"), window: sonnet)
+                MetricRow(
+                    title: L("popover.metric.sonnet"),
+                    window: sonnet,
+                    forecastText: self.forecastText(for: RateWindowID.sonnet))
             }
             // Daily Routines (AC12): conditional.
             if let daily = self.snapshot?.dailyRoutines {
-                MetricRow(title: L("popover.metric.daily_routines"), window: daily)
+                MetricRow(
+                    title: L("popover.metric.daily_routines"),
+                    window: daily,
+                    forecastText: self.forecastText(for: RateWindowID.dailyRoutines))
             }
         }
     }

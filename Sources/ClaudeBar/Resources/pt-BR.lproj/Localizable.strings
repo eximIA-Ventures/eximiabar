@@ -21,6 +21,11 @@
 "popover.metric.percent_left"  = "%d%% restante";
 "popover.metric.usage_accessibility" = "Uso de %@";
 
+/* MARK: - Linha de previsão de esgotamento (EXB-4.3 AC4) */
+"popover.forecast.line"          = "No ritmo atual, esgota em ~%@";
+"popover.forecast.minutes"       = "%dmin";
+"popover.forecast.hours_minutes" = "%1$dh %2$dm";
+
 /* MARK: - Linhas de ritmo (pace) */
 "popover.pace.on_pace"         = "No ritmo";
 "popover.pace.deficit"         = "%d%% em déficit";
@@ -125,6 +130,7 @@
 "notification.quota_exhausted" = "Cota %@ do Claude esgotada";
 "notification.quota_restored"  = "Cota %@ do Claude restaurada";
 "notification.quota_remaining" = "Claude %1$@ com %2$d%% restante";
+"notification.predictive_exhaustion" = "Claude %1$@ esgota em ~%2$d min no ritmo atual";
 
 /* MARK: - Tooltip / acessibilidade do item de menu */
 "statusitem.tooltip"           = "exímIABar";
@@ -170,6 +176,8 @@
 "settings.general.notifications"            = "Notificações de cota";
 "settings.general.notifications.subtitle"   = "Avisar quando a cota restante cair abaixo de um limite.";
 "settings.general.play_sound"               = "Tocar som";
+"settings.general.predictive_alerts"          = "Alerta preditivo de esgotamento";
+"settings.general.predictive_alerts.subtitle" = "Avisar quando uma janela estiver a caminho de esgotar em até 30 minutos.";
 
 "settings.general.section.usage"       = "Uso";
 "settings.general.show_cost"           = "Mostrar resumo de custos";
