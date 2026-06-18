@@ -1,7 +1,7 @@
 # Story EXB-4.4: Menu Bar Inteligente + Hotkey Global
 
 **ID:** EXB-4.4
-**Status:** Draft
+**Status:** Ready for Review
 **Depends on:** EXB-1.2 (StatusItemController, IconRenderer, MenuBarDisplayText — baseline da menu bar), EXB-1.5 (SettingsStore, Settings window — panes e preferências), EXB-4.3 (DisplaySnapshot.forecasts — para opção "tempo até reset")
 **Epic:** EPIC-EXB
 **Wave:** Onda 9 (v1.6.0)
@@ -63,37 +63,37 @@
 
 ## Tasks
 
-- [ ] **T1 — `MenuBarContent` enum e `HotkeyBinding` struct** (AC1, AC4) — `Sources/ClaudeBarCore/Model/` ou `Sources/ClaudeBar/App/SettingsStore.swift`
-  - [ ] `enum MenuBarContent: String, Codable, CaseIterable { case none, percentRemaining, timeUntilReset, costToday, sparkline }`
-  - [ ] `struct HotkeyBinding: Codable { var modifiers: Int; var keyCode: Int }` (raw Int para Codable simples)
-  - [ ] Adicionar `menuBarContent: MenuBarContent` e `globalHotkey: HotkeyBinding?` a `SettingsStore` com defaults (`.none`, `HotkeyBinding(modifiers: optionCmd, keyCode: cKeyCode)`)
+- [x] **T1 — `MenuBarContent` enum e `HotkeyBinding` struct** (AC1, AC4) — `Sources/ClaudeBar/App/SettingsStore.swift` + `KeyCodes.swift`
+  - [x] `enum MenuBarContent: String, Codable, CaseIterable { case none, percentRemaining, timeUntilReset, costToday, sparkline }`
+  - [x] `struct HotkeyBinding: Codable { var modifiers: Int; var keyCode: Int }` (raw Int para Codable simples) + `displayString` e `defaultBinding` (⌥⌘C)
+  - [x] Adicionar `menuBarContent: MenuBarContent` (default `.none`) e `globalHotkey: HotkeyBinding?` (default `⌥⌘C`) a `SettingsStore`, com persistência (JSON do hotkey + flag `globalHotkeyCleared` para distinguir limpo×fresh) e callbacks
 
-- [ ] **T2 — Sparkline renderer** (AC2, AC3) — `Sources/ClaudeBar/StatusItem/SparklineRenderer.swift` (novo)
-  - [ ] `static func render(samples: [Double], size: NSSize) -> NSImage` — off-main, `NSBitmapImageRep`, `isTemplate = true`
-  - [ ] Array vazio ou 1 ponto: linha reta horizontal em y=50%
-  - [ ] N pontos: escalar Y por `max(sample)`, segmentos `NSBezierPath`
+- [x] **T2 — Sparkline renderer** (AC2, AC3) — `Sources/ClaudeBar/StatusItem/SparklineRenderer.swift` (novo)
+  - [x] `static func render(samples: [Double], size: NSSize) -> NSImage` — off-main, `NSBitmapImageRep`, `isTemplate = true`
+  - [x] Array vazio ou 1 ponto: linha reta horizontal neutra em y=50%
+  - [x] N pontos: escalar Y por `max(sample)`, polyline `NSBezierPath`; tamanho ≤ 28×14 pt (≤ 32×18)
+  - [x] Fonte de dados: `ExhaustionPredictor.recentUtilizations(windowId:limit:)` (novo, Core) → `DisplaySnapshot.sparklineSamples` preenchido off-main em `AppState.enrich`
 
-- [ ] **T3 — Atualizar `StatusItemController`** (AC1, AC3) — `Sources/ClaudeBar/StatusItem/StatusItemController.swift`
-  - [ ] Observar `SettingsStore.menuBarContent` (ou receber via `DisplaySnapshot`) — rebuildContent ao mudar
-  - [ ] Switch por `menuBarContent`: `.none` → só ícone; `.percentRemaining` → existente `MenuBarDisplayText`; `.timeUntilReset` → novo helper; `.costToday` → de `DisplaySnapshot.costToday`; `.sparkline` → `SparklineRenderer.render`
-  - [ ] Tudo off-main via `Task.detached`; set `button.image` / `button.title` no `@MainActor`
+- [x] **T3 — Atualizar `StatusItemController`** (AC1, AC3) — `Sources/ClaudeBar/StatusItem/StatusItemController.swift`
+  - [x] `menuBarContent` orthogonal a `displayMode`: ícone (meter/brand) + conteúdo (none/%/time/cost/sparkline)
+  - [x] Switch por `menuBarContent`: `.none` → só ícone; `.percentRemaining` → `MenuBarContentText`/`MenuBarDisplayText`; `.timeUntilReset` → `MenuBarContentText`; `.costToday` → `DisplaySnapshot.cost.today`; `.sparkline` → composite ícone + `SparklineRenderer.render`
+  - [x] Tudo off-main via `Task.detached`; `button.image`/`button.title` no `@MainActor`; composite via `NSBitmapImageRep` (off-main-safe)
 
-- [ ] **T4 — Hotkey manager** (AC4) — `Sources/ClaudeBar/App/GlobalHotkeyManager.swift` (novo)
-  - [ ] `@MainActor class GlobalHotkeyManager`
-  - [ ] `func register(binding: HotkeyBinding, action: @escaping () -> Void)`
-  - [ ] Usa `NSEvent.addGlobalMonitorForEvents(matching: .keyDown)` + checar `modifierFlags` e `keyCode`
-  - [ ] `func unregister()` — remover monitor quando binding mudar
-  - [ ] Wired em `AppState` ou `ClaudeBarApp` (chamado após settings carregam)
+- [x] **T4 — Hotkey manager** (AC4) — `Sources/ClaudeBar/App/GlobalHotkeyManager.swift` (novo)
+  - [x] `@MainActor class GlobalHotkeyManager`
+  - [x] `func register(binding:action:)` — global monitor (`addGlobalMonitorForEvents`) + local monitor (para janelas do próprio app) + checagem `modifierFlags`/`keyCode`
+  - [x] `func unregister()` — remove ambos os monitores quando binding muda
+  - [x] `AXIsProcessTrusted()` gate antes do monitor global; in-app sempre funciona; popover sempre acessível por clique (additive)
+  - [x] Wired em `ClaudeBarApp` (registra após settings; re-registra via `onGlobalHotkeyChange`)
 
-- [ ] **T5 — Settings UI — seção Display/Menu Bar** (AC1, AC4, AC5) — `Sources/ClaudeBar/Settings/`
-  - [ ] Novo pane ou secção no pane existente: picker para `menuBarContent`, campo de captura para hotkey
-  - [ ] Campo de captura: `NSTextField` com `keyDown` override para capturar a combinação e salvar em `SettingsStore`
+- [x] **T5 — Settings UI — seção Display/Menu Bar** (AC1, AC4, AC5) — `Sources/ClaudeBar/Settings/`
+  - [x] Seção "Menu Bar" do `PreferencesDisplayPane`: picker para `menuBarContent`, campo de captura para hotkey, hint de Acessibilidade quando não-trusted
+  - [x] `HotkeyCaptureField` (NSViewRepresentable): clicar → capturar combo → salvar; Esc cancela, Delete limpa, exige modificador real
 
-- [ ] **T6 — Localização** (AC5) — `en.lproj` + `pt-BR.lproj`
+- [x] **T6 — Localização** (AC5) — `en.lproj` + `pt-BR.lproj` (13 chaves novas em cada)
 
-- [ ] **T7 — Testes** (AC6) — `Tests/ClaudeBarTests/`
-  - [ ] `MenuBarContentTests.swift` ou adicionar a `SettingsStoreTests.swift`
-  - [ ] 4+ testes (AC6)
+- [x] **T7 — Testes** (AC6) — `Tests/ClaudeBarTests/MenuBarContentTests.swift` + `ExhaustionPredictorTests.swift`
+  - [x] 4 obrigatórios: `menuBarContentRoundtrip`, `sparklineEmptyFallback`, `sparklineMinPoints`, `hotkeyBindingCodable` + 11 adicionais (15 novos no total)
 
 ---
 
@@ -163,13 +163,56 @@ func formatTimeUntilReset(_ seconds: Double) -> String {
 
 ## Definition of Done
 
-- [ ] 5 opções de conteúdo na menu bar (none, %, timeUntilReset, cost, sparkline) — preferência em Settings
-- [ ] Sparkline renderizado off-main, `isTemplate = true`, fallback linha reta
-- [ ] Hotkey global `⌥⌘C` (configurável) abre/fecha painel sem foco
-- [ ] Hotkey persistido em `SettingsStore`; campo de captura no Settings
-- [ ] Aviso de Acessibilidade se `AXIsProcessTrusted() == false`
-- [ ] 4 novos testes verdes; zero regressões
-- [ ] `swift build -c release` zero warnings
+- [x] 5 opções de conteúdo na menu bar (none, %, timeUntilReset, cost, sparkline) — preferência em Settings
+- [x] Sparkline renderizado off-main, `isTemplate = true`, fallback linha reta
+- [x] Hotkey global `⌥⌘C` (configurável) abre/fecha painel sem foco
+- [x] Hotkey persistido em `SettingsStore`; campo de captura no Settings
+- [x] Aviso de Acessibilidade se `AXIsProcessTrusted() == false`
+- [x] 4 novos testes verdes (15 novos no total); zero regressões (262 testes verdes)
+- [x] `swift build -c release` zero warnings
+
+---
+
+## Dev Agent Record
+
+### Agent Model Used
+Dex (@dev) — Opus 4.8
+
+### Implementation Notes / Decisions
+
+- **Sparkline data source [AUTO-DECISION]:** the sparkline reads recent **session** utilization from the existing `ExhaustionPredictor` actor (added `recentUtilizations(windowId:limit:)`), surfaced through a new `DisplaySnapshot.sparklineSamples` populated off-main in `AppState.enrich`. Reason: the predictor is the single source of utilization history (EXB-4.3) — no duplicate buffer, samples already cross the actor boundary off the MainActor.
+- **Hotkey transport [AUTO-DECISION]:** used `NSEvent.addGlobalMonitorForEvents` per AC10/AC11 (NOT Carbon `RegisterEventHotKey`, despite the spawn briefing mentioning it — AC10 is authoritative and forbids Carbon if it needs entitlements). Added a companion **local** monitor so the shortcut also fires while one of the app's own windows is key (global monitors skip the active app); the global monitor is gated behind `AXIsProcessTrusted()` and never prompts. The popover stays reachable by click regardless (additive).
+- **menuBarContent is orthogonal to displayMode:** `displayMode` still picks the icon (meter/brand); `menuBarContent` picks the trailing content. For `.percentRemaining` in brand mode the existing F2 pace suffix is preserved.
+- **Cleared-hotkey persistence:** a `globalHotkeyCleared` flag distinguishes "user cleared → nil" from "fresh install → ⌥⌘C default" across restart.
+- **Off-main compositing:** icon + sparkline are combined via `NSBitmapImageRep` (not `NSImage.lockFocus`, which is main-thread affine), mirroring `IconRenderer`.
+
+### File List
+
+**New:**
+- `Sources/ClaudeBar/App/KeyCodes.swift` — virtual-key-code → display-name lookup (no Carbon)
+- `Sources/ClaudeBar/App/GlobalHotkeyManager.swift` — global + local key-down monitors, AX gate
+- `Sources/ClaudeBar/StatusItem/SparklineRenderer.swift` — off-main template sparkline + flat fallback
+- `Sources/ClaudeBar/StatusItem/MenuBarContentText.swift` — percent / cost / time-until-reset helpers
+- `Sources/ClaudeBar/Settings/HotkeyCaptureField.swift` — NSViewRepresentable shortcut recorder
+- `Tests/ClaudeBarTests/MenuBarContentTests.swift` — 14 tests (model, renderer, helpers, persistence)
+
+**Modified:**
+- `Sources/ClaudeBar/App/SettingsStore.swift` — `MenuBarContent` enum, `HotkeyBinding` struct, `menuBarContent`/`globalHotkey` props + persistence + callbacks
+- `Sources/ClaudeBar/App/DisplaySnapshot.swift` — `sparklineSamples` field threaded through inits/copies
+- `Sources/ClaudeBar/App/AppState.swift` — `enrich` reads session sparkline samples off-main
+- `Sources/ClaudeBar/App/ClaudeBarApp.swift` — wires `GlobalHotkeyManager` + content-change callback
+- `Sources/ClaudeBar/StatusItem/StatusItemController.swift` — content switch + off-main composite
+- `Sources/ClaudeBar/Settings/PreferencesDisplayPane.swift` — content picker + hotkey field + AX hint
+- `Sources/ClaudeBarCore/Prediction/ExhaustionPredictor.swift` — `recentUtilizations(windowId:limit:)`
+- `Sources/ClaudeBar/Resources/en.lproj/Localizable.strings` — 13 new keys
+- `Sources/ClaudeBar/Resources/pt-BR.lproj/Localizable.strings` — 13 new keys
+- `Tests/ClaudeBarCoreTests/ExhaustionPredictorTests.swift` — `recentUtilizationsReturnsTailOldestFirst`
+
+### Validation
+
+- `swift build --arch arm64` — Build complete, zero warnings (validated at each task)
+- `swift build -c release --arch arm64` — Build complete, zero warnings
+- `swift test --arch arm64 --no-parallel` — **262 tests, 35 suites, all passing** (baseline 223+ → +15 new, zero regressions)
 
 ---
 
@@ -178,3 +221,4 @@ func formatTimeUntilReset(_ seconds: Double) -> String {
 | Date | Version | Description | Author |
 |------|---------|-------------|--------|
 | 2026-06-18 | 1.0 | Initial draft — Onda 9 (v1.6.0) | @sm River |
+| 2026-06-18 | 1.1 | Implemented all ACs — menu bar content + global hotkey | @dev Dex |

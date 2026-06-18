@@ -234,6 +234,20 @@
 "settings.display.brand_icon"          = "Ícone da marca + %";
 "settings.display.brand_icon.subtitle" = "Mostrar o ícone da marca Claude com a porcentagem restante em vez do ícone medidor.";
 
+/* EXB-4.4 — conteúdo da barra de menu + atalho global */
+"settings.display.menu_content"           = "Conteúdo da barra de menu";
+"settings.display.menu_content.subtitle"  = "O que mostrar ao lado do ícone na barra de menu.";
+"settings.display.menu_content.none"      = "Apenas ícone";
+"settings.display.menu_content.percent"   = "Porcentagem";
+"settings.display.menu_content.time_until_reset" = "Tempo até renovar";
+"settings.display.menu_content.cost_today" = "Custo de hoje";
+"settings.display.menu_content.sparkline" = "Minigráfico";
+"settings.display.hotkey"                  = "Atalho global";
+"settings.display.hotkey.subtitle"         = "Abrir ou fechar o painel com um atalho de teclado.";
+"settings.display.hotkey.placeholder"      = "Clique para definir";
+"settings.display.hotkey.capturing"        = "Pressione o atalho…";
+"settings.display.hotkey.accessibility_hint" = "Para usar o atalho enquanto outros apps estão ativos, conceda acesso em Ajustes do Sistema → Privacidade e Segurança → Acessibilidade.";
+
 "settings.display.section.menu_content" = "Conteúdo do Menu";
 "settings.display.show_used"           = "Mostrar uso como consumido";
 "settings.display.show_used.subtitle"  = "As barras enchem com a cota consumida. Desative para mostrar a restante.";

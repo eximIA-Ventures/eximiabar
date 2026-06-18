@@ -236,6 +236,20 @@
 "settings.display.brand_icon"          = "Brand icon + %";
 "settings.display.brand_icon.subtitle" = "Show the Claude brand icon with the remaining percentage instead of the meter icon.";
 
+/* EXB-4.4 — menu bar content + global hotkey */
+"settings.display.menu_content"           = "Menu bar content";
+"settings.display.menu_content.subtitle"  = "What to show next to the icon in the menu bar.";
+"settings.display.menu_content.none"      = "Icon only";
+"settings.display.menu_content.percent"   = "Percentage";
+"settings.display.menu_content.time_until_reset" = "Time until reset";
+"settings.display.menu_content.cost_today" = "Today's cost";
+"settings.display.menu_content.sparkline" = "Sparkline";
+"settings.display.hotkey"                  = "Global shortcut";
+"settings.display.hotkey.subtitle"         = "Open or close the panel with a keyboard shortcut.";
+"settings.display.hotkey.placeholder"      = "Click to set";
+"settings.display.hotkey.capturing"        = "Press shortcut…";
+"settings.display.hotkey.accessibility_hint" = "To use the shortcut while other apps are active, grant access in System Settings → Privacy & Security → Accessibility.";
+
 "settings.display.section.menu_content" = "Menu Content";
 "settings.display.show_used"           = "Show usage as used";
 "settings.display.show_used.subtitle"  = "Bars fill with consumed quota. Turn off to show remaining instead.";

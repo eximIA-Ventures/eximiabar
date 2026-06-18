@@ -37,6 +37,10 @@ struct DisplaySnapshot: Sendable, Equatable {
     /// Per-window exhaustion forecasts (EXB-4.3 AC1). Empty until the predictor has enough samples;
     /// the popover renders a forecast line only for entries whose `minutesRemaining != nil`.
     let forecasts: [ExhaustionForecast]
+    /// Recent session-window utilization samples (0–100), oldest-first, capped to the sparkline
+    /// width (EXB-4.4 AC2). Empty until the predictor has any history; the `SparklineRenderer` draws a
+    /// neutral flat line in that case. Sourced off-main from `ExhaustionPredictor.recentUtilizations`.
+    let sparklineSamples: [Double]
 
     /// Identity pair, kept as a small value type so `DisplaySnapshot` stays `Equatable`.
     struct Identity: Sendable, Equatable {
@@ -62,7 +66,8 @@ struct DisplaySnapshot: Sendable, Equatable {
         source: DataSource = .oauth,
         error: UsageError? = nil,
         isRefreshing: Bool = false,
-        forecasts: [ExhaustionForecast] = [])
+        forecasts: [ExhaustionForecast] = [],
+        sparklineSamples: [Double] = [])
     {
         self.session = session
         self.weekly = weekly
@@ -77,6 +82,7 @@ struct DisplaySnapshot: Sendable, Equatable {
         self.error = error
         self.isRefreshing = isRefreshing
         self.forecasts = forecasts
+        self.sparklineSamples = sparklineSamples
     }
 }
 
@@ -146,12 +152,18 @@ extension DisplaySnapshot {
             source: previous.source,
             error: previous.error,
             isRefreshing: true,
-            forecasts: previous.forecasts)
+            forecasts: previous.forecasts,
+            sparklineSamples: previous.sparklineSamples)
     }
 
-    /// Returns a copy of this snapshot with `forecasts` replaced — used by `AppState` to attach the
-    /// predictor's output after the off-main fetch produced the base snapshot (EXB-4.3 AC1/T2).
-    func withForecasts(_ forecasts: [ExhaustionForecast]) -> DisplaySnapshot {
+    /// Returns a copy of this snapshot with `forecasts` (and optionally `sparklineSamples`) replaced —
+    /// used by `AppState` to attach the predictor's output after the off-main fetch produced the base
+    /// snapshot (EXB-4.3 AC1/T2, EXB-4.4 AC2). Passing `sparklineSamples == nil` preserves the
+    /// existing samples so callers that only want forecasts don't clear the sparkline.
+    func withForecasts(
+        _ forecasts: [ExhaustionForecast],
+        sparklineSamples: [Double]? = nil) -> DisplaySnapshot
+    {
         DisplaySnapshot(
             session: session,
             weekly: weekly,
@@ -165,7 +177,8 @@ extension DisplaySnapshot {
             source: source,
             error: error,
             isRefreshing: isRefreshing,
-            forecasts: forecasts)
+            forecasts: forecasts,
+            sparklineSamples: sparklineSamples ?? self.sparklineSamples)
     }
 
     /// The forecast for `windowId`, if one exists. The popover uses this to attach the line under

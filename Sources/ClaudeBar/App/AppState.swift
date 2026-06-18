@@ -167,7 +167,13 @@ final class AppState {
                 secondsUntilReset: secondsUntilReset)
             forecasts.append(forecast)
         }
-        return snapshot.withForecasts(forecasts)
+        // EXB-4.4 (AC2): read back the recent session utilizations (now including the sample we just
+        // added) so the menu-bar sparkline draws from the same rolling history the forecast uses — all
+        // still inside the actor, off the MainActor.
+        let sparkline = await predictor.recentUtilizations(
+            windowId: RateWindowID.session,
+            limit: SparklineRenderer.maxSamples)
+        return snapshot.withForecasts(forecasts, sparklineSamples: sparkline)
     }
 
     /// Runs on the MainActor: publishes the new snapshot, fires notifications, then drains a
@@ -218,7 +224,8 @@ final class AppState {
                     source: current.source,
                     error: current.error,
                     isRefreshing: false,
-                    forecasts: current.forecasts)
+                    forecasts: current.forecasts,
+                    sparklineSamples: current.sparklineSamples)
             }
         }
 

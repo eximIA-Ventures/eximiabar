@@ -113,6 +113,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notifier: QuotaNotifier(poster: notificationPoster))
     private var statusItemController: StatusItemController?
     private var panelController: UsagePanelController?
+    /// EXB-4.4: owns the global keyboard shortcut that toggles the popover.
+    private let hotkeyManager = GlobalHotkeyManager()
     private var settingsWindowController: SettingsWindowController?
     /// EXB-2.3: owns the local Swift Charts dashboard window.
     private var dashboardWindowController: DashboardWindowController?
@@ -165,6 +167,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.onDisplayModeChange = { [weak self] in
             guard let self else { return }
             self.statusItemController?.update(snapshot: self.appState.snapshot)
+        }
+        // EXB-4.4 AC1 §3: re-render the status item the instant the menu-bar content preference flips.
+        settings.onMenuBarContentChange = { [weak self] in
+            guard let self else { return }
+            self.statusItemController?.update(snapshot: self.appState.snapshot)
+        }
+        // EXB-4.4 AC4 §11: re-register the global shortcut whenever the user rebinds (or clears) it.
+        settings.onGlobalHotkeyChange = { [weak self] binding in
+            self?.registerHotkey(binding)
         }
         settings.onKeychainPolicyChange = { [promptPolicyHolder] policy in
             promptPolicyHolder.set(policy)
@@ -223,6 +234,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panel?.toggle(near: button)
         }
 
+        // EXB-4.4 AC4: register the persisted global shortcut so it toggles the popover from anywhere.
+        registerHotkey(settings.globalHotkey)
+
         // AC12: launch the watchdog helper if it exists (no-op when S6 binary is absent).
         appState.launchWatchdogIfPresent()
 
@@ -250,6 +264,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc
     private func openSettingsFromMenu() {
         settingsWindowController?.open()
+    }
+
+    /// (Re)register the global popover-toggle shortcut (EXB-4.4 AC4). The action toggles the popover
+    /// anchored to the status-item button; when the panel is already open the toggle closes it
+    /// (AC4 §12). A `nil` binding leaves the shortcut unregistered (popover still reachable by click).
+    private func registerHotkey(_ binding: HotkeyBinding?) {
+        hotkeyManager.register(binding: binding) { [weak self] in
+            guard let self, let button = self.statusItemController?.button else { return }
+            self.panelController?.toggle(near: button)
+        }
     }
 
     /// Apply a theme override to the whole app by setting `NSApp.appearance` (EXB-3.1 AC4). `.system`

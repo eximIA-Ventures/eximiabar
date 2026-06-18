@@ -258,6 +258,19 @@ public actor ExhaustionPredictor {
         self.loadFromDisk()
     }
 
+    /// The most-recent `limit` utilization values (0–100) for `windowId`, oldest-first (EXB-4.4 AC2).
+    ///
+    /// The menu-bar sparkline reads this off the MainActor (inside the actor) to draw recent session
+    /// usage without keeping its own buffer — the predictor's rolling history is the single source of
+    /// utilization truth. Returns `[]` when the window has no samples yet (the renderer then draws its
+    /// neutral flat line, AC2 §6). `limit` is clamped to ≥ 0.
+    public func recentUtilizations(windowId: String, limit: Int) -> [Double] {
+        self.loadIfNeeded()
+        guard limit > 0 else { return [] }
+        let buffer = self.samples[windowId, default: []]
+        return buffer.suffix(limit).map(\.utilization)
+    }
+
     // MARK: - Test support
 
     /// Sample count for a window — used by tests to assert the circular-buffer cap.

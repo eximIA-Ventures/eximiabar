@@ -1,3 +1,4 @@
+import ApplicationServices
 import SwiftUI
 
 /// Display preferences pane (AC5).
@@ -31,8 +32,48 @@ struct PreferencesDisplayPane: View {
                 title: L("settings.display.brand_icon"),
                 subtitle: L("settings.display.brand_icon.subtitle"),
                 binding: brandIconBinding)
+
+            // EXB-4.4 AC1: picks what renders next to the icon (none / % / time / cost / sparkline).
+            LabelledRow(
+                title: L("settings.display.menu_content"),
+                subtitle: L("settings.display.menu_content.subtitle"))
+            {
+                Picker(L("settings.display.menu_content"), selection: $settings.menuBarContent) {
+                    ForEach(MenuBarContent.allCases) { content in
+                        Text(content.label).tag(content)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: 160)
+            }
+
+            // EXB-4.4 AC4: capture field for the global popover-toggle shortcut.
+            LabelledRow(
+                title: L("settings.display.hotkey"),
+                subtitle: L("settings.display.hotkey.subtitle"))
+            {
+                HotkeyCaptureField(
+                    binding: $settings.globalHotkey,
+                    placeholder: L("settings.display.hotkey.placeholder"),
+                    capturingPrompt: L("settings.display.hotkey.capturing"))
+                    .frame(width: 130)
+            }
+
+            // AC4 / Dev Notes: show the Accessibility hint when the process is not yet trusted, so the
+            // global (out-of-app) shortcut can be enabled. The in-app shortcut works regardless.
+            if !accessibilityTrusted {
+                Text(L("settings.display.hotkey.accessibility_hint"))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
+
+    /// Whether the process has Accessibility permission. Read once per body build; the hint appears
+    /// until the user grants access (re-evaluated whenever the pane re-renders).
+    private var accessibilityTrusted: Bool { AXIsProcessTrusted() }
 
     /// `displayMode == .brandIconPercent` expressed as a Bool toggle (AC5/T5).
     private var brandIconBinding: Binding<Bool> {

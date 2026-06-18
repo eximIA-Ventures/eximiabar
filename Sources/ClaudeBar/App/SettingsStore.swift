@@ -11,6 +11,89 @@ enum DisplayMode: Sendable, Equatable {
     case brandIconPercent
 }
 
+/// What the status item renders *next to* the icon (EXB-4.4 AC1). Orthogonal to `DisplayMode`:
+/// `DisplayMode` controls the icon glyph; `MenuBarContent` controls the trailing text/sparkline.
+/// Persisted as its raw `String` in `UserDefaults` for a forward-compatible `Codable`.
+enum MenuBarContent: String, Sendable, Equatable, CaseIterable, Identifiable, Codable {
+    /// Just the meter/brand icon — the historical behaviour (default).
+    case none
+    /// `"87%"` — the session window's remaining percentage.
+    case percentRemaining
+    /// `"2h34"` — time until the 5-hour session window resets.
+    case timeUntilReset
+    /// `"$1.23"` — today's spend from the local cost scan.
+    case costToday
+    /// A compact sparkline of recent session utilization.
+    case sparkline
+
+    var id: String { rawValue }
+
+    /// Localized picker label (AC1/AC5).
+    var label: String {
+        switch self {
+        case .none: L("settings.display.menu_content.none")
+        case .percentRemaining: L("settings.display.menu_content.percent")
+        case .timeUntilReset: L("settings.display.menu_content.time_until_reset")
+        case .costToday: L("settings.display.menu_content.cost_today")
+        case .sparkline: L("settings.display.menu_content.sparkline")
+        }
+    }
+}
+
+/// A captured global keyboard shortcut (EXB-4.4 AC4). Stores the raw integer values of the
+/// `NSEvent.ModifierFlags` and the virtual key code so it round-trips through `Codable`/`UserDefaults`
+/// without depending on AppKit raw-value stability across OS versions.
+struct HotkeyBinding: Codable, Sendable, Equatable {
+    /// `NSEvent.ModifierFlags.rawValue`, masked to the device-independent flags at capture time.
+    var modifiers: Int
+    /// The hardware-independent virtual key code (`NSEvent.keyCode`).
+    var keyCode: Int
+
+    init(modifiers: Int, keyCode: Int) {
+        self.modifiers = modifiers
+        self.keyCode = keyCode
+    }
+
+    init(modifiers: NSEvent.ModifierFlags, keyCode: UInt16) {
+        self.modifiers = Int(modifiers.deviceIndependentRelevant.rawValue)
+        self.keyCode = Int(keyCode)
+    }
+
+    /// The modifier flags as an `NSEvent.ModifierFlags`, masked to the device-independent set.
+    var modifierFlags: NSEvent.ModifierFlags {
+        NSEvent.ModifierFlags(rawValue: UInt(modifiers)).deviceIndependentRelevant
+    }
+
+    /// The key code as the `UInt16` AppKit reports.
+    var keyCodeValue: UInt16 { UInt16(truncatingIfNeeded: keyCode) }
+
+    /// The default shortcut suggested by the story (`⌥⌘C`).
+    static let defaultBinding = HotkeyBinding(
+        modifiers: [.option, .command],
+        keyCode: KeyCodes.c)
+
+    /// A human-readable glyph string, e.g. `"⌥⌘C"`. Falls back to `"Key \(keyCode)"` for codes whose
+    /// character is unknown.
+    var displayString: String {
+        var result = ""
+        let flags = modifierFlags
+        if flags.contains(.control) { result += "⌃" }
+        if flags.contains(.option) { result += "⌥" }
+        if flags.contains(.shift) { result += "⇧" }
+        if flags.contains(.command) { result += "⌘" }
+        result += KeyCodes.displayName(for: keyCodeValue)
+        return result
+    }
+}
+
+extension NSEvent.ModifierFlags {
+    /// Only the four user-facing modifier flags, so a capture isn't polluted by Caps Lock, the
+    /// numeric-keypad bit, or function-key state. Used everywhere a hotkey is compared or persisted.
+    var deviceIndependentRelevant: NSEvent.ModifierFlags {
+        intersection([.control, .option, .shift, .command])
+    }
+}
+
 /// Refresh timer cadence (AC3). Drives the `AppState` refresh loop.
 enum RefreshCadence: String, Sendable, Equatable, CaseIterable, Identifiable {
     case manual
@@ -368,6 +451,26 @@ final class SettingsStore {
         didSet { scheduleSaveIfChanged(workdayMarkers, oldValue) }
     }
 
+    /// What renders next to the status-item icon (EXB-4.4 AC1). Default `.none` (icon only).
+    /// Changing this re-renders the status item immediately via `onMenuBarContentChange` (AC1 §3).
+    var menuBarContent: MenuBarContent = .none {
+        didSet {
+            guard menuBarContent != oldValue else { return }
+            onMenuBarContentChange?()
+            scheduleSave()
+        }
+    }
+
+    /// The configurable global hotkey that toggles the popover (EXB-4.4 AC4). Default `⌥⌘C`.
+    /// Changing this re-registers the global monitor via `onGlobalHotkeyChange` (AC4 §11).
+    var globalHotkey: HotkeyBinding? = .defaultBinding {
+        didSet {
+            guard globalHotkey != oldValue else { return }
+            onGlobalHotkeyChange?(globalHotkey)
+            scheduleSave()
+        }
+    }
+
     // MARK: - Appearance (EXB-3.1 AC3/AC4)
 
     /// Window translucency level. Default `.frosted` (strong glass — the v1.2.0 default). Changing
@@ -402,6 +505,13 @@ final class SettingsStore {
 
     /// Invoked when `displayMode` changes so the status item can re-render immediately (AC5/T5).
     var onDisplayModeChange: (@MainActor () -> Void)?
+
+    /// Invoked when `menuBarContent` changes so the status item re-renders immediately (EXB-4.4 AC1 §3).
+    var onMenuBarContentChange: (@MainActor () -> Void)?
+
+    /// Invoked when `globalHotkey` changes so the hotkey manager re-registers the global monitor
+    /// (EXB-4.4 AC4 §11). Carries the new binding (or `nil` to unregister).
+    var onGlobalHotkeyChange: (@MainActor (HotkeyBinding?) -> Void)?
 
     /// Invoked when `keychainPromptPolicy` changes so the off-MainActor policy holder stays in
     /// lock-step with the live setting (AC11). Carries the mapped Core policy.
@@ -528,6 +638,11 @@ final class SettingsStore {
         static let showAbsoluteReset = "settings.showAbsoluteReset"
         static let showWarningMarkers = "settings.showWarningMarkers"
         static let workdayMarkers = "settings.workdayMarkers"
+        static let menuBarContent = "settings.menuBarContent"
+        static let globalHotkey = "settings.globalHotkey"
+        /// Set `true` once the user explicitly clears the hotkey, so a cleared shortcut survives a
+        /// restart as `nil` instead of resurrecting the `⌥⌘C` default.
+        static let globalHotkeyCleared = "settings.globalHotkeyCleared"
         static let transparencyLevel = "settings.transparencyLevel"
         static let themeOverride = "settings.themeOverride"
     }
@@ -554,6 +669,9 @@ final class SettingsStore {
         let showAbsoluteReset: Bool
         let showWarningMarkers: Bool
         let workdayMarkers: String
+        let menuBarContent: String
+        /// `globalHotkey` as JSON data, or `nil` when the user has cleared the shortcut.
+        let globalHotkeyData: Data?
         let transparencyLevel: String
         let themeOverride: String
 
@@ -580,6 +698,14 @@ final class SettingsStore {
             defaults.set(showAbsoluteReset, forKey: Key.showAbsoluteReset)
             defaults.set(showWarningMarkers, forKey: Key.showWarningMarkers)
             defaults.set(workdayMarkers, forKey: Key.workdayMarkers)
+            defaults.set(menuBarContent, forKey: Key.menuBarContent)
+            if let globalHotkeyData {
+                defaults.set(globalHotkeyData, forKey: Key.globalHotkey)
+                defaults.set(false, forKey: Key.globalHotkeyCleared)
+            } else {
+                defaults.removeObject(forKey: Key.globalHotkey)
+                defaults.set(true, forKey: Key.globalHotkeyCleared)
+            }
             defaults.set(transparencyLevel, forKey: Key.transparencyLevel)
             defaults.set(themeOverride, forKey: Key.themeOverride)
         }
@@ -607,6 +733,8 @@ final class SettingsStore {
             showAbsoluteReset: showAbsoluteReset,
             showWarningMarkers: showWarningMarkers,
             workdayMarkers: workdayMarkers.rawValue,
+            menuBarContent: menuBarContent.rawValue,
+            globalHotkeyData: globalHotkey.flatMap { try? JSONEncoder().encode($0) },
             transparencyLevel: transparencyLevel.rawValue,
             themeOverride: themeOverride.rawValue)
     }
@@ -675,6 +803,18 @@ final class SettingsStore {
         if let raw = defaults.string(forKey: Key.workdayMarkers),
            let value = WorkdayMarkers(rawValue: raw) {
             workdayMarkers = value
+        }
+        if let raw = defaults.string(forKey: Key.menuBarContent),
+           let value = MenuBarContent(rawValue: raw) {
+            menuBarContent = value
+        }
+        // Hotkey: a stored binding wins; an explicit user-clear (the cleared flag) restores `nil`;
+        // a fresh install (neither set) keeps the `⌥⌘C` default seeded above.
+        if let data = defaults.data(forKey: Key.globalHotkey),
+           let value = try? JSONDecoder().decode(HotkeyBinding.self, from: data) {
+            globalHotkey = value
+        } else if defaults.bool(forKey: Key.globalHotkeyCleared) {
+            globalHotkey = nil
         }
         if let raw = defaults.string(forKey: Key.transparencyLevel),
            let value = TransparencyLevel(rawValue: raw) {

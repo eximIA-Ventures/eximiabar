@@ -244,4 +244,31 @@ struct ExhaustionPredictorTests {
 
         #expect(ExhaustionPredictor.ratePerSecond(samples: [samples[0]]) == nil)
     }
+
+    // MARK: - EXB-4.4 — recent utilizations for the menu-bar sparkline (AC2)
+
+    /// `recentUtilizations` returns the most-recent `limit` values oldest-first, `[]` for an empty
+    /// window, and `[]` for a non-positive limit.
+    @Test
+    func recentUtilizationsReturnsTailOldestFirst() async {
+        let predictor = Self.makePredictor()
+        let base = Date()
+        await Self.feed(predictor, windowId: RateWindowID.session, base: base, points: [
+            (0, 10), (60, 20), (120, 30), (180, 40), (240, 50),
+        ])
+
+        // The last 3, oldest-first within that tail.
+        let last3 = await predictor.recentUtilizations(windowId: RateWindowID.session, limit: 3)
+        #expect(last3 == [30, 40, 50])
+
+        // A limit beyond the buffer returns the whole history.
+        let all = await predictor.recentUtilizations(windowId: RateWindowID.session, limit: 99)
+        #expect(all == [10, 20, 30, 40, 50])
+
+        // Empty window and non-positive limit are both empty (the renderer's flat-line path).
+        let empty = await predictor.recentUtilizations(windowId: RateWindowID.weekly, limit: 8)
+        #expect(empty.isEmpty)
+        let zero = await predictor.recentUtilizations(windowId: RateWindowID.session, limit: 0)
+        #expect(zero.isEmpty)
+    }
 }
