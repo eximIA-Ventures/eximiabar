@@ -33,6 +33,13 @@ public actor CredentialsStore {
     public static let cacheKeychainService = "com.eximia.eximiabar.cache"
     public static let cacheKeychainAccount = "oauth.claude"
 
+    /// The keychain service used for this store's *own* credential cache (layer c). Injectable so
+    /// tests can pin an isolated, throwaway service (e.g. `com.eximia.eximiabar.cache.test.<uuid>`)
+    /// and never read/write/delete the real `com.eximia.eximiabar.cache` item — which is what made
+    /// the test-helper process trigger the keychain Allow/Deny prompt. Defaults to the production
+    /// `Self.cacheKeychainService`, so app code is unaffected.
+    private let cacheKeychainService: String
+
     private static let memoryCacheTTL: TimeInterval = 1800 // 30 min
     private static let fingerprintThrottle: TimeInterval = 60 // at most once per 60 s
     private static let fileFingerprintDefaultsKey = "ClaudeBarCredentialsFileFingerprintV1"
@@ -76,7 +83,8 @@ public actor CredentialsStore {
         defaults: UserDefaults = .standard,
         promptPolicy: PromptPolicy = .onUserAction,
         enableSystemKeychain: Bool = true,
-        readStrategy: KeychainReadStrategy = .securityCLIPrimary)
+        readStrategy: KeychainReadStrategy = .securityCLIPrimary,
+        cacheKeychainService: String = CredentialsStore.cacheKeychainService)
     {
         self.init(
             environment: environment,
@@ -84,7 +92,8 @@ public actor CredentialsStore {
             defaults: defaults,
             promptPolicyProvider: { promptPolicy },
             enableSystemKeychain: enableSystemKeychain,
-            readStrategyProvider: { readStrategy })
+            readStrategyProvider: { readStrategy },
+            cacheKeychainService: cacheKeychainService)
     }
 
     /// Designated initializer (EXB-1.5 AC11). The `promptPolicyProvider` and `readStrategyProvider`
@@ -96,7 +105,8 @@ public actor CredentialsStore {
         defaults: UserDefaults = .standard,
         promptPolicyProvider: @escaping @Sendable () -> PromptPolicy,
         enableSystemKeychain: Bool = true,
-        readStrategyProvider: @escaping @Sendable () -> KeychainReadStrategy = { .securityCLIPrimary })
+        readStrategyProvider: @escaping @Sendable () -> KeychainReadStrategy = { .securityCLIPrimary },
+        cacheKeychainService: String = CredentialsStore.cacheKeychainService)
     {
         self.environment = environment
         self.homeDirectory = homeDirectory
@@ -104,6 +114,7 @@ public actor CredentialsStore {
         self.promptPolicyProvider = promptPolicyProvider
         self.enableSystemKeychain = enableSystemKeychain
         self.readStrategyProvider = readStrategyProvider
+        self.cacheKeychainService = cacheKeychainService
     }
 
     // MARK: Public API
@@ -218,7 +229,7 @@ public actor CredentialsStore {
         #if os(macOS)
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.cacheKeychainService,
+            kSecAttrService as String: self.cacheKeychainService,
             kSecAttrAccount as String: Self.cacheKeychainAccount,
             kSecMatchLimit as String: kSecMatchLimitOne,
             kSecReturnData as String: true,
@@ -250,7 +261,7 @@ public actor CredentialsStore {
         guard let data = try? JSONEncoder().encode(entry) else { return }
         let base: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.cacheKeychainService,
+            kSecAttrService as String: self.cacheKeychainService,
             kSecAttrAccount as String: Self.cacheKeychainAccount,
         ]
         SecItemDelete(base as CFDictionary)
@@ -265,7 +276,7 @@ public actor CredentialsStore {
         #if os(macOS)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.cacheKeychainService,
+            kSecAttrService as String: self.cacheKeychainService,
             kSecAttrAccount as String: Self.cacheKeychainAccount,
         ]
         SecItemDelete(query as CFDictionary)

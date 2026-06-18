@@ -91,7 +91,10 @@ struct PromptPolicyTests {
             // legacy strategy so the (DEBUG) CLI override is never consulted and the load reliably
             // reaches the no-UI fallback → `.notFound` under test.
             enableSystemKeychain: true,
-            readStrategyProvider: { reads.bump(); return .securityFramework })
+            readStrategyProvider: { reads.bump(); return .securityFramework },
+            // Isolated, per-test cache service: layer (c)'s save/load/clear must never touch the real
+            // `com.eximia.eximiabar.cache` item (that write+re-read is what prompts the keychain).
+            cacheKeychainService: "com.eximia.eximiabar.cache.test.\(UUID().uuidString)")
 
         let loadCount = 3
         for _ in 0 ..< loadCount {

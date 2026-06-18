@@ -40,7 +40,11 @@ struct SecurityCLIReaderTests {
             defaults: isolatedDefaults(),
             promptPolicy: .never,
             enableSystemKeychain: true,
-            readStrategy: strategy)
+            readStrategy: strategy,
+            // Pin an isolated, per-test cache service so layer (c) save/load/clear never touches the
+            // real `com.eximia.eximiabar.cache` item. Without this, the test-helper process writing
+            // and re-reading the production cache item triggers the keychain Allow/Deny prompt.
+            cacheKeychainService: "com.eximia.eximiabar.cache.test.\(UUID().uuidString)")
     }
 
     // MARK: - PRIMARY: CLI reader supplies a valid token
