@@ -22,6 +22,14 @@ extension CostScanner {
     ///
     /// Anti-freeze: runs on this actor's executor (callers invoke from `Task.detached`), never the
     /// MainActor. `now` is injected for deterministic bucketing in tests.
+    /// Resolve the base `(input, output)` per-token USD prices for `model` on the scanner's injected
+    /// `Pricing` actor (EXB-4.5 AC1/AC4). Used by the dashboard to estimate cache savings from the
+    /// dominant model's prices without ever touching `Pricing` from the MainActor or hardcoding a
+    /// per-model price in the view. Never throws — `Pricing` always returns a usable price.
+    public func modelPrice(for model: String) async -> (input: Double, output: Double) {
+        await self.pricing.costPerToken(model: model)
+    }
+
     public func scanAnalytics(
         directories: [URL]? = nil,
         windowDays: Int,

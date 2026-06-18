@@ -89,6 +89,23 @@
 "dashboard.export.csv"             = "Export CSV";
 "dashboard.summary.avg_daily"      = "Daily average";
 "dashboard.summary.projection"     = "Month projection";
+
+// EXB-4.5 — efficiency insights
+"dashboard.insights.cache_hit.title"      = "Cache hit";
+"dashboard.insights.cache_hit.savings"    = "~%@ saved";
+"dashboard.insights.delta.above"          = "+%d%% above average";
+"dashboard.insights.delta.below"          = "-%d%% below average";
+"dashboard.insights.delta.on_average"     = "On the period average";
+"dashboard.insights.delta.no_usage"       = "No usage today";
+"dashboard.insights.weekly.title"         = "This week";
+"dashboard.insights.weekly.busiest_day"   = "Busiest day";
+"dashboard.insights.weekly.top_model"     = "Most used model";
+"dashboard.insights.weekly.week_total"    = "Week total";
+"dashboard.insights.weekly.peak_hour"     = "Peak hour";
+"dashboard.insights.weekly.model_value"   = "%1$@ · %2$@ tokens";
+"dashboard.insights.weekly.total_value"   = "%1$@ · %2$@ tokens";
+"dashboard.insights.weekly.no_data"       = "—";
+
 "dashboard.chart.cost.cumulative"  = "Cumulative";
 "dashboard.tokens.type"            = "Type";
 "dashboard.tokens.input"           = "Input";

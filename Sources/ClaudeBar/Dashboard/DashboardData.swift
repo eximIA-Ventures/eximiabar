@@ -68,6 +68,55 @@ struct DailyModelEntry: Equatable, Sendable, Identifiable {
     let tokens: Int
 }
 
+/// The busiest weekday over the window (EXB-4.5 AC3): a named pair so `DashboardData` stays a flat
+/// `Equatable`/`Sendable` value (tuples can't be optional stored properties with synthesized `==`).
+struct BusiestDay: Equatable, Sendable {
+    /// 0 = Sunday … 6 = Saturday (`Calendar.component(.weekday) - 1`).
+    let dayOfWeek: Int
+    /// Total spend for that weekday over the window, USD.
+    let cost: Double
+}
+
+/// The window's top model by token volume (EXB-4.5 AC3 top-model card).
+struct TopModel: Equatable, Sendable {
+    /// The normalized model identifier (matches `DashboardModelEntry.model`).
+    let name: String
+    /// Total token volume (input + output + cache read + cache write) for the model.
+    let tokens: Int
+}
+
+/// Per-token USD prices for the cache-savings estimate (EXB-4.5 AC1).
+///
+/// The dashboard cannot `await` the `Pricing` actor inside the pure `DashboardData.build`, so the
+/// caller resolves the dominant model's `(input, output)` prices off-main (in the `Task.detached`
+/// scan) and passes them in via this value type. `cacheRead` is derived from `input` using Claude's
+/// documented **cache-read = 0.1 × base input** convention — the single place that ratio lives, so
+/// the view never hardcodes a per-model price (AC4). A zeroed default keeps every existing
+/// `DashboardData.build` call site (tests, in-process callers) compiling unchanged.
+struct CachePricing: Equatable, Sendable {
+    /// USD per output token (the "would-have-paid" price for re-sending cached context).
+    let outputPerToken: Double
+    /// USD per cache-read token (Claude prices cache reads at ~0.1× base input).
+    let cacheReadPerToken: Double
+
+    init(outputPerToken: Double = 0, cacheReadPerToken: Double = 0) {
+        self.outputPerToken = outputPerToken
+        self.cacheReadPerToken = cacheReadPerToken
+    }
+
+    /// Claude's cache-read multiplier vs. base input price (Anthropic prompt-caching pricing):
+    /// a cache-read token costs ~10% of a base input token.
+    static let cacheReadInputRatio = 0.1
+
+    /// Build a `CachePricing` from the dominant model's base `(input, output)` per-token prices,
+    /// deriving `cacheReadPerToken` via the documented `0.1 × input` ratio (AC1/AC4).
+    static func claude(inputPerToken: Double, outputPerToken: Double) -> CachePricing {
+        CachePricing(
+            outputPerToken: outputPerToken,
+            cacheReadPerToken: inputPerToken * cacheReadInputRatio)
+    }
+}
+
 /// The fully-derived analytics dashboard view model (EXB-3.2).
 ///
 /// Built off-MainActor from the `UsageAnalytics` the `CostScanner` produces (EXB-1.7 + EXB-3.2) — the
@@ -107,6 +156,26 @@ struct DashboardData: Equatable, Sendable {
     /// tokens÷cost ratio (EXB-3.7 AC19). `0` when there is no cost to derive a ratio from.
     let projectedTokens: Int
 
+    // MARK: - Efficiency insights (EXB-4.5)
+
+    /// Cache hit rate over the window: `cacheReadTokens / (inputTokens + cacheReadTokens)`, `0…1`
+    /// (AC1). `0` when there is no input/cache activity to divide by.
+    let cacheHitRate: Double
+    /// Estimated USD saved by serving cache reads instead of re-sending that context at output price
+    /// (AC1): `cacheReadTokens × (outputPerToken − cacheReadPerToken)` for the dominant model. `0`
+    /// when no `CachePricing` was supplied (e.g. tests) or there are no cache reads.
+    let estimatedCacheSavings: Double
+    /// Today's spend relative to the period's daily average (AC2): `(todayCost − avg) / avg`, signed.
+    /// `nil` when there is no usage **today** in the window (the "Sem uso hoje" case, AC2-#7).
+    let dailyDelta: Double?
+    /// Busiest hour of day (0…23) by total token volume across the heatmap (AC3 peak-hour card).
+    let peakHour: Int
+    /// The weekday with the highest cost in the window (AC3 busiest-day card): `(0=Sun…6=Sat, cost)`.
+    /// `nil` when the window has no spend.
+    let busiestDay: BusiestDay?
+    /// The model with the most token volume in the window (AC3 top-model card). `nil` when empty.
+    let topModelByTokens: TopModel?
+
     /// `true` when the scan returned no priced entries at all → the empty state is shown.
     var isEmpty: Bool { byModel.isEmpty }
 
@@ -145,9 +214,16 @@ extension DashboardData {
     ///   heatmap, sessions, month-to-date spend).
     /// - `period`: the selected period (its `.days` is the day-axis span).
     /// - `now`: injected for deterministic day bucketing in tests.
+    /// - `cachePricing`: the dominant model's output / cache-read prices, resolved off-main by the
+    ///   caller (EXB-4.5 AC1). Defaults to zero so existing call sites need no change.
     ///
     /// Anti-freeze: pure value transformation (no I/O), safe from `Task.detached`.
-    static func build(from analytics: UsageAnalytics, period: DashboardPeriod, now: Date = Date()) -> DashboardData {
+    static func build(
+        from analytics: UsageAnalytics,
+        period: DashboardPeriod,
+        now: Date = Date(),
+        cachePricing: CachePricing = CachePricing()) -> DashboardData
+    {
         // AC8: instrument the pure aggregation so Instruments can see build vs. scan vs. apply.
         let signposter = CostScanner.perfSignposter
         let buildState = signposter.beginInterval("DashboardData.build", "period=\(period.days)d")
@@ -239,6 +315,29 @@ extension DashboardData {
         let periodTokenVolume = daily.reduce(0) { $0 + $1.inputTokens + $1.outputTokens + $1.cacheReadTokens + $1.cacheWriteTokens }
         let projectedTokens = Self.projectedTokens(periodTokens: periodTokenVolume, periodCost: periodCost, projectedCost: projection)
 
+        // --- Efficiency insights (EXB-4.5) — all derived from the data already folded above (AC13) ---
+
+        // AC1: cache hit rate = cacheRead ÷ (input + cacheRead) over the whole day axis.
+        let totalInput = daily.reduce(0) { $0 + $1.inputTokens }
+        let totalCacheRead = daily.reduce(0) { $0 + $1.cacheReadTokens }
+        let cacheHitRate = Self.cacheHitRate(input: totalInput, cacheRead: totalCacheRead)
+
+        // AC1: dollars saved by serving cache reads vs. re-paying at output price.
+        let estimatedCacheSavings = Double(totalCacheRead)
+            * Swift.max(0, cachePricing.outputPerToken - cachePricing.cacheReadPerToken)
+
+        // AC2: today vs. the period's daily average. `nil` when there is no usage today (AC2-#7).
+        let dailyDelta = Self.dailyDelta(todayCost: todayCost, todayTokens: todayTokens, averageDailyCost: averageDaily)
+
+        // AC3: busiest hour over the heatmap (argmax of token volume per hour).
+        let peakHour = Self.peakHour(heatmap: analytics.heatmap)
+
+        // AC3: busiest weekday by cost over the day axis (0=Sun…6=Sat).
+        let busiestDay = Self.busiestDay(daily: daily, calendar: calendar)
+
+        // AC3: top model by token volume (reuses the per-model fold; volume = all four token types).
+        let topModelByTokens = Self.topModelByTokens(byDayModel: analytics.byDayModel)
+
         return DashboardData(
             period: period,
             dailyCosts: daily,
@@ -255,7 +354,72 @@ extension DashboardData {
             thirtyDayTokens: periodTokens,
             averageDailyCost: averageDaily,
             monthProjection: projection,
-            projectedTokens: projectedTokens)
+            projectedTokens: projectedTokens,
+            cacheHitRate: cacheHitRate,
+            estimatedCacheSavings: estimatedCacheSavings,
+            dailyDelta: dailyDelta,
+            peakHour: peakHour,
+            busiestDay: busiestDay,
+            topModelByTokens: topModelByTokens)
+    }
+
+    // MARK: - Efficiency insight helpers (EXB-4.5) — pure, deterministic, unit-tested directly
+
+    /// Cache hit rate (AC1): `cacheRead ÷ (input + cacheRead)`. Returns `0` when the denominator is
+    /// zero (no input/cache activity) — never a NaN.
+    static func cacheHitRate(input: Int, cacheRead: Int) -> Double {
+        let denominator = input + cacheRead
+        guard denominator > 0 else { return 0 }
+        return Double(cacheRead) / Double(denominator)
+    }
+
+    /// Today-vs-average delta (AC2): `(todayCost − avg) / avg`, signed fraction. `nil` when there is
+    /// no usage today (`todayTokens == 0` **and** `todayCost == 0`) or the average is zero — both map
+    /// to the "Sem uso hoje" UI state rather than a misleading 0% or a divide-by-zero (AC2-#7).
+    static func dailyDelta(todayCost: Double, todayTokens: Int, averageDailyCost: Double) -> Double? {
+        guard todayTokens > 0 || todayCost > 0 else { return nil }
+        guard averageDailyCost > 0 else { return nil }
+        return (todayCost - averageDailyCost) / averageDailyCost
+    }
+
+    /// Peak hour of day (AC3): argmax of summed token volume per hour over the 7 × 24 heatmap.
+    /// Returns `0` for an all-zero heatmap (a defined, stable default).
+    static func peakHour(heatmap: [[HeatmapBucket]]) -> Int {
+        var hourTotals = [Int](repeating: 0, count: 24)
+        for day in heatmap {
+            for bucket in day where bucket.hour >= 0 && bucket.hour < 24 {
+                hourTotals[bucket.hour] += bucket.tokens
+            }
+        }
+        // argmax; ties resolve to the earliest hour. All-zero → hour 0.
+        return hourTotals.indices.max(by: { hourTotals[$0] < hourTotals[$1] }) ?? 0
+    }
+
+    /// Busiest weekday by cost (AC3) over the day axis. `nil` when no day has spend.
+    static func busiestDay(daily: [DashboardDailyEntry], calendar: Calendar = .current) -> BusiestDay? {
+        var costByDay: [Int: Double] = [:]
+        for entry in daily where entry.costUSD > 0 {
+            let dow = calendar.component(.weekday, from: entry.date) - 1 // 0 = Sun … 6 = Sat
+            costByDay[dow, default: 0] += entry.costUSD
+        }
+        // Pick the max cost; ties resolve to the lower weekday index for determinism.
+        guard let best = costByDay.max(by: { $0.value != $1.value ? $0.value < $1.value : $0.key > $1.key })
+        else { return nil }
+        return BusiestDay(dayOfWeek: best.key, cost: best.value)
+    }
+
+    /// Top model by token volume (AC3): fold per-`(day, model)` rows by total volume (all four token
+    /// types), then argmax. `nil` when there are no rows. Ties resolve to the lexicographically
+    /// smaller model name for determinism.
+    static func topModelByTokens(byDayModel: [ModelCostEntry]) -> TopModel? {
+        var tokensByModel: [String: Int] = [:]
+        for entry in byDayModel {
+            let volume = entry.inputTokens + entry.outputTokens + entry.cacheReadTokens + entry.cacheWriteTokens
+            tokensByModel[entry.model, default: 0] += volume
+        }
+        guard let best = tokensByModel.max(by: { $0.value != $1.value ? $0.value < $1.value : $0.key > $1.key })
+        else { return nil }
+        return TopModel(name: best.key, tokens: best.value)
     }
 
     /// Projected monthly tokens (AC19): scale `projectedCost` by the window's tokens÷cost ratio.

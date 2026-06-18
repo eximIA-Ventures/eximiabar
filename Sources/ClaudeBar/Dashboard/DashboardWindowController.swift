@@ -205,10 +205,28 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
         scanTask = Task.detached(priority: .utility) { [weak self] in
             let analytics = await scanner.scanAnalytics(windowDays: period.days)
             let fingerprint = CostScanner.sourceFingerprint()
-            let data = DashboardData.build(from: analytics, period: period)
+            // EXB-4.5 AC1/AC4: resolve the dominant model's prices off-main so the pure builder can
+            // estimate cache savings without ever touching `Pricing` from the MainActor.
+            let cachePricing = await Self.cachePricing(for: analytics, scanner: scanner)
+            let data = DashboardData.build(from: analytics, period: period, cachePricing: cachePricing)
             guard !Task.isCancelled else { return }
             await self?.apply(data, fingerprint: fingerprint)
         }
+    }
+
+    /// Build the `CachePricing` for the savings estimate (EXB-4.5 AC1) from the **dominant** model
+    /// (highest-cost in the window). Returns a zeroed `CachePricing` when the window is empty so the
+    /// estimate is a clean `$0.00`. Runs off-main (called inside the detached scan task).
+    private static func cachePricing(for analytics: UsageAnalytics, scanner: CostScanner) async -> CachePricing {
+        var costByModel: [String: Double] = [:]
+        for entry in analytics.byDayModel {
+            costByModel[entry.model, default: 0] += entry.cost
+        }
+        guard let dominant = costByModel.max(by: { $0.value < $1.value })?.key else {
+            return CachePricing()
+        }
+        let price = await scanner.modelPrice(for: dominant)
+        return CachePricing.claude(inputPerToken: price.input, outputPerToken: price.output)
     }
 
     /// Post the scanned data into the observable model on `@MainActor`, updating the cache (AC12).

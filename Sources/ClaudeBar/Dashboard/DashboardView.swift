@@ -184,6 +184,11 @@ enum DashboardFormat {
     /// Cost with 4 decimal places for the hover annotation (AC11).
     static func preciseCurrency(_ value: Double) -> String { String(format: "$%.4f", value) }
 
+    /// A `0…1` ratio as a percentage with one decimal place (EXB-4.5 AC1): `0.634 → "63.4%"`.
+    static func percent1(_ ratio: Double) -> String {
+        String(format: "%.1f%%", ratio * 100)
+    }
+
     /// `"$1.6K"` / `"$3.20"` compact cost for chart-total headers + KPI cards (EXB-3.7 AC18/AC6).
     static func compactCurrency(_ value: Double) -> String {
         let abs = Swift.abs(value)
@@ -285,6 +290,10 @@ private struct LoadedDashboard: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
                 SummaryCardsRow(data: data)                       // AC2
+                // EXB-4.5 AC3: the "This week" wrapped recap — only in the 7-day period.
+                if data.period == .sevenDays {
+                    WeeklySummarySection(data: data)
+                }
                 CostPerDayChart(data: data)                       // AC3/AC10/AC11/AC13/AC14
                 StackedTokensChart(data: data)                    // AC4/AC9/AC10/AC13/AC14
                 ModelBreakdownSection(data: data)                 // AC5/AC12/AC13
@@ -318,21 +327,42 @@ private struct SummaryCardsRow: View {
     var body: some View {
         LazyVGrid(columns: columns, spacing: 12) {
             // EXB-3.7 AC6/AC16: tokens are the headline; cost is the secondary line on every card.
-            SummaryCard(title: L("dashboard.summary.today"), tokens: data.todayTokens, cost: data.todayCost)
+            // EXB-4.5 AC2: the "Today" card carries the delta-vs-average badge.
+            SummaryCard(
+                title: L("dashboard.summary.today"),
+                tokens: data.todayTokens,
+                cost: data.todayCost,
+                badge: DeltaBadgeModel(delta: data.dailyDelta))
             SummaryCard(title: L("dashboard.summary.last_7_days"), tokens: data.sevenDayTokens, cost: data.sevenDayCost)
             SummaryCard(title: L("dashboard.summary.last_30_days"), tokens: data.thirtyDayTokens, cost: data.thirtyDayCost)
             SummaryCard(title: L("dashboard.summary.avg_daily"), tokens: averageDailyTokens, cost: data.averageDailyCost)
             SummaryCard(title: L("dashboard.summary.projection"), tokens: data.projectedTokens, cost: data.monthProjection)
+            // EXB-4.5 AC1: cache hit rate as a dedicated KPI card — the efficiency headline. The
+            // secondary line shows the estimated dollars saved by serving those reads from cache.
+            CacheHitCard(hitRate: data.cacheHitRate, savings: data.estimatedCacheSavings)
         }
     }
 }
 
+/// The delta-vs-average badge model (EXB-4.5 AC2). `nil` `delta` → "Sem uso hoje" (AC2-#7); a `0`
+/// delta → "Na média"; otherwise the signed percentage drives the colour (above-average = warm,
+/// below = green).
+private struct DeltaBadgeModel {
+    let delta: Double?
+
+    /// The percentage integer (rounded) shown in the label, or `nil` when there is no usage today.
+    var percent: Int? { delta.map { Int(($0 * 100).rounded()) } }
+}
+
 /// One summary card (EXB-3.7 AC6/AC16/AC17): title `.headline`, tokens as the large headline number,
 /// cost as a smaller secondary line. All numerics use `.monospacedDigit()` to avoid layout jitter.
+///
+/// EXB-4.5 AC2: an optional `badge` renders the today-vs-average comparison under the cost line.
 private struct SummaryCard: View {
     let title: String
     let tokens: Int
     let cost: Double
+    var badge: DeltaBadgeModel? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -348,6 +378,173 @@ private struct SummaryCard: View {
                 .font(.subheadline.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+            if let badge {
+                DeltaBadge(model: badge)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor)))
+    }
+}
+
+/// The today-vs-average comparison badge (EXB-4.5 AC2). Colour encodes direction: above-average spend
+/// is warm (orange/red), below-average is green, on-average / no-data is neutral.
+private struct DeltaBadge: View {
+    let model: DeltaBadgeModel
+
+    private var text: String {
+        guard let percent = model.percent else { return L("dashboard.insights.delta.no_usage") }
+        if percent > 0 { return L("dashboard.insights.delta.above", percent) }
+        if percent < 0 { return L("dashboard.insights.delta.below", -percent) }
+        return L("dashboard.insights.delta.on_average")
+    }
+
+    private var tint: Color {
+        guard let percent = model.percent else { return .secondary }
+        if percent > 0 { return Color(red: 0.82, green: 0.42, blue: 0.30) } // warm: above average
+        if percent < 0 { return Color(red: 0.30, green: 0.62, blue: 0.40) } // green: below average
+        return .secondary
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(tint)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                Capsule().fill(tint.opacity(0.14)))
+    }
+}
+
+/// The cache-hit KPI card (EXB-4.5 AC1): hit-rate percentage as the headline, estimated savings as the
+/// secondary line. Matches the visual language of the other KPI cards (tokens-first headline slot).
+private struct CacheHitCard: View {
+    let hitRate: Double
+    let savings: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(L("dashboard.insights.cache_hit.title"))
+                .font(.headline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Text(DashboardFormat.percent1(hitRate))
+                .font(.title2.bold().monospacedDigit())
+                .foregroundStyle(PopoverStyle.brand)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(L("dashboard.insights.cache_hit.savings", DashboardFormat.compactCurrency(savings)))
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor)))
+    }
+}
+
+// MARK: - Weekly summary "wrapped" (EXB-4.5 AC3)
+
+/// The "Esta semana" recap — four highlight cards visible only in the 7-day period (AC3/AC10): the
+/// busiest day, the most-used model, the week total, and the peak hour. Built entirely from fields the
+/// off-main `DashboardData.build` already derived (no work in `body`, AC4/AC12).
+private struct WeeklySummarySection: View {
+    let data: DashboardData
+
+    private let columns = [GridItem(.adaptive(minimum: 180), spacing: 12)]
+
+    /// Full weekday name (e.g. "Quarta-feira") for weekday index 0…6, localized to the app language.
+    private static func weekdayName(_ dayOfWeek: Int) -> String {
+        let symbols = Calendar.current.standaloneWeekdaySymbols // index 0 = Sunday
+        guard dayOfWeek >= 0, dayOfWeek < symbols.count else { return "\(dayOfWeek)" }
+        return symbols[dayOfWeek].capitalized
+    }
+
+    /// `"09:00"` style label for a peak hour 0…23.
+    private static func hourLabel(_ hour: Int) -> String {
+        String(format: "%02d:00", max(0, min(23, hour)))
+    }
+
+    /// Busiest-day value: `"Quarta-feira · $4.23"`, or an em-dash placeholder when there is no spend.
+    private var busiestDayValue: String {
+        guard let busiest = data.busiestDay else { return L("dashboard.insights.weekly.no_data") }
+        return "\(Self.weekdayName(busiest.dayOfWeek)) · \(PopoverFormatter.currency(busiest.cost))"
+    }
+
+    /// Top-model value: `"claude-sonnet-4 · 12.3B"`, or a placeholder when the week is empty.
+    private var topModelValue: String {
+        guard let top = data.topModelByTokens else { return L("dashboard.insights.weekly.no_data") }
+        return L("dashboard.insights.weekly.model_value", top.name, DashboardFormat.tokenCount(top.tokens))
+    }
+
+    /// Week total: `"$18.45 · 45.2B"` (the 7-day cost + token totals).
+    private var weekTotalValue: String {
+        L("dashboard.insights.weekly.total_value",
+          PopoverFormatter.currency(data.sevenDayCost),
+          DashboardFormat.tokenCount(data.sevenDayTokens))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            DashboardSectionHeader(
+                title: L("dashboard.insights.weekly.title"),
+                subtitle: DashboardFormat.rangeSubtitle(data.rangeStart, data.rangeEnd))
+            LazyVGrid(columns: columns, spacing: 12) {
+                WeeklyHighlightCard(
+                    icon: "calendar.badge.exclamationmark",
+                    title: L("dashboard.insights.weekly.busiest_day"),
+                    value: busiestDayValue)
+                WeeklyHighlightCard(
+                    icon: "cpu",
+                    title: L("dashboard.insights.weekly.top_model"),
+                    value: topModelValue)
+                WeeklyHighlightCard(
+                    icon: "chart.bar.fill",
+                    title: L("dashboard.insights.weekly.week_total"),
+                    value: weekTotalValue)
+                WeeklyHighlightCard(
+                    icon: "clock.fill",
+                    title: L("dashboard.insights.weekly.peak_hour"),
+                    value: Self.hourLabel(data.peakHour))
+            }
+        }
+    }
+}
+
+/// One "Esta semana" highlight card (EXB-4.5 AC3/AC9): SF Symbol + small title + a prominent value,
+/// sharing the rounded-rect KPI styling used across the dashboard.
+private struct WeeklyHighlightCard: View {
+    let icon: String
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: icon)
+                .font(.title2)
+                .foregroundStyle(PopoverStyle.brand)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Text(value)
+                    .font(.callout.bold().monospacedDigit())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            Spacer(minLength: 0)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
