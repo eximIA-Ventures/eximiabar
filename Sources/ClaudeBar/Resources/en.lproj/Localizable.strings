@@ -14,6 +14,7 @@
 "popover.updated_hours_ago"    = "Updated %dh ago";
 "popover.updated_days_ago"     = "Updated %dd ago";
 "popover.resets"               = "Resets %@";
+"popover.resets_relative"      = "Resets in %@";
 
 /* MARK: - Metric rows (MetricRow, UsageCardView) */
 "popover.metric.session"       = "Session";

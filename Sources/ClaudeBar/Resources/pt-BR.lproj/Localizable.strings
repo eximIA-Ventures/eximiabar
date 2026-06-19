@@ -12,6 +12,7 @@
 "popover.updated_hours_ago"    = "Atualizado há %dh";
 "popover.updated_days_ago"     = "Atualizado há %dd";
 "popover.resets"               = "Renova %@";
+"popover.resets_relative"      = "Renova em %@";
 
 /* MARK: - Linhas de métricas */
 "popover.metric.session"       = "Sessão";

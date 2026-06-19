@@ -28,6 +28,9 @@ final class UsagePanelController: NSObject, NSWindowDelegate {
     /// Supplies the current snapshot when the panel needs to (re)build its card.
     private let snapshotProvider: @MainActor () -> DisplaySnapshot?
 
+    /// Supplies the current "Menu Content" display options when the panel (re)builds its card (AC5).
+    private let optionsProvider: @MainActor () -> MenuDisplayOptions
+
     /// Live observation of `AppState.snapshot` while the panel is open.
     private var observationTask: Task<Void, Never>?
 
@@ -37,9 +40,11 @@ final class UsagePanelController: NSObject, NSWindowDelegate {
     init(
         snapshotProvider: @escaping @MainActor () -> DisplaySnapshot?,
         actions: UsageCardActions,
+        optionsProvider: @escaping @MainActor () -> MenuDisplayOptions = { .default },
         transparency: TransparencyLevel = .frosted)
     {
         self.snapshotProvider = snapshotProvider
+        self.optionsProvider = optionsProvider
         self.actions = actions
 
         // AC1: nonactivating + titled style mask, status-bar level, buffered, deferred false.
@@ -64,7 +69,8 @@ final class UsagePanelController: NSObject, NSWindowDelegate {
         self.effectView.translatesAutoresizingMaskIntoConstraints = false
 
         // AC2: single hosting view wrapping the SwiftUI card.
-        self.hostingView = NSHostingView(rootView: UsageCardView(snapshot: snapshotProvider(), actions: actions))
+        self.hostingView = NSHostingView(
+            rootView: UsageCardView(snapshot: snapshotProvider(), actions: actions, options: optionsProvider()))
         self.hostingView.translatesAutoresizingMaskIntoConstraints = false
 
         super.init()
@@ -286,7 +292,14 @@ final class UsagePanelController: NSObject, NSWindowDelegate {
     // MARK: - Live observation (AC21)
 
     private func rebuildCard() {
-        self.hostingView.rootView = UsageCardView(snapshot: self.snapshotProvider(), actions: self.actions)
+        self.hostingView.rootView = UsageCardView(
+            snapshot: self.snapshotProvider(), actions: self.actions, options: self.optionsProvider())
+    }
+
+    /// Rebuild the card so a "Menu Content" preference change (AC5) is reflected immediately while the
+    /// panel is open. Cheap and idempotent when closed (the next open rebuilds the card anyway).
+    func reflectMenuContentChange() {
+        self.rebuildCard()
     }
 
     /// Observe `AppState.snapshot` while the panel is open so the card reflects refreshes live.

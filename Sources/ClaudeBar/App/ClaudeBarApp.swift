@@ -211,8 +211,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let panel = UsagePanelController(
             snapshotProvider: { [weak self] in self?.appState.snapshot },
             actions: makeCardActions(),
+            optionsProvider: { [weak self] in self?.settings.menuDisplayOptions ?? .default },
             transparency: settings.transparencyLevel)
         panelController = panel
+
+        // AC5: rebuild the open popover card the instant any "Menu Content" toggle flips (consumed vs
+        // remaining bars, reset clock vs countdown, warning/workday markers) so it updates live rather
+        // than only on the next popover open. Mirrors `onTransparencyChange` below.
+        settings.onMenuContentChange = { [weak self] in
+            self?.panelController?.reflectMenuContentChange()
+        }
 
         // EXB-3.1 AC3: re-apply the material to both the popover and the Settings window the instant
         // the transparency level changes — no relaunch, no window recreation (the Settings window

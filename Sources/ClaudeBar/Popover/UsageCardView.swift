@@ -22,6 +22,9 @@ struct UsageCardActions {
 struct UsageCardView: View {
     let snapshot: DisplaySnapshot?
     let actions: UsageCardActions
+    /// The four "Menu Content" display preferences (AC5), resolved from `SettingsStore`. The default
+    /// keeps SwiftUI previews and tests that build the card without settings visually stable.
+    var options: MenuDisplayOptions = .default
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -29,7 +32,7 @@ struct UsageCardView: View {
 
             Divider() // AC8
 
-            MetricsSection(snapshot: self.snapshot)
+            MetricsSection(snapshot: self.snapshot, options: self.options)
 
             if let extra = self.snapshot?.extraUsage, extra.isEnabled {
                 Divider()
@@ -168,6 +171,18 @@ private struct PressScaleButtonStyle: ButtonStyle {
 
 private struct MetricsSection: View {
     let snapshot: DisplaySnapshot?
+    let options: MenuDisplayOptions
+
+    /// Merged warning + workday dash positions for one window's bar (AC5). `thresholds` are the
+    /// window's percent-remaining warning levels; `isWeekly` enables the weekly workday pace dashes.
+    private func markers(thresholds: [Int], isWeekly: Bool) -> [Double] {
+        MenuMarkers.markerPercents(
+            thresholds: thresholds,
+            showWarningMarkers: self.options.showWarningMarkers,
+            showUsed: self.options.showUsed,
+            workdayMarkers: self.options.workdayMarkers,
+            isWeekly: isWeekly)
+    }
 
     private var weeklyPace: UsagePace? {
         guard let weekly = self.snapshot?.weekly else { return nil }
@@ -187,6 +202,9 @@ private struct MetricsSection: View {
                 MetricRow(
                     title: L("popover.metric.session"),
                     window: session,
+                    warningMarkerPercents: self.markers(thresholds: self.options.sessionThresholds, isWeekly: false),
+                    showUsed: self.options.showUsed,
+                    showAbsoluteReset: self.options.showAbsoluteReset,
                     forecastText: self.forecastText(for: RateWindowID.session))
             }
             if let weekly = self.snapshot?.weekly {
@@ -197,13 +215,19 @@ private struct MetricsSection: View {
                     showPace: pace != nil,
                     pace: pace,
                     paceDetail: pace.map { UsagePaceText.detail(for: $0) },
+                    warningMarkerPercents: self.markers(thresholds: self.options.weeklyThresholds, isWeekly: true),
+                    showUsed: self.options.showUsed,
+                    showAbsoluteReset: self.options.showAbsoluteReset,
                     forecastText: self.forecastText(for: RateWindowID.weekly))
             }
-            // Sonnet (AC11): hidden when nil.
+            // Sonnet (AC11): hidden when nil. No configured thresholds → no warning dashes, but the
+            // consumed/remaining and reset-format toggles still apply.
             if let sonnet = self.snapshot?.sonnet {
                 MetricRow(
                     title: L("popover.metric.sonnet"),
                     window: sonnet,
+                    showUsed: self.options.showUsed,
+                    showAbsoluteReset: self.options.showAbsoluteReset,
                     forecastText: self.forecastText(for: RateWindowID.sonnet))
             }
             // Daily Routines (AC12): conditional.
@@ -211,6 +235,8 @@ private struct MetricsSection: View {
                 MetricRow(
                     title: L("popover.metric.daily_routines"),
                     window: daily,
+                    showUsed: self.options.showUsed,
+                    showAbsoluteReset: self.options.showAbsoluteReset,
                     forecastText: self.forecastText(for: RateWindowID.dailyRoutines))
             }
         }

@@ -345,12 +345,12 @@ final class SettingsStore {
 
     /// Session-window warning thresholds (percent remaining). Default `[50, 20]` (AC3).
     var sessionThresholds: [Int] = [50, 20] {
-        didSet { scheduleSaveIfChanged(sessionThresholds, oldValue) }
+        didSet { scheduleSaveIfChanged(sessionThresholds, oldValue); onMenuContentChange?() }
     }
 
     /// Weekly-window warning thresholds (percent remaining). Default `[50, 20]` (AC3).
     var weeklyThresholds: [Int] = [50, 20] {
-        didSet { scheduleSaveIfChanged(weeklyThresholds, oldValue) }
+        didSet { scheduleSaveIfChanged(weeklyThresholds, oldValue); onMenuContentChange?() }
     }
 
     /// Whether a sound plays on a notification (AC10). Default off.
@@ -434,21 +434,36 @@ final class SettingsStore {
     }
 
     /// Show consumed (`true`) vs remaining (`false`) on the bars (AC5). Default consumed.
-    var showUsed: Bool = true { didSet { scheduleSaveIfChanged(showUsed, oldValue) } }
+    var showUsed: Bool = true {
+        didSet { scheduleSaveIfChanged(showUsed, oldValue); onMenuContentChange?() }
+    }
 
     /// Show an absolute reset clock (`true`) vs a countdown (`false`) (AC5). Default absolute.
     var showAbsoluteReset: Bool = true {
-        didSet { scheduleSaveIfChanged(showAbsoluteReset, oldValue) }
+        didSet { scheduleSaveIfChanged(showAbsoluteReset, oldValue); onMenuContentChange?() }
     }
 
     /// Show threshold dashes on the bars (AC5). Default on.
     var showWarningMarkers: Bool = true {
-        didSet { scheduleSaveIfChanged(showWarningMarkers, oldValue) }
+        didSet { scheduleSaveIfChanged(showWarningMarkers, oldValue); onMenuContentChange?() }
     }
 
     /// Workday markers on the weekly bar (AC5). Default off.
     var workdayMarkers: WorkdayMarkers = .off {
-        didSet { scheduleSaveIfChanged(workdayMarkers, oldValue) }
+        didSet { scheduleSaveIfChanged(workdayMarkers, oldValue); onMenuContentChange?() }
+    }
+
+    /// The four "Menu Content" display preferences plus the warning thresholds, packaged as one
+    /// immutable value the popover card renders from (AC5). `AppState` reads this on every card
+    /// (re)build and on `onMenuContentChange`.
+    var menuDisplayOptions: MenuDisplayOptions {
+        MenuDisplayOptions(
+            showUsed: showUsed,
+            showAbsoluteReset: showAbsoluteReset,
+            showWarningMarkers: showWarningMarkers,
+            workdayMarkers: workdayMarkers,
+            sessionThresholds: sessionThresholds,
+            weeklyThresholds: weeklyThresholds)
     }
 
     /// What renders next to the status-item icon (EXB-4.4 AC1). Default `.none` (icon only).
@@ -508,6 +523,12 @@ final class SettingsStore {
 
     /// Invoked when `menuBarContent` changes so the status item re-renders immediately (EXB-4.4 AC1 §3).
     var onMenuBarContentChange: (@MainActor () -> Void)?
+
+    /// Invoked when any "Menu Content" display preference changes (`showUsed`, `showAbsoluteReset`,
+    /// `showWarningMarkers`, `workdayMarkers`, or the warning thresholds) so the open popover card
+    /// rebuilds and reflects the toggle immediately (AC5). Without this the four toggles only took
+    /// effect on the next popover open.
+    var onMenuContentChange: (@MainActor () -> Void)?
 
     /// Invoked when `globalHotkey` changes so the hotkey manager re-registers the global monitor
     /// (EXB-4.4 AC4 §11). Carries the new binding (or `nil` to unregister).

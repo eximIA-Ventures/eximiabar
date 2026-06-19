@@ -15,6 +15,12 @@ struct MetricRow: View {
     var paceDetail: UsagePaceText.Detail? = nil
     /// Warning markers (percent-remaining positions, e.g. 50, 20).
     var warningMarkerPercents: [Double] = []
+    /// Bars fill with the consumed quota (`true`) vs the remaining quota (`false`) — driven by
+    /// `SettingsStore.showUsed` (AC5).
+    var showUsed: Bool = true
+    /// Reset line as an absolute clock (`true`) vs a countdown (`false`) — driven by
+    /// `SettingsStore.showAbsoluteReset` (AC5).
+    var showAbsoluteReset: Bool = true
     /// Pre-formatted exhaustion forecast line (EXB-4.3 AC4 §12), or `nil` to render nothing (§13).
     var forecastText: String? = nil
 
@@ -27,7 +33,7 @@ struct MetricRow: View {
                 .fontWeight(.medium)
 
             UsageProgressBar(
-                percent: self.window.utilization,
+                percent: self.showUsed ? self.window.utilization : self.window.remaining,
                 accessibilityLabel: L("popover.metric.usage_accessibility", self.title),
                 pacePercent: self.showPace ? self.paceDetail?.pacePercent : nil,
                 paceReserve: self.paceDetail?.isReserve ?? true,
@@ -39,7 +45,9 @@ struct MetricRow: View {
                         .font(.footnote)
                         .lineLimit(1)
                     Spacer()
-                    if let resetText = PopoverFormatter.resetText(for: self.window.resetsAt) {
+                    if let resetText = PopoverFormatter.resetText(
+                        for: self.window.resetsAt, absolute: self.showAbsoluteReset)
+                    {
                         Text(resetText)
                             .font(.footnote)
                             .foregroundStyle(.secondary)

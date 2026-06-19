@@ -4,17 +4,50 @@ import Foundation
 /// `UsageFormatter`; exímIABar keeps a focused local helper so the popover has no hidden
 /// dependency on reference-only formatting code.
 enum PopoverFormatter {
-    /// `"Resets HH:mm"` for a window's reset date, in the **local** time zone, honouring the
-    /// system's 12h/24h preference (AC9 / T4). Returns `nil` when there is no reset date.
-    static func resetText(for resetsAt: Date?, now: Date = .init(), calendar: Calendar = .current) -> String? {
+    /// The reset line for a window (AC5/AC9). `nil` when there is no reset date.
+    ///
+    /// - `absolute == true`  → `"Renova HH:mm"`, in the **local** time zone, honouring the system's
+    ///   12h/24h preference (the original `jm` clock).
+    /// - `absolute == false` → `"Renova em 2h 15m"`, a live countdown to the reset.
+    ///
+    /// `absolute` is driven by `SettingsStore.showAbsoluteReset` (the "Renovação como relógio"
+    /// toggle); before AC5 was wired this argument did not exist and the bar always showed the clock.
+    static func resetText(
+        for resetsAt: Date?,
+        absolute: Bool = true,
+        now: Date = .init(),
+        calendar: Calendar = .current) -> String?
+    {
         guard let resetsAt else { return nil }
-        let formatter = DateFormatter()
-        formatter.locale = .autoupdatingCurrent
-        formatter.timeZone = .autoupdatingCurrent
-        formatter.calendar = calendar
-        // `jm` lets the system choose 12h vs 24h based on the user's locale/region preference.
-        formatter.setLocalizedDateFormatFromTemplate("jm")
-        return L("popover.resets", formatter.string(from: resetsAt))
+        if absolute {
+            let formatter = DateFormatter()
+            formatter.locale = .autoupdatingCurrent
+            formatter.timeZone = .autoupdatingCurrent
+            formatter.calendar = calendar
+            // `jm` lets the system choose 12h vs 24h based on the user's locale/region preference.
+            formatter.setLocalizedDateFormatFromTemplate("jm")
+            return L("popover.resets", formatter.string(from: resetsAt))
+        }
+        return L("popover.resets_relative", resetCountdown(until: resetsAt, now: now))
+    }
+
+    /// The bare `"2h 15m"` / `"1d 3h"` / `"45m"` countdown fragment until `until`, floored at `"1m"`
+    /// so a reset that is essentially now still reads as `"1m"` rather than `"0m"`. Split out so it is
+    /// unit-testable in isolation and so the surrounding "Renova em …" sentence stays in the
+    /// `.strings` table. Shows at most the two largest non-zero units (mirrors the reference).
+    static func resetCountdown(until: Date, now: Date = .init()) -> String {
+        let seconds = max(0, until.timeIntervalSince(now))
+        let totalMinutes = max(1, Int((seconds / 60).rounded(.up)))
+        let days = totalMinutes / (24 * 60)
+        let hours = (totalMinutes / 60) % 24
+        let minutes = totalMinutes % 60
+        if days > 0 {
+            return hours > 0 ? "\(days)d \(hours)h" : "\(days)d"
+        }
+        if hours > 0 {
+            return minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h"
+        }
+        return "\(minutes)m"
     }
 
     /// `"Updated Xm ago"` for the header status line (AC7). Buckets seconds/minutes/hours/days.
