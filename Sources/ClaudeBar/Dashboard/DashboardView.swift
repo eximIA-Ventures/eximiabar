@@ -1290,7 +1290,10 @@ private struct ActivityHeatmapChart: View {
         return Chart {
             ForEach(cells, id: \.cellID) { cell in
                 RectangleMark(
-                    x: .value(L("dashboard.heatmap.hour"), cell.hour),
+                    // Hour MUST be a categorical (String) x value. With a numeric `Int` x, Swift
+                    // Charts gives `RectangleMark` no band width and draws nothing — the real cause
+                    // of the "invisible heatmap" (no colour could fix an unrendered cell).
+                    x: .value(L("dashboard.heatmap.hour"), String(format: "%02d", cell.hour)),
                     y: .value(L("dashboard.heatmap.day"), Self.weekdayLabel(cell.weekday)),
                     width: .ratio(0.92),
                     height: .ratio(0.92))
@@ -1304,10 +1307,10 @@ private struct ActivityHeatmapChart: View {
         // The per-cell `.foregroundStyle` is a fixed `Color`, so no `chartForegroundStyleScale` /
         // legend domain is involved — the custom `HeatmapLegend` documents the (log) scale instead.
         .chartXAxis {
-            AxisMarks(values: [0, 6, 12, 18, 23]) { value in
+            AxisMarks(values: ["00", "06", "12", "18", "23"]) { value in
                 AxisValueLabel {
-                    if let hour = value.as(Int.self) {
-                        Text(String(format: "%02d", hour))
+                    if let label = value.as(String.self) {
+                        Text(label)
                     }
                 }
             }
@@ -1349,10 +1352,11 @@ private struct ActivityHeatmapChart: View {
         let origin = geo[plotAnchor].origin
         let x = location.x - origin.x
         let y = location.y - origin.y
-        guard let hour: Int = proxy.value(atX: x),
+        // X is now a categorical hour label ("00"…"23"), so read it as String and parse back to Int.
+        guard let hourLabel: String = proxy.value(atX: x),
+              let clampedHour = Int(hourLabel),
               let weekdayLabel: String = proxy.value(atY: y)
         else { return nil }
-        let clampedHour = max(0, min(23, hour))
         guard let weekday = Self.weekdaySymbols.firstIndex(of: weekdayLabel) else { return nil }
         return cells.first { $0.hour == clampedHour && $0.weekday == weekday }
     }
