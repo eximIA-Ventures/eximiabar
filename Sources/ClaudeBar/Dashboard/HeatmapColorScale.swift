@@ -36,10 +36,16 @@ enum HeatmapColorScale {
     ///
     /// `log1p(x) = log(1 + x)` keeps the transform defined for the whole non-negative range without a
     /// `log(0)` special case (AC1-#3).
-    static func normalized(tokens: Int, max: Int) -> Double {
+    static func normalized(tokens: Int, min: Int, max: Int) -> Double {
         guard max > 0, tokens > 0 else { return 0 }
-        let value = log1p(Double(tokens)) / log1p(Double(max))
-        return Swift.max(minimumNonZero, Swift.min(1.0, value))
+        // Normalize within the ACTIVE range [min … max] in log space, so the full colour ramp is
+        // used. Normalizing by `max` alone compressed every busy hour into the top sliver (10M and
+        // 200M both mapped to ~0.9), so the map looked monochrome (the v1.4.1 "same colour" bug).
+        let lo = log1p(Double(min))
+        let hi = log1p(Double(max))
+        guard hi > lo else { return 1.0 }
+        let value = (log1p(Double(tokens)) - lo) / (hi - lo)
+        return Swift.max(0.0, Swift.min(1.0, value))
     }
 
     /// The fill colour for a heatmap cell (AC2).
@@ -48,22 +54,35 @@ enum HeatmapColorScale {
     /// log-normalized opacity. Opacity-of-brand is the same monotone dark→colour ramp the EXB-3.7
     /// legend used, so the visual language is unchanged — only the *distribution* of intensity is
     /// fixed.
-    static func color(tokens: Int, max: Int, brand: Color = PopoverStyle.brand) -> Color {
+    static func color(tokens: Int, min: Int, max: Int) -> Color {
         guard tokens > 0 else { return zeroFill }
-        return solidColor(t: normalized(tokens: tokens, max: max))
+        return solidColor(t: normalized(tokens: tokens, min: min, max: max))
     }
 
-    /// The opaque ramp colour for a normalized intensity `t` (0…1): a SOLID lerp from the dark card
-    /// base (#1C1C1E) to the brand terracota (#CC7C5E). Cells and legend share this single ramp.
+    /// The three-stop terracota ramp for a normalized intensity `t` (0…1): dark brown (#2A1A13) →
+    /// brand terracota (#CC7C5E) → light peach (#F7DCC4). A SOLID, opaque colour shared by cells and
+    /// legend.
     ///
-    /// Why solid and not `brand.opacity(t)`: a low-opacity fill over the Liquid Glass panel blends
-    /// with the desktop showing *through* the glass, so faint cells vanished (the v1.4.0 "invisible
-    /// heatmap" bug). An opaque colour is immune to whatever sits behind the glass.
+    /// Three stops (not a flat dark→brand lerp) give the heatmap real luminance gradation — a single
+    /// terracota tint read as "all the same colour" (v1.4.1). Solid, not `brand.opacity(t)`, because a
+    /// low-opacity fill over the Liquid Glass panel blends with the desktop behind the glass and
+    /// vanishes (the v1.4.0 "invisible heatmap" bug).
     static func solidColor(t: Double) -> Color {
-        Color(
-            red: (28.0 + (204.0 - 28.0) * t) / 255.0,
-            green: (28.0 + (124.0 - 28.0) * t) / 255.0,
-            blue: (30.0 + (94.0 - 30.0) * t) / 255.0)
+        let stops: [(Double, Double, Double)] = [
+            (42, 26, 19),    // #2A1A13 dark brown
+            (204, 124, 94),  // #CC7C5E brand terracota
+            (247, 220, 196), // #F7DCC4 light peach
+        ]
+        let clamped = Swift.max(0.0, Swift.min(1.0, t))
+        let seg = 1.0 / Double(stops.count - 1)
+        let i = Swift.min(stops.count - 2, Int(clamped / seg))
+        let lt = (clamped - Double(i) * seg) / seg
+        let a = stops[i]
+        let b = stops[i + 1]
+        return Color(
+            red: (a.0 + (b.0 - a.0) * lt) / 255.0,
+            green: (a.1 + (b.1 - a.1) * lt) / 255.0,
+            blue: (a.2 + (b.2 - a.2) * lt) / 255.0)
     }
 
     /// The geometric mid-point token value of the log range, used as the legend's middle anchor

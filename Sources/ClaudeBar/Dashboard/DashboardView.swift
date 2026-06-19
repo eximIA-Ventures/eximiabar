@@ -1252,6 +1252,8 @@ private struct ActivityHeatmapChart: View {
     private var cells: [HeatmapBucket] { heatmap.flatMap { $0 } }
     private var hasData: Bool { cells.contains { $0.tokens > 0 } }
     private var maxTokens: Int { cells.map(\.tokens).max() ?? 0 }
+    /// Smallest non-zero hour — the lower anchor of the active colour range (EXB-4.2 min-max scale).
+    private var minTokens: Int { cells.map(\.tokens).filter { $0 > 0 }.min() ?? 0 }
 
     /// The cell currently under the pointer (EXB-3.7 AC4) — drives the tooltip.
     @State private var hoveredCell: HeatmapBucket?
@@ -1284,9 +1286,10 @@ private struct ActivityHeatmapChart: View {
     }
 
     private var chart: some View {
-        // EXB-4.1 AC1/AC2: `max` is captured once here (never recomputed inside the cell closure) and
-        // each cell's fill comes from the log-scale type, replacing the linear `chartForegroundStyleScale`.
+        // `min`/`max` captured once here (never recomputed inside the cell closure). The fill comes
+        // from the min-max log-scale type, giving the heatmap full-range colour gradation.
         let max = maxTokens
+        let min = minTokens
         return Chart {
             ForEach(cells, id: \.cellID) { cell in
                 RectangleMark(
@@ -1298,9 +1301,8 @@ private struct ActivityHeatmapChart: View {
                     width: .ratio(0.92),
                     height: .ratio(0.92))
                     .cornerRadius(3)
-                    // EXB-4.1: log-normalized brand opacity per cell — every non-zero hour clears the
-                    // 0.08 visibility floor; zero hours get the neutral wash.
-                    .foregroundStyle(HeatmapColorScale.color(tokens: cell.tokens, max: max))
+                    // Min-max log-normalized terracota ramp per cell; zero hours get the neutral wash.
+                    .foregroundStyle(HeatmapColorScale.color(tokens: cell.tokens, min: min, max: max))
                     .opacity(hoveredCell == nil || hoveredCell == cell ? 1 : 0.45)
             }
         }
