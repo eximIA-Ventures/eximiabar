@@ -50,7 +50,20 @@ enum HeatmapColorScale {
     /// fixed.
     static func color(tokens: Int, max: Int, brand: Color = PopoverStyle.brand) -> Color {
         guard tokens > 0 else { return zeroFill }
-        return brand.opacity(normalized(tokens: tokens, max: max))
+        return solidColor(t: normalized(tokens: tokens, max: max))
+    }
+
+    /// The opaque ramp colour for a normalized intensity `t` (0…1): a SOLID lerp from the dark card
+    /// base (#1C1C1E) to the brand terracota (#CC7C5E). Cells and legend share this single ramp.
+    ///
+    /// Why solid and not `brand.opacity(t)`: a low-opacity fill over the Liquid Glass panel blends
+    /// with the desktop showing *through* the glass, so faint cells vanished (the v1.4.0 "invisible
+    /// heatmap" bug). An opaque colour is immune to whatever sits behind the glass.
+    static func solidColor(t: Double) -> Color {
+        Color(
+            red: (28.0 + (204.0 - 28.0) * t) / 255.0,
+            green: (28.0 + (124.0 - 28.0) * t) / 255.0,
+            blue: (30.0 + (94.0 - 30.0) * t) / 255.0)
     }
 
     /// The geometric mid-point token value of the log range, used as the legend's middle anchor

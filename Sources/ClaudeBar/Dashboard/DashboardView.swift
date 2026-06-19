@@ -1406,8 +1406,8 @@ private struct HeatmapLegend: View {
                 LinearGradient(
                     colors: [
                         HeatmapColorScale.zeroFill,
-                        PopoverStyle.brand.opacity(HeatmapColorScale.minimumNonZero),
-                        PopoverStyle.brand,
+                        HeatmapColorScale.solidColor(t: HeatmapColorScale.minimumNonZero),
+                        HeatmapColorScale.solidColor(t: 1.0),
                     ],
                     startPoint: .leading, endPoint: .trailing)
                     .frame(width: 120, height: 10)
