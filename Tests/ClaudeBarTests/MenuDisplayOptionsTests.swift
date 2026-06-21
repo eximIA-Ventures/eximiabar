@@ -18,6 +18,7 @@ struct MenuDisplayOptionsTests {
         settings.showAbsoluteReset = false
         settings.showWarningMarkers = false
         settings.workdayMarkers = .fiveDay
+        settings.paceDisplayMode = .text
         settings.sessionThresholds = [70, 30]
         settings.weeklyThresholds = [60, 25]
 
@@ -26,6 +27,7 @@ struct MenuDisplayOptionsTests {
         #expect(options.showAbsoluteReset == false)
         #expect(options.showWarningMarkers == false)
         #expect(options.workdayMarkers == .fiveDay)
+        #expect(options.paceDisplayMode == .text)
         #expect(options.sessionThresholds == [70, 30])
         #expect(options.weeklyThresholds == [60, 25])
     }
@@ -41,9 +43,10 @@ struct MenuDisplayOptionsTests {
         settings.showAbsoluteReset.toggle()
         settings.showWarningMarkers.toggle()
         settings.workdayMarkers = .sevenDay
+        settings.paceDisplayMode = .text
         settings.weeklyThresholds = [40, 10]
 
-        #expect(count == 5)
+        #expect(count == 6)
     }
 
     @Test

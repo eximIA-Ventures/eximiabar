@@ -1,13 +1,36 @@
 import ClaudeBarCore
 import SwiftUI
 
-/// A single usage metric row: title → progress bar → `"N% left"` + `"Resets HH:mm"`, with an
-/// optional pace line below the bar (AC9–AC13).
+/// A single usage metric row, redesigned (EXB redesign): a headline (title + big usage number),
+/// the progress bar, then a compact sub-line (reset, and a forecast only when it is an alarm).
 ///
-/// Adapted from `_reference_codexbar/Sources/CodexBar/MenuCardView.swift:383-452`. Consumes the
-/// repo's `RateWindow` (`utilization` 0–100, non-optional `windowMinutes`) directly rather than the
-/// reference's `Model.Metric` view-model.
+/// The big number is the section's one primary datum; its size descends by `prominence` so the
+/// session row dominates and per-model sub-windows recede (Ive's autocracy of weight). The number
+/// and the bar carry a semantic zone colour (terracotta / amber / red) driven by `utilization`, so
+/// colour signals risk rather than just brand (the signifier Norman asks for).
 struct MetricRow: View {
+    /// Visual weight of the row — drives the headline number size (EXB redesign #1).
+    enum Prominence {
+        case primary    // Session — the star
+        case secondary  // Weekly
+        case compact    // Sonnet / Opus (per-model sub-windows)
+
+        var numberFont: Font {
+            switch self {
+            case .primary: return .system(size: 22, weight: .bold, design: .rounded)
+            case .secondary: return .system(size: 17, weight: .semibold, design: .rounded)
+            case .compact: return .system(size: 13, weight: .semibold, design: .rounded)
+            }
+        }
+
+        var titleFont: Font {
+            switch self {
+            case .primary, .secondary: return .caption2.weight(.semibold)
+            case .compact: return .caption
+            }
+        }
+    }
+
     let title: String
     let window: RateWindow
     var showPace: Bool = false
@@ -15,68 +38,71 @@ struct MetricRow: View {
     var paceDetail: UsagePaceText.Detail? = nil
     /// Warning markers (percent-remaining positions, e.g. 50, 20).
     var warningMarkerPercents: [Double] = []
-    /// Bars fill with the consumed quota (`true`) vs the remaining quota (`false`) — driven by
-    /// `SettingsStore.showUsed` (AC5).
+    /// Bars fill with the consumed quota (`true`) vs the remaining quota (`false`) —
+    /// `SettingsStore.showUsed`. The headline number follows the bar so the two always agree.
     var showUsed: Bool = true
-    /// Reset line as an absolute clock (`true`) vs a countdown (`false`) — driven by
-    /// `SettingsStore.showAbsoluteReset` (AC5).
+    /// Reset line as an absolute clock (`true`) vs a countdown (`false`) — `SettingsStore.showAbsoluteReset`.
     var showAbsoluteReset: Bool = true
-    /// Pre-formatted exhaustion forecast line (EXB-4.3 AC4 §12), or `nil` to render nothing (§13).
+    /// Visual weight of this row (EXB redesign #1).
+    var prominence: Prominence = .secondary
+    /// How pace is shown: `.bar` draws the stripe on the bar; `.text` hides the stripe (the forecast
+    /// text carries the pace instead). Only affects rows that have a pace (Weekly).
+    var paceMode: PaceDisplayMode = .bar
+    /// Forecast line, already gated by `MetricsSection` (alarm-only in `.bar` mode, always in
+    /// `.text` mode), or `nil` to render nothing.
     var forecastText: String? = nil
 
     private var remaining: Double { min(100, max(0, self.window.remaining)) }
 
+    /// The number shown in the headline: consumed or remaining per `showUsed`, matching the bar fill
+    /// so the text and the graphic tell one story.
+    private var headlineValue: Int {
+        Int((self.showUsed ? self.window.utilization : self.remaining).rounded())
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: PopoverStyle.metricInternalSpacing) {
-            Text(self.title)
-                .font(.body)
-                .fontWeight(.medium)
+            // Headline: title (left) + big usage number (right), same baseline (#1). The number is
+            // the anchor the eye falls on first; the zone colour is decided by consumed % (risk).
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(self.title.uppercased())
+                    .font(self.prominence.titleFont)
+                    .foregroundStyle(.secondary)
+                    .tracking(0.5)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                Spacer(minLength: 8)
+                Text(verbatim: "\(self.headlineValue)%")
+                    .font(self.prominence.numberFont)
+                    .foregroundStyle(PopoverStyle.zoneTextColor(utilization: self.window.utilization))
+                    .monospacedDigit()
+                    .lineLimit(1)
+            }
 
             UsageProgressBar(
                 percent: self.showUsed ? self.window.utilization : self.window.remaining,
+                tint: PopoverStyle.zoneBarColor(utilization: self.window.utilization),
                 accessibilityLabel: L("popover.metric.usage_accessibility", self.title),
-                pacePercent: self.showPace ? self.paceDetail?.pacePercent : nil,
+                pacePercent: (self.showPace && self.paceMode == .bar) ? self.paceDetail?.pacePercent : nil,
                 paceReserve: self.paceDetail?.isReserve ?? true,
                 warningMarkerPercents: self.warningMarkerPercents)
 
             VStack(alignment: .leading, spacing: 2) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(L("popover.metric.percent_left", Int(self.remaining.rounded())))
-                        .font(.footnote)
+                if let resetText = PopoverFormatter.resetText(
+                    for: self.window.resetsAt, absolute: self.showAbsoluteReset)
+                {
+                    Text(resetText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
-                    Spacer()
-                    if let resetText = PopoverFormatter.resetText(
-                        for: self.window.resetsAt, absolute: self.showAbsoluteReset)
-                    {
-                        Text(resetText)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
                 }
 
-                // Pace line below the bar (AC10/AC13) — Weekly row only (showPace == true).
-                if self.showPace, let detail = self.paceDetail {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(detail.primary)
-                            .font(.footnote)
-                            .lineLimit(1)
-                        Spacer()
-                        if let secondary = detail.secondary {
-                            Text(secondary)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-                }
-
-                // Exhaustion forecast line (EXB-4.3 AC4 §12) — discrete `.caption`, secondary colour,
-                // shown only when the predictor produced an honest estimate (§13).
+                // Forecast: shown only when MetricsSection's gate deems it a real alarm (#4), and
+                // painted in the zone colour so it reads as critical — consistent with headline + bar.
                 if let forecastText = self.forecastText {
                     Text(forecastText)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(PopoverStyle.zoneTextColor(utilization: self.window.utilization))
                         .lineLimit(1)
                 }
             }

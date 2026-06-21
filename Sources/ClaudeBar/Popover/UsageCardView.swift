@@ -43,7 +43,7 @@ struct UsageCardView: View {
             // (`costEnabled == true`). When cost is disabled it is `nil` and the section is hidden.
             if let cost = self.snapshot?.cost {
                 Divider()
-                CostSection(cost: cost)
+                CostSection(cost: cost, plan: self.snapshot?.plan)
             }
 
             Divider()
@@ -189,11 +189,32 @@ private struct MetricsSection: View {
         return UsagePace.compute(window: weekly)
     }
 
-    /// The localized exhaustion-forecast line for `windowId` (EXB-4.3 AC4), or `nil` when the
-    /// predictor has no honest estimate — in which case `MetricRow` renders no forecast line (§13).
+    /// Alarm horizon (minutes): the forecast line shows only when the projected run-out is within
+    /// this many minutes — i.e. when it actually changes the user's decision (EXB redesign #4).
+    /// Sub-windows (sonnet/opus/daily) return `nil` → forecast never shown there.
+    private func forecastHorizon(for windowId: String) -> Double? {
+        switch windowId {
+        case RateWindowID.session: return 60
+        case RateWindowID.weekly: return 720
+        default: return nil
+        }
+    }
+
+    /// The localized exhaustion-forecast line for `windowId`, shown only when it crosses the alarm
+    /// horizon for that window (#4); otherwise `nil` so the row renders no forecast line. The bar and
+    /// headline already tell the calm story — the text appears only when it's an alarm.
     private func forecastText(for windowId: String) -> String? {
-        guard let forecast = self.snapshot?.forecast(for: windowId) else { return nil }
-        return PopoverFormatter.forecastText(minutesRemaining: forecast.minutesRemaining)
+        guard let forecast = self.snapshot?.forecast(for: windowId),
+              let minutes = forecast.minutesRemaining,
+              minutes.isFinite, minutes >= 0
+        else { return nil }
+        // Text mode: the forecast IS the chosen pace indicator, so show it always. Bar mode: the
+        // stripe carries pace, so the text appears only when it crosses the alarm horizon (#4).
+        if self.options.paceDisplayMode == .text {
+            return PopoverFormatter.forecastText(minutesRemaining: minutes)
+        }
+        guard let horizon = self.forecastHorizon(for: windowId), minutes < horizon else { return nil }
+        return PopoverFormatter.forecastText(minutesRemaining: minutes)
     }
 
     var body: some View {
@@ -205,6 +226,7 @@ private struct MetricsSection: View {
                     warningMarkerPercents: self.markers(thresholds: self.options.sessionThresholds, isWeekly: false),
                     showUsed: self.options.showUsed,
                     showAbsoluteReset: self.options.showAbsoluteReset,
+                    prominence: .primary,
                     forecastText: self.forecastText(for: RateWindowID.session))
             }
             if let weekly = self.snapshot?.weekly {
@@ -218,27 +240,52 @@ private struct MetricsSection: View {
                     warningMarkerPercents: self.markers(thresholds: self.options.weeklyThresholds, isWeekly: true),
                     showUsed: self.options.showUsed,
                     showAbsoluteReset: self.options.showAbsoluteReset,
+                    prominence: .secondary,
+                    paceMode: self.options.paceDisplayMode,
                     forecastText: self.forecastText(for: RateWindowID.weekly))
             }
-            // Sonnet (AC11): hidden when nil. No configured thresholds → no warning dashes, but the
-            // consumed/remaining and reset-format toggles still apply.
-            if let sonnet = self.snapshot?.sonnet {
-                MetricRow(
-                    title: L("popover.metric.sonnet"),
-                    window: sonnet,
-                    showUsed: self.options.showUsed,
-                    showAbsoluteReset: self.options.showAbsoluteReset,
-                    forecastText: self.forecastText(for: RateWindowID.sonnet))
+            // Per-model sub-windows (Opus + Sonnet), grouped under one micro-label (EXB redesign #3).
+            // Rotinas Diárias removed; Haiku and routines fold into the weekly global cap (the API
+            // exposes no separate window for them).
+            if self.snapshot?.opus != nil || self.snapshot?.sonnet != nil {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(L("popover.metric.by_model").uppercased())
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .tracking(0.5)
+                    if let opus = self.snapshot?.opus {
+                        ModelRow(title: L("popover.metric.opus"), window: opus)
+                    }
+                    if let sonnet = self.snapshot?.sonnet {
+                        ModelRow(title: L("popover.metric.sonnet"), window: sonnet)
+                    }
+                }
             }
-            // Daily Routines (AC12): conditional.
-            if let daily = self.snapshot?.dailyRoutines {
-                MetricRow(
-                    title: L("popover.metric.daily_routines"),
-                    window: daily,
-                    showUsed: self.options.showUsed,
-                    showAbsoluteReset: self.options.showAbsoluteReset,
-                    forecastText: self.forecastText(for: RateWindowID.dailyRoutines))
-            }
+        }
+    }
+}
+
+/// A thin "per-model" row (Opus / Sonnet): name, a slim bar, and the consumed %. No reset line —
+/// the models share the weekly reset shown above, so repeating it would be noise (EXB redesign #3).
+private struct ModelRow: View {
+    let title: String
+    let window: RateWindow
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(self.title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 48, alignment: .leading)
+            UsageProgressBar(
+                percent: self.window.utilization,
+                tint: PopoverStyle.zoneBarColor(utilization: self.window.utilization),
+                accessibilityLabel: L("popover.metric.usage_accessibility", self.title))
+            Text(verbatim: "\(Int(self.window.utilization.rounded()))%")
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .frame(width: 34, alignment: .trailing)
         }
     }
 }
@@ -284,8 +331,17 @@ private struct ExtraUsageSection: View {
 /// expands the per-`(day, model)` breakdown (`byModel`) — the "cost detail submenu" of AC8.
 private struct CostSection: View {
     let cost: ProviderCost
+    let plan: ClaudePlan?
 
     @State private var expanded = false
+
+    /// The value multiplier: 30-day estimated API-equivalent cost over the plan's monthly price.
+    /// `nil` when the plan or its price is unknown — then no ROI line is shown, just the number.
+    private var roiMultiplier: Int? {
+        guard let price = self.plan?.approxMonthlyPriceUSD, price > 0, self.cost.last30Days > 0
+        else { return nil }
+        return Int((self.cost.last30Days / price).rounded())
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: PopoverStyle.metricInternalSpacing) {
@@ -294,9 +350,13 @@ private struct CostSection: View {
             } label: {
                 HStack(alignment: .firstTextBaseline) {
                     Text(L("popover.cost.title"))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(PopoverFormatter.currency(self.cost.last30Days))
                         .font(.body)
                         .fontWeight(.medium)
-                    Spacer()
+                        .monospacedDigit()
                     Image(systemName: self.expanded ? "chevron.down" : "chevron.right")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -306,16 +366,22 @@ private struct CostSection: View {
             .buttonStyle(.plain)
             .disabled(self.cost.byModel.isEmpty)
 
+            // ROI hero: frames the 30-day number as value, not a bill (EXB redesign #2). Shown only
+            // when the plan price is known; otherwise the number in the header stands alone.
+            if let roi = self.roiMultiplier, let plan = self.plan {
+                Label(
+                    L("popover.cost.roi", roi, plan.compactLoginMethod),
+                    systemImage: "arrow.up.right")
+                    .font(.footnote)
+                    .foregroundStyle(PopoverStyle.roiPositive)
+            }
+
             Text(L(
                 "popover.cost.today",
                 PopoverFormatter.currency(self.cost.today),
                 PopoverFormatter.tokenCount(self.cost.todayTokens)))
-                .font(.footnote)
-            Text(L(
-                "popover.cost.last_30_days",
-                PopoverFormatter.currency(self.cost.last30Days),
-                PopoverFormatter.tokenCount(self.cost.last30DaysTokens)))
-                .font(.footnote)
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             if self.expanded, !self.cost.byModel.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {

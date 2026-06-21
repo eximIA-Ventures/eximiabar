@@ -57,4 +57,28 @@ struct PopoverFormatterResetTests {
     func resetTextNilWhenNoDate() {
         #expect(PopoverFormatter.resetText(for: nil) == nil)
     }
+
+    // MARK: - Metric percent line flips with showUsed (AC5)
+
+    /// Consumed mode shows the utilization number ("9% consumido"), not the remaining ("91").
+    @Test
+    func metricTextUsesUtilizationWhenShowUsed() {
+        let text = PopoverFormatter.metricPercentText(utilization: 9, remaining: 91, showUsed: true)
+        #expect(text.contains("9"))
+        #expect(!text.contains("91"))
+    }
+
+    @Test
+    func metricTextUsesRemainingWhenNotShowUsed() {
+        let text = PopoverFormatter.metricPercentText(utilization: 9, remaining: 91, showUsed: false)
+        #expect(text.contains("91"))
+    }
+
+    /// The same window renders a different line depending on the toggle.
+    @Test
+    func metricTextFlipsWithToggle() {
+        let used = PopoverFormatter.metricPercentText(utilization: 30, remaining: 70, showUsed: true)
+        let left = PopoverFormatter.metricPercentText(utilization: 30, remaining: 70, showUsed: false)
+        #expect(used != left)
+    }
 }

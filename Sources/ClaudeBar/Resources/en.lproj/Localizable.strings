@@ -20,8 +20,11 @@
 "popover.metric.session"       = "Session";
 "popover.metric.weekly"        = "Weekly";
 "popover.metric.sonnet"        = "Sonnet";
+"popover.metric.opus"          = "Opus";
+"popover.metric.by_model"      = "By model";
 "popover.metric.daily_routines" = "Daily Routines";
 "popover.metric.percent_left"  = "%d%% left";
+"popover.metric.percent_used"  = "%d%% used";
 "popover.metric.usage_accessibility" = "%@ usage";
 
 /* MARK: - Exhaustion forecast line (EXB-4.3 AC4) */
@@ -48,7 +51,8 @@
 "popover.extra.percent_used"   = "%d%% used";
 
 /* MARK: - Cost section */
-"popover.cost.title"           = "Estimated cost";
+"popover.cost.title"           = "Value of use · 30d";
+"popover.cost.roi"             = "%1$d× your %2$@ plan";
 "popover.cost.today"           = "Today: %1$@ · %2$@ tokens";
 "popover.cost.last_30_days"    = "Last 30 days: %1$@ · %2$@ tokens";
 "popover.cost.model_line"      = "%1$@: %2$@ · %3$@ tokens";
@@ -270,7 +274,7 @@
 
 "settings.display.section.menu_content" = "Menu Content";
 "settings.display.show_used"           = "Show usage as used";
-"settings.display.show_used.subtitle"  = "Bars fill with consumed quota. Turn off to show remaining instead.";
+"settings.display.show_used.subtitle"  = "Bars and numbers show consumed quota. Turn off to show remaining instead.";
 "settings.display.reset_clock"         = "Reset time as clock";
 "settings.display.reset_clock.subtitle" = "Show \"Resets 14:00\" instead of \"Resets in 2h 15m\".";
 "settings.display.warning_markers"          = "Warning markers";
@@ -281,6 +285,10 @@
 "settings.display.workday.four_day" = "4 days";
 "settings.display.workday.five_day" = "5 days";
 "settings.display.workday.seven_day" = "7 days";
+"settings.display.pace_mode"          = "Pace indicator";
+"settings.display.pace_mode.subtitle" = "How to show pace on the weekly bar.";
+"settings.display.pace.bar"           = "Bar stripe";
+"settings.display.pace.text"          = "Text (At current pace…)";
 
 /* MARK: - Settings → About */
 "about.app_name"               = "exímIABar";

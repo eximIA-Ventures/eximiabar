@@ -116,6 +116,21 @@ struct PreferencesDisplayPane: View {
                 .pickerStyle(.menu)
                 .frame(maxWidth: 100)
             }
+
+            // EXB redesign: how the weekly pace / forecast is surfaced (stripe on the bar vs. text).
+            LabelledRow(
+                title: L("settings.display.pace_mode"),
+                subtitle: L("settings.display.pace_mode.subtitle"))
+            {
+                Picker(L("settings.display.pace_mode"), selection: $settings.paceDisplayMode) {
+                    ForEach(PaceDisplayMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: 160)
+            }
         }
     }
 }

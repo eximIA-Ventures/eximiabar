@@ -14,8 +14,10 @@ struct DisplaySnapshot: Sendable, Equatable {
     let session: RateWindow?
     /// 7-day weekly window.
     let weekly: RateWindow?
-    /// Sonnet (or Opus) sub-window.
+    /// Sonnet sub-window (7-day Sonnet cap).
     let sonnet: RateWindow?
+    /// Opus sub-window (7-day Opus cap), if the API exposes it.
+    let opus: RateWindow?
     /// Daily routines window.
     let dailyRoutines: RateWindow?
     /// Overage / extra-usage cap.
@@ -57,6 +59,7 @@ struct DisplaySnapshot: Sendable, Equatable {
         session: RateWindow?,
         weekly: RateWindow?,
         sonnet: RateWindow? = nil,
+        opus: RateWindow? = nil,
         dailyRoutines: RateWindow? = nil,
         extraUsage: ExtraUsage? = nil,
         cost: ProviderCost? = nil,
@@ -72,6 +75,7 @@ struct DisplaySnapshot: Sendable, Equatable {
         self.session = session
         self.weekly = weekly
         self.sonnet = sonnet
+        self.opus = opus
         self.dailyRoutines = dailyRoutines
         self.extraUsage = extraUsage
         self.cost = cost
@@ -122,6 +126,7 @@ extension DisplaySnapshot {
             session: usage.session,
             weekly: usage.weekly,
             sonnet: usage.sonnet,
+            opus: usage.opus,
             dailyRoutines: usage.dailyRoutines,
             extraUsage: usage.extraUsage,
             cost: cost,
@@ -143,6 +148,7 @@ extension DisplaySnapshot {
             session: previous.session,
             weekly: previous.weekly,
             sonnet: previous.sonnet,
+            opus: previous.opus,
             dailyRoutines: previous.dailyRoutines,
             extraUsage: previous.extraUsage,
             cost: previous.cost,
@@ -168,6 +174,7 @@ extension DisplaySnapshot {
             session: session,
             weekly: weekly,
             sonnet: sonnet,
+            opus: opus,
             dailyRoutines: dailyRoutines,
             extraUsage: extraUsage,
             cost: cost,
@@ -200,6 +207,7 @@ extension DisplaySnapshot {
         if let session { result.append(.init(id: RateWindowID.session, window: session)) }
         if let weekly { result.append(.init(id: RateWindowID.weekly, window: weekly)) }
         if let sonnet { result.append(.init(id: RateWindowID.sonnet, window: sonnet)) }
+        if let opus { result.append(.init(id: RateWindowID.opus, window: opus)) }
         if let dailyRoutines {
             result.append(.init(id: RateWindowID.dailyRoutines, window: dailyRoutines))
         }

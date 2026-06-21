@@ -48,6 +48,18 @@ public enum ClaudePlan: String, CaseIterable, Sendable, Equatable {
         }
     }
 
+    /// Approximate published monthly price in USD, used to frame the local cost estimate as a value
+    /// multiplier (EXB redesign #2). `nil` when the price varies per-seat or is custom (team /
+    /// enterprise / ultra) — then no ROI multiplier is shown, only the raw number. Max uses the
+    /// higher published tier ($200) so the multiplier is a conservative floor, never inflated.
+    public var approxMonthlyPriceUSD: Double? {
+        switch self {
+        case .max: 200
+        case .pro: 20
+        case .team, .enterprise, .ultra: nil
+        }
+    }
+
     public static func fromOAuthRateLimitTier(_ rateLimitTier: String?) -> Self? {
         self.fromRateLimitTier(rateLimitTier)
     }

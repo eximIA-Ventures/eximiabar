@@ -20,8 +20,10 @@ public struct UsageSnapshot: Sendable, Equatable {
     public let session: RateWindow
     /// 7-day weekly window (`windowMinutes == 10080`).
     public let weekly: RateWindow
-    /// Sonnet (or Opus) sub-window.
+    /// Sonnet sub-window (7-day Sonnet cap).
     public let sonnet: RateWindow?
+    /// Opus sub-window (7-day Opus cap), if the API exposes it.
+    public let opus: RateWindow?
     /// Daily routines window; present-but-null in the payload renders a 0% bar.
     public let dailyRoutines: RateWindow?
     /// Overage / extra usage cap, normalized to major units.
@@ -41,6 +43,7 @@ public struct UsageSnapshot: Sendable, Equatable {
         session: RateWindow,
         weekly: RateWindow,
         sonnet: RateWindow?,
+        opus: RateWindow? = nil,
         dailyRoutines: RateWindow?,
         extraUsage: ExtraUsage?,
         plan: ClaudePlan?,
@@ -52,6 +55,7 @@ public struct UsageSnapshot: Sendable, Equatable {
         self.session = session
         self.weekly = weekly
         self.sonnet = sonnet
+        self.opus = opus
         self.dailyRoutines = dailyRoutines
         self.extraUsage = extraUsage
         self.plan = plan
@@ -69,6 +73,7 @@ public extension UsageSnapshot {
             session: RateWindow(utilization: 0, resetsAt: nil, windowMinutes: 300),
             weekly: RateWindow(utilization: 0, resetsAt: nil, windowMinutes: 10080),
             sonnet: nil,
+            opus: nil,
             dailyRoutines: nil,
             extraUsage: nil,
             plan: nil,

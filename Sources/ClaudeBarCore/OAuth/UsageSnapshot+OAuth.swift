@@ -38,9 +38,11 @@ public extension UsageSnapshot {
             windowMinutes: 10080,
             fallbackUtilization: 0)
 
-        // Sonnet — from seven_day_sonnet ?? seven_day_opus.
-        let sonnetSource = response.sevenDaySonnet ?? response.sevenDayOpus
-        let sonnet = sonnetSource.flatMap { Self.window(from: $0, windowMinutes: 10080) }
+        // Sonnet — from seven_day_sonnet only (Opus is now its own window, not a fallback).
+        let sonnet = response.sevenDaySonnet.flatMap { Self.window(from: $0, windowMinutes: 10080) }
+
+        // Opus — from seven_day_opus, promoted to its own per-model window (EXB redesign #3).
+        let opus = response.sevenDayOpus.flatMap { Self.window(from: $0, windowMinutes: 10080) }
 
         // Daily routines — render a 0% window if the key is present but null (AC9).
         let dailyRoutines: RateWindow?
@@ -64,6 +66,7 @@ public extension UsageSnapshot {
             session: session,
             weekly: weekly,
             sonnet: sonnet,
+            opus: opus,
             dailyRoutines: dailyRoutines,
             extraUsage: extraUsage,
             plan: plan,

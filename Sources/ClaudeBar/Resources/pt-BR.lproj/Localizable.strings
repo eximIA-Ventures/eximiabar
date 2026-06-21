@@ -18,8 +18,11 @@
 "popover.metric.session"       = "Sessão";
 "popover.metric.weekly"        = "Semanal";
 "popover.metric.sonnet"        = "Sonnet";
+"popover.metric.opus"          = "Opus";
+"popover.metric.by_model"      = "Por modelo";
 "popover.metric.daily_routines" = "Rotinas Diárias";
 "popover.metric.percent_left"  = "%d%% restante";
+"popover.metric.percent_used"  = "%d%% consumido";
 "popover.metric.usage_accessibility" = "Uso de %@";
 
 /* MARK: - Linha de previsão de esgotamento (EXB-4.3 AC4) */
@@ -46,7 +49,8 @@
 "popover.extra.percent_used"   = "%d%% usado";
 
 /* MARK: - Custo */
-"popover.cost.title"           = "Custo estimado";
+"popover.cost.title"           = "Valor de uso · 30d";
+"popover.cost.roi"             = "%1$d× sua assinatura %2$@";
 "popover.cost.today"           = "Hoje: %1$@ · %2$@ tokens";
 "popover.cost.last_30_days"    = "Últimos 30 dias: %1$@ · %2$@ tokens";
 "popover.cost.model_line"      = "%1$@: %2$@ · %3$@ tokens";
@@ -268,7 +272,7 @@
 
 "settings.display.section.menu_content" = "Conteúdo do Menu";
 "settings.display.show_used"           = "Mostrar uso como consumido";
-"settings.display.show_used.subtitle"  = "As barras enchem com a cota consumida. Desative para mostrar a restante.";
+"settings.display.show_used.subtitle"  = "Barras e números mostram a cota consumida. Desative para mostrar a restante.";
 "settings.display.reset_clock"         = "Horário de renovação como relógio";
 "settings.display.reset_clock.subtitle" = "Mostrar \"Renova 14:00\" em vez de \"Renova em 2h 15m\".";
 "settings.display.warning_markers"          = "Marcadores de aviso";
@@ -279,6 +283,10 @@
 "settings.display.workday.four_day" = "4 dias";
 "settings.display.workday.five_day" = "5 dias";
 "settings.display.workday.seven_day" = "7 dias";
+"settings.display.pace_mode"          = "Indicador de ritmo";
+"settings.display.pace_mode.subtitle" = "Como mostrar o ritmo na barra semanal.";
+"settings.display.pace.bar"           = "Listra na barra";
+"settings.display.pace.text"          = "Texto (No ritmo atual…)";
 
 /* MARK: - Preferências → Sobre */
 "about.app_name"               = "exímIABar";

@@ -209,6 +209,23 @@ enum WorkdayMarkers: String, Sendable, Equatable, CaseIterable, Identifiable {
     }
 }
 
+/// How the weekly pace / forecast is surfaced (EXB redesign). `.bar` shows the pace stripe on the
+/// bar (forecast text only when it's an alarm); `.text` hides the stripe and shows the
+/// "No ritmo atual…" forecast line always.
+enum PaceDisplayMode: String, Sendable, Equatable, CaseIterable, Identifiable {
+    case bar
+    case text
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .bar: L("settings.display.pace.bar")
+        case .text: L("settings.display.pace.text")
+        }
+    }
+}
+
 /// Window translucency level (EXB-3.1 AC3). Persisted as its raw string in `UserDefaults`.
 ///
 /// Maps each level onto the `NSVisualEffectView.Material` the popover and Settings window apply at
@@ -453,15 +470,21 @@ final class SettingsStore {
         didSet { scheduleSaveIfChanged(workdayMarkers, oldValue); onMenuContentChange?() }
     }
 
-    /// The four "Menu Content" display preferences plus the warning thresholds, packaged as one
-    /// immutable value the popover card renders from (AC5). `AppState` reads this on every card
-    /// (re)build and on `onMenuContentChange`.
+    /// How the weekly pace / forecast is shown (EXB redesign). Default `.bar` (stripe on the bar).
+    var paceDisplayMode: PaceDisplayMode = .bar {
+        didSet { scheduleSaveIfChanged(paceDisplayMode, oldValue); onMenuContentChange?() }
+    }
+
+    /// The "Menu Content" display preferences plus thresholds, packaged as one immutable value the
+    /// popover card renders from (AC5). `AppState` reads this on every card (re)build and on
+    /// `onMenuContentChange`.
     var menuDisplayOptions: MenuDisplayOptions {
         MenuDisplayOptions(
             showUsed: showUsed,
             showAbsoluteReset: showAbsoluteReset,
             showWarningMarkers: showWarningMarkers,
             workdayMarkers: workdayMarkers,
+            paceDisplayMode: paceDisplayMode,
             sessionThresholds: sessionThresholds,
             weeklyThresholds: weeklyThresholds)
     }
@@ -659,6 +682,7 @@ final class SettingsStore {
         static let showAbsoluteReset = "settings.showAbsoluteReset"
         static let showWarningMarkers = "settings.showWarningMarkers"
         static let workdayMarkers = "settings.workdayMarkers"
+        static let paceDisplayMode = "settings.paceDisplayMode"
         static let menuBarContent = "settings.menuBarContent"
         static let globalHotkey = "settings.globalHotkey"
         /// Set `true` once the user explicitly clears the hotkey, so a cleared shortcut survives a
@@ -690,6 +714,7 @@ final class SettingsStore {
         let showAbsoluteReset: Bool
         let showWarningMarkers: Bool
         let workdayMarkers: String
+        let paceDisplayMode: String
         let menuBarContent: String
         /// `globalHotkey` as JSON data, or `nil` when the user has cleared the shortcut.
         let globalHotkeyData: Data?
@@ -719,6 +744,7 @@ final class SettingsStore {
             defaults.set(showAbsoluteReset, forKey: Key.showAbsoluteReset)
             defaults.set(showWarningMarkers, forKey: Key.showWarningMarkers)
             defaults.set(workdayMarkers, forKey: Key.workdayMarkers)
+            defaults.set(paceDisplayMode, forKey: Key.paceDisplayMode)
             defaults.set(menuBarContent, forKey: Key.menuBarContent)
             if let globalHotkeyData {
                 defaults.set(globalHotkeyData, forKey: Key.globalHotkey)
@@ -754,6 +780,7 @@ final class SettingsStore {
             showAbsoluteReset: showAbsoluteReset,
             showWarningMarkers: showWarningMarkers,
             workdayMarkers: workdayMarkers.rawValue,
+            paceDisplayMode: paceDisplayMode.rawValue,
             menuBarContent: menuBarContent.rawValue,
             globalHotkeyData: globalHotkey.flatMap { try? JSONEncoder().encode($0) },
             transparencyLevel: transparencyLevel.rawValue,
@@ -824,6 +851,10 @@ final class SettingsStore {
         if let raw = defaults.string(forKey: Key.workdayMarkers),
            let value = WorkdayMarkers(rawValue: raw) {
             workdayMarkers = value
+        }
+        if let raw = defaults.string(forKey: Key.paceDisplayMode),
+           let value = PaceDisplayMode(rawValue: raw) {
+            paceDisplayMode = value
         }
         if let raw = defaults.string(forKey: Key.menuBarContent),
            let value = MenuBarContent(rawValue: raw) {

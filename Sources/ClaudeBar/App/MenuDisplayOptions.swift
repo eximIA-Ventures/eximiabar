@@ -19,6 +19,9 @@ struct MenuDisplayOptions: Sendable, Equatable {
     var showWarningMarkers: Bool
     /// Pace markers on the weekly bar (off / 4 / 5 / 7 workdays).
     var workdayMarkers: WorkdayMarkers
+    /// How the weekly pace / forecast is surfaced: stripe on the bar (`.bar`) or the
+    /// "No ritmo atual…" text line (`.text`).
+    var paceDisplayMode: PaceDisplayMode
     /// Session-window warning thresholds (percent remaining, e.g. `[50, 20]`).
     var sessionThresholds: [Int]
     /// Weekly-window warning thresholds (percent remaining, e.g. `[50, 20]`).
@@ -29,6 +32,7 @@ struct MenuDisplayOptions: Sendable, Equatable {
         showAbsoluteReset: Bool = true,
         showWarningMarkers: Bool = true,
         workdayMarkers: WorkdayMarkers = .off,
+        paceDisplayMode: PaceDisplayMode = .bar,
         sessionThresholds: [Int] = [50, 20],
         weeklyThresholds: [Int] = [50, 20])
     {
@@ -36,6 +40,7 @@ struct MenuDisplayOptions: Sendable, Equatable {
         self.showAbsoluteReset = showAbsoluteReset
         self.showWarningMarkers = showWarningMarkers
         self.workdayMarkers = workdayMarkers
+        self.paceDisplayMode = paceDisplayMode
         self.sessionThresholds = sessionThresholds
         self.weeklyThresholds = weeklyThresholds
     }

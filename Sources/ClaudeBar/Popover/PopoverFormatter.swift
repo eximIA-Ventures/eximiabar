@@ -50,6 +50,15 @@ enum PopoverFormatter {
         return "\(minutes)m"
     }
 
+    /// The percentage line under a bar (AC5). When `showUsed`, shows the consumed share
+    /// ("9% consumido") so the number matches a consumed-filled bar; otherwise the remaining share
+    /// ("91% restante"). Driven by the same `SettingsStore.showUsed` toggle as the bar fill.
+    static func metricPercentText(utilization: Double, remaining: Double, showUsed: Bool) -> String {
+        showUsed
+            ? L("popover.metric.percent_used", Int(utilization.rounded()))
+            : L("popover.metric.percent_left", Int(remaining.rounded()))
+    }
+
     /// `"Updated Xm ago"` for the header status line (AC7). Buckets seconds/minutes/hours/days.
     static func updatedText(from updatedAt: Date, now: Date = .init()) -> String {
         let interval = max(0, now.timeIntervalSince(updatedAt))
