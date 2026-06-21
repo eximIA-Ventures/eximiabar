@@ -244,20 +244,23 @@ private struct MetricsSection: View {
                     paceMode: self.options.paceDisplayMode,
                     forecastText: self.forecastText(for: RateWindowID.weekly))
             }
-            // Per-model sub-windows (Opus + Sonnet), grouped under one micro-label (EXB redesign #3).
-            // Rotinas Diárias removed; Haiku and routines fold into the weekly global cap (the API
-            // exposes no separate window for them).
-            if self.snapshot?.opus != nil || self.snapshot?.sonnet != nil {
+            // Per-model sub-windows (Opus + Sonnet). The "Por modelo" group label appears only with
+            // 2+ models — a label over a single child is empty ceremony (refinement). Rotinas Diárias
+            // removed; Haiku and routines fold into the weekly global cap (no separate API window).
+            let models: [(id: String, title: String, window: RateWindow)] = [
+                self.snapshot?.opus.map { (RateWindowID.opus, L("popover.metric.opus"), $0) },
+                self.snapshot?.sonnet.map { (RateWindowID.sonnet, L("popover.metric.sonnet"), $0) },
+            ].compactMap { $0 }
+            if !models.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(L("popover.metric.by_model").uppercased())
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .tracking(0.5)
-                    if let opus = self.snapshot?.opus {
-                        ModelRow(title: L("popover.metric.opus"), window: opus)
+                    if models.count >= 2 {
+                        Text(L("popover.metric.by_model"))
+                            .font(DesignTokens.Label.section)
+                            .foregroundStyle(.tertiary)
+                            .tracking(DesignTokens.sectionTracking)
                     }
-                    if let sonnet = self.snapshot?.sonnet {
-                        ModelRow(title: L("popover.metric.sonnet"), window: sonnet)
+                    ForEach(models, id: \.id) { model in
+                        ModelRow(title: model.title, window: model.window)
                     }
                 }
             }
@@ -353,10 +356,6 @@ private struct CostSection: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Text(PopoverFormatter.currency(self.cost.last30Days))
-                        .font(.body)
-                        .fontWeight(.medium)
-                        .monospacedDigit()
                     Image(systemName: self.expanded ? "chevron.down" : "chevron.right")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -366,14 +365,25 @@ private struct CostSection: View {
             .buttonStyle(.plain)
             .disabled(self.cost.byModel.isEmpty)
 
-            // ROI hero: frames the 30-day number as value, not a bill (EXB redesign #2). Shown only
-            // when the plan price is known; otherwise the number in the header stands alone.
+            // ROI is the hero (refinement): the multiplier is the big green number, the absolute
+            // 30-day value drops to context below it. When the plan price is unknown there is no
+            // multiplier, so the absolute value stands alone as the primary number instead.
             if let roi = self.roiMultiplier, let plan = self.plan {
                 Label(
                     L("popover.cost.roi", roi, plan.compactLoginMethod),
                     systemImage: "arrow.up.right")
-                    .font(.footnote)
+                    .font(DesignTokens.Numeral.large)
                     .foregroundStyle(PopoverStyle.roiPositive)
+                    .monospacedDigit()
+                Text(PopoverFormatter.currency(self.cost.last30Days))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            } else {
+                Text(PopoverFormatter.currency(self.cost.last30Days))
+                    .font(.body)
+                    .fontWeight(.medium)
+                    .monospacedDigit()
             }
 
             Text(L(

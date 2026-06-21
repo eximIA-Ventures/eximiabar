@@ -255,7 +255,7 @@ private struct DashboardSectionHeader: View {
             Spacer()
             if let total {
                 Text(total)
-                    .font(.title3.bold().monospacedDigit())
+                    .font(.system(.title3, design: .rounded).bold().monospacedDigit())
                     .foregroundStyle(.primary)
             }
         }
@@ -371,11 +371,11 @@ private struct SummaryCard: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Text(L("dashboard.summary.tokens", DashboardFormat.tokenCount(tokens)))
-                .font(.title2.bold().monospacedDigit())
+                .font(.system(.title2, design: .rounded).bold().monospacedDigit())
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
             Text(PopoverFormatter.currency(cost))
-                .font(.subheadline.monospacedDigit())
+                .font(.system(.subheadline, design: .rounded).monospacedDigit())
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             if let badge {
@@ -435,12 +435,12 @@ private struct CacheHitCard: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Text(DashboardFormat.percent1(hitRate))
-                .font(.title2.bold().monospacedDigit())
+                .font(.system(.title2, design: .rounded).bold().monospacedDigit())
                 .foregroundStyle(PopoverStyle.brand)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
             Text(L("dashboard.insights.cache_hit.savings", DashboardFormat.compactCurrency(savings)))
-                .font(.subheadline.monospacedDigit())
+                .font(.system(.subheadline, design: .rounded).monospacedDigit())
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -540,7 +540,7 @@ private struct WeeklyHighlightCard: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Text(value)
-                    .font(.callout.bold().monospacedDigit())
+                    .font(.system(.callout, design: .rounded).bold().monospacedDigit())
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
@@ -685,9 +685,9 @@ private struct HoverAnnotation: View {
             Text(DashboardFormat.dayMonth.string(from: date))
                 .font(.caption.bold())
             Text(primary)
-                .font(.callout.monospacedDigit())
+                .font(.system(.callout, design: .rounded).monospacedDigit())
             Text(secondary)
-                .font(.caption2.monospacedDigit())
+                .font(.system(.caption2, design: .rounded).monospacedDigit())
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 10)
@@ -728,7 +728,7 @@ private struct TokenBreakdownTooltip: View {
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 8)
                     Text(DashboardFormat.tokenCount(line.value))
-                        .font(.caption2.monospacedDigit())
+                        .font(.system(.caption2, design: .rounded).monospacedDigit())
                 }
             }
         }
@@ -969,11 +969,11 @@ private struct DonutTooltip: View {
             Text(L("dashboard.donut.tooltip.tokens",
                    DashboardFormat.tokenCount(entry.inputTokens),
                    DashboardFormat.tokenCount(entry.outputTokens)))
-                .font(.caption2.monospacedDigit())
+                .font(.system(.caption2, design: .rounded).monospacedDigit())
                 .foregroundStyle(.secondary)
             Text(L("dashboard.donut.tooltip.cost_share",
                    PopoverFormatter.currency(entry.costUSD), sharePercent))
-                .font(.caption2.monospacedDigit())
+                .font(.system(.caption2, design: .rounded).monospacedDigit())
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 8)
@@ -1183,7 +1183,7 @@ private struct ModelsByDayTooltip: View {
                         .truncationMode(.middle)
                     Spacer(minLength: 8)
                     Text(DashboardFormat.tokenCount(row.tokens))
-                        .font(.caption2.monospacedDigit())
+                        .font(.system(.caption2, design: .rounded).monospacedDigit())
                 }
             }
         }
@@ -1378,7 +1378,7 @@ private struct HeatmapTooltip: View {
             Text("\(weekday) · \(hourRange)")
                 .font(.caption.bold())
             Text(L("dashboard.summary.tokens", DashboardFormat.tokenCount(cell.tokens)))
-                .font(.caption2.monospacedDigit())
+                .font(.system(.caption2, design: .rounded).monospacedDigit())
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 10)
@@ -1422,7 +1422,7 @@ private struct HeatmapLegend: View {
                 HStack(spacing: 6) {
                     ForEach(Array(anchors.enumerated()), id: \.offset) { _, value in
                         Text(DashboardFormat.tokenCount(value))
-                            .font(.caption2.monospacedDigit())
+                            .font(.system(.caption2, design: .rounded).monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
                 }

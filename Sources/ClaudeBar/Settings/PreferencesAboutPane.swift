@@ -26,8 +26,10 @@ struct PreferencesAboutPane: View {
 
             VStack(spacing: 2) {
                 Text(L("about.app_name"))
-                    .font(.title3).bold()
+                    .font(.system(.title3, design: .rounded)).bold()
                 Text(L("about.version", versionString))
+                    .font(.system(.subheadline, design: .rounded))
+                    .monospacedDigit()
                     .foregroundStyle(.secondary)
                 Text(L("about.tagline"))
                     .font(.footnote)
@@ -78,7 +80,7 @@ struct PreferencesAboutPane: View {
                     .cornerRadius(16)
                     .scaleEffect(self.iconHover ? 1.05 : 1.0)
                     .shadow(
-                        color: self.iconHover ? .accentColor.opacity(0.25) : .clear,
+                        color: self.iconHover ? DesignTokens.brand.opacity(0.25) : .clear,
                         radius: 6)
             }
             .buttonStyle(.plain)

@@ -137,11 +137,11 @@ struct AboutLinkRow: View {
             HStack(spacing: 8) {
                 Image(systemName: self.icon)
                 Text(self.title)
-                    .underline(self.hovering, color: .accentColor)
+                    .underline(self.hovering, color: DesignTokens.brand)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
-            .foregroundColor(.accentColor)
+            .foregroundColor(DesignTokens.brand)
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())

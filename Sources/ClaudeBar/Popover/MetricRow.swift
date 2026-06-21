@@ -65,10 +65,10 @@ struct MetricRow: View {
             // Headline: title (left) + big usage number (right), same baseline (#1). The number is
             // the anchor the eye falls on first; the zone colour is decided by consumed % (risk).
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(self.title.uppercased())
+                Text(self.title)
                     .font(self.prominence.titleFont)
                     .foregroundStyle(.secondary)
-                    .tracking(0.5)
+                    .tracking(DesignTokens.sectionTracking)
                     .lineLimit(1)
                     .layoutPriority(1)
                 Spacer(minLength: 8)
