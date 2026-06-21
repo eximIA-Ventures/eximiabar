@@ -189,31 +189,16 @@ private struct MetricsSection: View {
         return UsagePace.compute(window: weekly)
     }
 
-    /// Alarm horizon (minutes): the forecast line shows only when the projected run-out is within
-    /// this many minutes — i.e. when it actually changes the user's decision (EXB redesign #4).
-    /// Sub-windows (sonnet/opus/daily) return `nil` → forecast never shown there.
-    private func forecastHorizon(for windowId: String) -> Double? {
-        switch windowId {
-        case RateWindowID.session: return 60
-        case RateWindowID.weekly: return 720
-        default: return nil
-        }
-    }
-
-    /// The localized exhaustion-forecast line for `windowId`, shown only when it crosses the alarm
-    /// horizon for that window (#4); otherwise `nil` so the row renders no forecast line. The bar and
-    /// headline already tell the calm story — the text appears only when it's an alarm.
+    /// The localized "No ritmo atual…" forecast line for `windowId`. The two pace indicators are
+    /// mutually exclusive — the "Indicador de ritmo" toggle: in `.bar` mode the stripe on the bar
+    /// carries pace and NO text is shown; in `.text` mode the bar drops its stripe and this line is
+    /// shown instead. So the forecast text appears only in `.text` mode — otherwise `nil`.
     private func forecastText(for windowId: String) -> String? {
-        guard let forecast = self.snapshot?.forecast(for: windowId),
+        guard self.options.paceDisplayMode == .text,
+              let forecast = self.snapshot?.forecast(for: windowId),
               let minutes = forecast.minutesRemaining,
               minutes.isFinite, minutes >= 0
         else { return nil }
-        // Text mode: the forecast IS the chosen pace indicator, so show it always. Bar mode: the
-        // stripe carries pace, so the text appears only when it crosses the alarm horizon (#4).
-        if self.options.paceDisplayMode == .text {
-            return PopoverFormatter.forecastText(minutesRemaining: minutes)
-        }
-        guard let horizon = self.forecastHorizon(for: windowId), minutes < horizon else { return nil }
         return PopoverFormatter.forecastText(minutesRemaining: minutes)
     }
 
@@ -372,7 +357,7 @@ private struct CostSection: View {
                 Label(
                     L("popover.cost.roi", roi, plan.compactLoginMethod),
                     systemImage: "arrow.up.right")
-                    .font(DesignTokens.Numeral.large)
+                    .font(DesignTokens.Numeral.compact)
                     .foregroundStyle(PopoverStyle.roiPositive)
                     .monospacedDigit()
                 Text(PopoverFormatter.currency(self.cost.last30Days))
@@ -394,19 +379,124 @@ private struct CostSection: View {
                 .foregroundStyle(.secondary)
 
             if self.expanded, !self.cost.byModel.isEmpty {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(Array(self.cost.byModel.enumerated()), id: \.offset) { _, entry in
-                        Text(L(
-                            "popover.cost.model_line",
-                            entry.model,
-                            PopoverFormatter.currency(entry.cost),
-                            PopoverFormatter.tokenCount(entry.totalTokens)))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                CostModelBreakdown(byModel: self.cost.byModel)
+                    .padding(.top, 4)
+            }
+        }
+    }
+}
+
+/// The expanded cost breakdown: one row per *distinct* model (not per day), capped at a readable
+/// top-N with an overflow line, each row a name + a proportion mini-bar + right-aligned $ and tokens
+/// in fixed columns. Aggregation lives here so the view is correct even though the upstream scanner
+/// emits per-(day, model) rows — distinct models is the unit the human reasons about.
+private struct CostModelBreakdown: View {
+    let byModel: [ModelCostEntry]
+
+    /// How many model rows to show before folding the rest into an overflow line.
+    private static let topN = 5
+
+    private struct ModelTotal: Identifiable {
+        let model: String
+        let cost: Double
+        let tokens: Int
+        var id: String { self.model }
+    }
+
+    /// One row per distinct model, summed across days, sorted by cost desc.
+    private var totals: [ModelTotal] {
+        var acc: [String: (cost: Double, tokens: Int)] = [:]
+        for entry in self.byModel {
+            acc[entry.model, default: (0, 0)].cost += entry.cost
+            acc[entry.model, default: (0, 0)].tokens += entry.totalTokens
+        }
+        return acc
+            .map { ModelTotal(model: $0.key, cost: $0.value.cost, tokens: $0.value.tokens) }
+            .sorted { $0.cost > $1.cost }
+    }
+
+    var body: some View {
+        let all = self.totals
+        let shown = Array(all.prefix(Self.topN))
+        let overflow = all.dropFirst(Self.topN)
+        let maxCost = all.first?.cost ?? 1
+
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(shown) { item in
+                CostModelRow(
+                    name: Self.displayName(item.model),
+                    cost: item.cost,
+                    tokens: item.tokens,
+                    fraction: maxCost > 0 ? item.cost / maxCost : 0)
+            }
+            if !overflow.isEmpty {
+                let restCost = overflow.reduce(0) { $0 + $1.cost }
+                HStack(spacing: 8) {
+                    Text(L("popover.cost.more_models", overflow.count))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Spacer(minLength: 8)
+                    Text(PopoverFormatter.currency(restCost))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .monospacedDigit()
                 }
-                .padding(.leading, 8)
-                .padding(.top, 2)
+            }
+        }
+        .padding(.leading, 8)
+    }
+
+    /// Strips the `claude-` vendor prefix for the narrow popover; the family is obvious in context, so
+    /// `opus-4` reads cleaner than `claude-opus-4` and leaves room for the columns.
+    static func displayName(_ raw: String) -> String {
+        raw.hasPrefix("claude-") ? String(raw.dropFirst("claude-".count)) : raw
+    }
+}
+
+/// One model row: truncated name + proportion mini-bar + fixed-width $ and token columns, so the eye
+/// scans straight down the numbers. The bar shares the brand tint at low opacity — a proportion cue,
+/// not a risk zone, so it stays neutral terracotta (no amber/red semantics).
+private struct CostModelRow: View {
+    let name: String
+    let cost: Double
+    let tokens: Int
+    let fraction: Double
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(self.name)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: 70, alignment: .leading)
+            ProportionBar(fraction: self.fraction)
+                .frame(height: 4)
+            Text(PopoverFormatter.currency(self.cost))
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .frame(width: 58, alignment: .trailing)
+            Text(PopoverFormatter.tokenCount(self.tokens))
+                .font(.system(size: 11, weight: .regular, design: .rounded))
+                .foregroundStyle(.tertiary)
+                .monospacedDigit()
+                .frame(width: 40, alignment: .trailing)
+        }
+    }
+}
+
+/// A neutral proportion bar (largest model = full width). Distinct from `UsageProgressBar`: no zone
+/// colour, no markers, no pace — it answers "how big is this slice", not "how close to the limit".
+private struct ProportionBar: View {
+    let fraction: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            let width = max(2, geo.size.width * min(1, max(0, self.fraction)))
+            ZStack(alignment: .leading) {
+                Capsule().fill(PopoverStyle.progressTrack)
+                Capsule().fill(DesignTokens.brand.opacity(0.55)).frame(width: width)
             }
         }
     }
