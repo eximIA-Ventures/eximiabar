@@ -85,10 +85,15 @@ final class StatusItemController {
         Task.detached(priority: .userInitiated) {
             // Resolve the icon off-main where possible. The meter is rendered in the detached task;
             // the brand icon was resolved on the main actor above and is passed through.
+            // Most-critical-first: the window closest to its limit takes the top slot (and the crab
+            // adornments), so the icon reacts to whatever runs out first. A strict `>` keeps session
+            // on top when they tie or are near-equal, avoiding nervous flips.
+            let weeklyIsHotter = weekly != nil
+                && (weekly?.utilization ?? -1) > (session?.utilization ?? -1)
             let icon: NSImage? = mode == .meterIcon
                 ? IconRenderer.render(
-                    session: session,
-                    weekly: weekly,
+                    session: weeklyIsHotter ? weekly : session,
+                    weekly: weeklyIsHotter ? session : weekly,
                     isStale: isStale,
                     hasError: hasError)
                 : brandIcon

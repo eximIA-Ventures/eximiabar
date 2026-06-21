@@ -61,6 +61,7 @@ enum IconRenderer {
         let weekly: Int
         let stale: Bool
         let error: Bool
+        let critical: Bool
     }
 
     /// Thread-safe LRU store. `@unchecked Sendable` is sound because every access is guarded by
@@ -122,11 +123,18 @@ enum IconRenderer {
         // Error dims to the stale alphas (AC8): treat error like stale for the palette.
         let dimmed = isStale || hasError
 
+        // Critical (A.2): any shown window at >= 90% consumed (<= 10% remaining) lights the "!" mark,
+        // so the icon signals a near-limit even before the popover is opened. Skipped when dimmed —
+        // stale/error data should not raise a fresh alarm.
+        let critical = !dimmed
+            && [session?.remaining, weekly?.remaining].compactMap { $0 }.contains { $0 <= 10 }
+
         let key = IconCacheKey(
             session: quantizedPercent(session?.remaining),
             weekly: quantizedPercent(weekly?.remaining),
             stale: isStale,
-            error: hasError)
+            error: hasError,
+            critical: critical)
 
         if let cached = iconCacheStore.cachedIcon(for: key) {
             return cached
@@ -137,7 +145,8 @@ enum IconRenderer {
                 sessionRemaining: session?.remaining,
                 weeklyRemaining: weekly?.remaining,
                 hasWeekly: weekly != nil,
-                dimmed: dimmed)
+                dimmed: dimmed,
+                critical: critical)
         }
         iconCacheStore.storeIcon(image, for: key, limit: iconCacheLimit)
         return image
@@ -150,7 +159,8 @@ enum IconRenderer {
         sessionRemaining: Double?,
         weeklyRemaining: Double?,
         hasWeekly: Bool,
-        dimmed: Bool)
+        dimmed: Bool,
+        critical: Bool)
     {
         let baseFill = NSColor.labelColor
         // Visual layer alphas (AC6 active / AC7 stale).
@@ -192,8 +202,8 @@ enum IconRenderer {
                 addCrab: false)
         }
 
-        // Incident overlay shape is present but disabled for P0/P1 (AC11).
-        drawIncidentOverlay(minor: false, major: false)
+        // Incident overlay (A.2): the "!" mark lights when a shown window is near its limit.
+        drawIncidentOverlay(minor: false, major: critical)
     }
 
     /// Draw a single bar: track fill (α0.28), 1 pt stroke (α0.44), progress fill (α1.0), and —

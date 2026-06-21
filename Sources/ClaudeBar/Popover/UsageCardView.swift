@@ -189,12 +189,25 @@ private struct MetricsSection: View {
         return UsagePace.compute(window: weekly)
     }
 
-    /// The localized "No ritmo atual…" forecast line for `windowId`. The two pace indicators are
-    /// mutually exclusive — the "Indicador de ritmo" toggle: in `.bar` mode the stripe on the bar
-    /// carries pace and NO text is shown; in `.text` mode the bar drops its stripe and this line is
-    /// shown instead. So the forecast text appears only in `.text` mode — otherwise `nil`.
-    private func forecastText(for windowId: String) -> String? {
-        guard self.options.paceDisplayMode == .text,
+    /// The localized "No ritmo atual…" forecast line for `windowId`.
+    ///
+    /// The two weekly pace indicators are normally mutually exclusive — the "Indicador de ritmo"
+    /// toggle: in `.bar` mode the stripe on the bar carries pace and NO text is shown; in `.text`
+    /// mode the bar drops its stripe and this line is shown instead.
+    ///
+    /// EXCEPTION (EXB pace-visibility fix): in `.bar` mode the stripe can be absent — `UsagePace`
+    /// does not compute when the window has no `resetsAt` or less than 3% of it has elapsed (a fresh
+    /// weekly window's first hours). Removing the text in `.bar` mode then left the row with NO
+    /// indicator at all. So when `barStripeAbsent` is `true` we fall back to the text even in `.bar`
+    /// mode — the row always shows *something* the moment a forecast exists, and the stripe and the
+    /// text are still never shown together (the fallback only fires when the stripe is missing).
+    ///
+    /// `barStripeAbsent` is only meaningful for the Weekly row (the one with a pace stripe); the
+    /// Session row passes `false` and keeps its `.text`-only behaviour.
+    private func forecastText(for windowId: String, barStripeAbsent: Bool = false) -> String? {
+        let showText = self.options.paceDisplayMode == .text
+            || (self.options.paceDisplayMode == .bar && barStripeAbsent)
+        guard showText,
               let forecast = self.snapshot?.forecast(for: windowId),
               let minutes = forecast.minutesRemaining,
               minutes.isFinite, minutes >= 0
@@ -227,7 +240,9 @@ private struct MetricsSection: View {
                     showAbsoluteReset: self.options.showAbsoluteReset,
                     prominence: .secondary,
                     paceMode: self.options.paceDisplayMode,
-                    forecastText: self.forecastText(for: RateWindowID.weekly))
+                    forecastText: self.forecastText(
+                        for: RateWindowID.weekly,
+                        barStripeAbsent: pace == nil))
             }
             // Per-model sub-windows (Opus + Sonnet). The "Por modelo" group label appears only with
             // 2+ models — a label over a single child is empty ceremony (refinement). Rotinas Diárias

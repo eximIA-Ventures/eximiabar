@@ -178,11 +178,16 @@ final class AppState {
 
     /// Runs on the MainActor: publishes the new snapshot, fires notifications, then drains a
     /// single pending fetch if one was queued during the in-flight fetch (AC5).
-    private func completeFetch(_ newSnapshot: DisplaySnapshot?, phase: RefreshPhase) {
+    private func completeFetch(_ incoming: DisplaySnapshot?, phase: RefreshPhase) {
         self.fetchInFlight = nil
 
-        if let newSnapshot {
+        if let incoming {
             let previous = self.snapshot
+            // A fetch error arrives as the `errorOnly` sentinel (no usage windows). Merge it onto the
+            // last good snapshot so Session/Weekly are PRESERVED — the error only appends its line and
+            // marks the data stale; it never zeroes the windows (EXB rate-limit fix). `previous` here
+            // is the in-flight refreshing placeholder, which already carries the prior windows.
+            let newSnapshot = incoming.isErrorOnly ? incoming.mergingError(onto: previous) : incoming
             self.snapshot = newSnapshot // single atomic assignment (AC2/AC13)
 
             // Notifications fire only for non-startup phases (AC4) — startup seeds baseline state.

@@ -55,8 +55,6 @@
 "popover.cost.roi"             = "%1$d× your %2$@ plan";
 "popover.cost.more_models"     = "+%1$d more models";
 "popover.cost.today"           = "Today: %1$@ · %2$@ tokens";
-"popover.cost.last_30_days"    = "Last 30 days: %1$@ · %2$@ tokens";
-"popover.cost.model_line"      = "%1$@: %2$@ · %3$@ tokens";
 
 /* MARK: - Action rows (UsageCardView) */
 "popover.refresh_now"          = "Refresh Now";

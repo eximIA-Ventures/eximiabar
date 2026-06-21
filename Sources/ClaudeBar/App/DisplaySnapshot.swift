@@ -138,6 +138,80 @@ extension DisplaySnapshot {
             isRefreshing: isRefreshing)
     }
 
+    /// Build a presentation snapshot that carries ONLY an error, with every usage window left
+    /// `nil` (EXB rate-limit fix). This is the sentinel a failed fetch returns: it has no fabricated
+    /// `0%` windows. `AppState.completeFetch` detects it via `isErrorOnly` and merges the error onto
+    /// the last good snapshot instead of letting these `nil`/`0%` windows reach the UI — so a 429 (or
+    /// any fetch error) never zeroes Session/Weekly; it only appends the red error line and marks the
+    /// data stale.
+    static func errorOnly(_ error: UsageError, at date: Date = Date()) -> DisplaySnapshot {
+        DisplaySnapshot(
+            session: nil,
+            weekly: nil,
+            updatedAt: date,
+            source: .oauth,
+            error: error,
+            isRefreshing: false)
+    }
+
+    /// `true` when this snapshot is the `errorOnly` sentinel — an attached error with no usage
+    /// windows. Used by `AppState` to decide whether to merge the error onto the prior snapshot
+    /// rather than publish empty/zeroed windows.
+    var isErrorOnly: Bool {
+        error != nil && session == nil && weekly == nil
+            && sonnet == nil && opus == nil && dailyRoutines == nil
+    }
+
+    /// Returns a copy of this snapshot with `cost` replaced when a fresh value is provided, leaving
+    /// it untouched otherwise. Used so the error-only sentinel can still carry the live local cost
+    /// estimate produced alongside a failed usage fetch (AC10).
+    func mergingCost(_ cost: ProviderCost?) -> DisplaySnapshot {
+        guard let cost else { return self }
+        return DisplaySnapshot(
+            session: session,
+            weekly: weekly,
+            sonnet: sonnet,
+            opus: opus,
+            dailyRoutines: dailyRoutines,
+            extraUsage: extraUsage,
+            cost: cost,
+            plan: plan,
+            identity: identity,
+            updatedAt: updatedAt,
+            source: source,
+            error: error,
+            isRefreshing: isRefreshing,
+            forecasts: forecasts,
+            sparklineSamples: sparklineSamples)
+    }
+
+    /// Returns `previous` with this snapshot's `error` and `updatedAt` (the moment the failure was
+    /// observed) attached, preserving all of `previous`'s windows, cost, plan, identity, forecasts
+    /// and sparkline. `isRefreshing` is cleared. This is the anti-zeroing keystone: on a fetch error
+    /// the user keeps the last known Session/Weekly figures, now flagged stale with the error line.
+    ///
+    /// When there is no `previous` snapshot yet (error on the very first fetch), the error-only
+    /// sentinel is returned unchanged — there is simply nothing to preserve.
+    func mergingError(onto previous: DisplaySnapshot?) -> DisplaySnapshot {
+        guard let previous else { return self }
+        return DisplaySnapshot(
+            session: previous.session,
+            weekly: previous.weekly,
+            sonnet: previous.sonnet,
+            opus: previous.opus,
+            dailyRoutines: previous.dailyRoutines,
+            extraUsage: previous.extraUsage,
+            cost: self.cost ?? previous.cost,
+            plan: previous.plan,
+            identity: previous.identity,
+            updatedAt: self.updatedAt,
+            source: previous.source,
+            error: self.error,
+            isRefreshing: false,
+            forecasts: previous.forecasts,
+            sparklineSamples: previous.sparklineSamples)
+    }
+
     /// Returns a copy of `previous` (or an empty placeholder) flagged as refreshing — used to flip
     /// the spinner on at the start of a refresh without discarding the data already on screen.
     static func refreshing(_ previous: DisplaySnapshot?) -> DisplaySnapshot {

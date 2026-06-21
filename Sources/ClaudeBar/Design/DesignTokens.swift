@@ -18,9 +18,9 @@ enum DesignTokens {
     enum Numeral {
         /// Primary metric — the section's headline number.
         static let hero = Font.system(size: 22, weight: .bold, design: .rounded)
-        /// Secondary metric and the cost ROI multiplier.
+        /// Secondary metric — the weekly row's headline number.
         static let large = Font.system(size: 17, weight: .semibold, design: .rounded)
-        /// Per-model rows and inline stats.
+        /// Per-model rows, inline stats, and the cost ROI multiplier line.
         static let compact = Font.system(size: 13, weight: .semibold, design: .rounded)
     }
 

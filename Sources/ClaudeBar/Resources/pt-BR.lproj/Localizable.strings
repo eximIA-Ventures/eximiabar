@@ -53,8 +53,6 @@
 "popover.cost.roi"             = "%1$d× sua assinatura %2$@";
 "popover.cost.more_models"     = "+%1$d modelos";
 "popover.cost.today"           = "Hoje: %1$@ · %2$@ tokens";
-"popover.cost.last_30_days"    = "Últimos 30 dias: %1$@ · %2$@ tokens";
-"popover.cost.model_line"      = "%1$@: %2$@ · %3$@ tokens";
 
 /* MARK: - Linhas de ação */
 "popover.refresh_now"          = "Atualizar Agora";

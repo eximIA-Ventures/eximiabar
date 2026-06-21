@@ -142,19 +142,11 @@ struct LiveUsageProvider: Sendable {
                 return DisplaySnapshot.from(usage, cost: cost, isRefreshing: false)
             case let .failure(error):
                 log.error("fetch failed: \(error.message, privacy: .public)")
-                // Attach the error to a placeholder so the icon can render the error state (AC8).
-                let errored = UsageSnapshot(
-                    session: RateWindow(utilization: 0, resetsAt: nil, windowMinutes: 300),
-                    weekly: RateWindow(utilization: 0, resetsAt: nil, windowMinutes: 10080),
-                    sonnet: nil,
-                    dailyRoutines: nil,
-                    extraUsage: nil,
-                    plan: nil,
-                    identity: nil,
-                    updatedAt: Date(),
-                    source: .oauth,
-                    error: error)
-                return DisplaySnapshot.from(errored, cost: cost, isRefreshing: false)
+                // Return the error-only sentinel — NEVER fabricate `0%` windows here. `AppState`
+                // merges this error onto the last good snapshot, preserving Session/Weekly and just
+                // appending the error line + marking the data stale (EXB rate-limit fix). Folding the
+                // fresh local cost in keeps the cost estimate live even on a usage failure (AC10).
+                return DisplaySnapshot.errorOnly(error).mergingCost(cost)
             }
         }
     }
