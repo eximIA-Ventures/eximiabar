@@ -81,7 +81,7 @@
 "dashboard.models.col.output"      = "Saída";
 "dashboard.models.col.cost"        = "Custo";
 "dashboard.empty.message"          = "Nenhum dado de uso encontrado. Verifique se o Claude Code está instalado e foi utilizado.";
-"dashboard.disabled.message"       = "O rastreamento de custo está desativado. Ative em Preferências → Custo.";
+"dashboard.disabled.message"       = "O rastreamento de custo está desativado. Ative em Preferências → Geral.";
 "dashboard.disabled.open_settings" = "Abrir Preferências";
 
 /* MARK: - Painel de Análise v2 (EXB-3.2) */
@@ -159,8 +159,8 @@
 /* MARK: - Preferências: janela + abas */
 "settings.window.title"        = "Preferências do exímIABar";
 "settings.tab.general"         = "Geral";
-"settings.tab.claude"          = "Claude";
 "settings.tab.display"         = "Exibição";
+"settings.tab.alerts"          = "Alertas";
 "settings.tab.about"           = "Sobre";
 
 /* MARK: - Preferências → Aparência (EXB-3.1) */
@@ -186,7 +186,9 @@
 "settings.general.language.portuguese" = "Português (Brasil)";
 
 "settings.general.section.system"      = "Sistema";
-"settings.general.launch_at_login"          = "Iniciar ao Fazer Login";
+"settings.general.section.data"        = "Dados";
+"settings.general.section.connection"  = "Conexão";
+"settings.general.launch_at_login"          = "Iniciar com o macOS";
 "settings.general.launch_at_login.subtitle" = "Iniciar o exímIABar automaticamente quando você fizer login.";
 "settings.general.launch_error"             = "Não foi possível atualizar o item de login: %@";
 
@@ -216,6 +218,10 @@
 "settings.cadence.min15"       = "A cada 15 min";
 "settings.cadence.min30"       = "A cada 30 min";
 
+/* MARK: - Preferências → Alertas */
+"settings.alerts.section.notifications" = "Notificações";
+"settings.alerts.section.thresholds"    = "Limites de aviso";
+
 /* MARK: - Editor de pares de limite */
 "settings.threshold.session"   = "Avisar sessão em";
 "settings.threshold.weekly"    = "Avisar semanal em";
@@ -243,7 +249,7 @@
 "settings.claude.policy.always"          = "Sempre";
 
 "settings.claude.section.per_window" = "Avisos por janela";
-"settings.claude.developer"          = "Desenvolvedor";
+"settings.claude.developer"          = "Avançado";
 "settings.claude.web_extras"            = "Extras da Web";
 "settings.claude.web_extras.subtitle"   = "Busca uma chamada extra de enriquecimento de janela em claude.ai além do OAuth. Stub nesta build — ativar registra e ignora.";
 "settings.claude.custom_binary"         = "Caminho do binário claude personalizado";
@@ -269,14 +275,15 @@
 "settings.display.hotkey.capturing"        = "Pressione o atalho…";
 "settings.display.hotkey.accessibility_hint" = "Para usar o atalho enquanto outros apps estão ativos, conceda acesso em Ajustes do Sistema → Privacidade e Segurança → Acessibilidade.";
 
-"settings.display.section.menu_content" = "Conteúdo do Menu";
+"settings.display.section.menu_content" = "Cartão de uso";
+"settings.display.section.appearance"   = "Aparência";
 "settings.display.show_used"           = "Mostrar uso como consumido";
 "settings.display.show_used.subtitle"  = "Barras e números mostram a cota consumida. Desative para mostrar a restante.";
 "settings.display.reset_clock"         = "Horário de renovação como relógio";
 "settings.display.reset_clock.subtitle" = "Mostrar \"Renova 14:00\" em vez de \"Renova em 2h 15m\".";
 "settings.display.warning_markers"          = "Marcadores de aviso";
 "settings.display.warning_markers.subtitle" = "Mostrar traços de limite nas barras de uso.";
-"settings.display.workday_markers"          = "Marcadores de dias úteis";
+"settings.display.workday_markers"          = "Marcadores de dia";
 "settings.display.workday_markers.subtitle" = "Marcadores de ritmo na barra semanal.";
 "settings.display.workday.off"      = "Desligado";
 "settings.display.workday.four_day" = "4 dias";

@@ -1,29 +1,46 @@
 import AppKit
+import ClaudeBarCore
 import SwiftUI
 
-/// General preferences pane (AC3).
+/// General preferences pane — redesigned (v2.1.4): grouped by user intent.
 ///
-/// Sections (UPPERCASE `.caption` headers): System (launch at login), Automation (refresh cadence +
-/// notifications + thresholds), Usage (cost scan + history days), and a trailing Quit button.
-/// Layout mirrors `_reference_codexbar/Sources/CodexBar/PreferencesGeneralPane.swift`.
+/// Three sections: **System** (launch at login + language), **Data** (refresh cadence + the cost
+/// scan toggle), and **Connection** (credential source + keychain prompt behaviour + an "Advanced"
+/// disclosure with the developer-only web-extras / custom-binary options).
+///
+/// The redesign consolidates what used to be scattered: notifications and the warning thresholds
+/// moved to the dedicated `PreferencesAlertsPane`; transparency/theme moved into `PreferencesDisplayPane`;
+/// and Quit moved to the window footer in `SettingsRootView`.
 @MainActor
 struct PreferencesGeneralPane: View {
     @Bindable var settings: SettingsStore
-    /// Applies the launch-at-login change to `SMAppService` when the toggle flips (AC3/T3).
+    /// Applies the launch-at-login change to `SMAppService` when the toggle flips.
     let launchManager: LaunchAtLoginManager
 
     @State private var launchError: String?
+
+    /// Credential-source choice; `auto` maps to `settings.source == nil`. Web is P2 (disabled).
+    private enum SourceChoice: String, CaseIterable, Identifiable {
+        case auto, oauth, cli, web
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .auto: L("settings.claude.source.auto")
+            case .oauth: L("settings.claude.source.oauth")
+            case .cli: L("settings.claude.source.cli")
+            case .web: L("settings.claude.source.web")
+            }
+        }
+    }
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 16) {
                 systemSection
                 Divider()
-                automationSection
+                dataSection
                 Divider()
-                usageSection
-                Divider()
-                quitSection
+                connectionSection
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
@@ -37,10 +54,18 @@ struct PreferencesGeneralPane: View {
         SettingsSection(contentSpacing: 12) {
             SectionHeader(L("settings.general.section.system"))
 
-            // EXB-2.2 AC3: the Language / Idioma picker. Three options (System / English / Português).
-            // The label and the option titles are themselves localized so they adapt to the active
-            // language. The binding is `settings.appLanguage`, whose `didSet` performs the in-process
-            // (Option A) switch — see `SettingsStore.appLanguage`.
+            PreferenceToggleRow(
+                title: L("settings.general.launch_at_login"),
+                subtitle: L("settings.general.launch_at_login.subtitle"),
+                binding: launchBinding)
+            if let launchError {
+                Text(launchError)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // EXB-2.2 AC3: Language / Idioma — `appLanguage`'s didSet does the in-process switch.
             LabelledRow(
                 title: L("settings.general.language"),
                 subtitle: L("settings.general.language.subtitle"))
@@ -54,23 +79,10 @@ struct PreferencesGeneralPane: View {
                 .pickerStyle(.menu)
                 .frame(maxWidth: 200)
             }
-
-            PreferenceToggleRow(
-                title: L("settings.general.launch_at_login"),
-                subtitle: L("settings.general.launch_at_login.subtitle"),
-                binding: launchBinding)
-            if let launchError {
-                Text(launchError)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
     }
 
-    /// Mirrors `settings.launchAtLogin` but routes the actual register/unregister through
-    /// `SMAppService` (AC3). If the system rejects the change, the toggle reverts and an error
-    /// is surfaced.
+    /// Mirrors `settings.launchAtLogin` but routes the register/unregister through `SMAppService`.
     private var launchBinding: Binding<Bool> {
         Binding(
             get: { settings.launchAtLogin },
@@ -80,18 +92,17 @@ struct PreferencesGeneralPane: View {
                     settings.launchAtLogin = newValue
                     launchError = nil
                 } catch {
-                    // Keep the persisted state in sync with reality and tell the user.
                     settings.launchAtLogin = launchManager.isEnabled
                     launchError = L("settings.general.launch_error", error.localizedDescription)
                 }
             })
     }
 
-    // MARK: - Automation (refresh + notifications)
+    // MARK: - Data (refresh cadence + cost scan)
 
-    private var automationSection: some View {
+    private var dataSection: some View {
         SettingsSection(contentSpacing: 12) {
-            SectionHeader(L("settings.general.section.automation"))
+            SectionHeader(L("settings.general.section.data"))
 
             LabelledRow(
                 title: L("settings.general.refresh_cadence"),
@@ -112,36 +123,6 @@ struct PreferencesGeneralPane: View {
                     .foregroundStyle(.secondary)
             }
 
-            PreferenceToggleRow(
-                title: L("settings.general.notifications"),
-                subtitle: L("settings.general.notifications.subtitle"),
-                binding: $settings.notificationsEnabled)
-
-            if settings.notificationsEnabled {
-                VStack(alignment: .leading, spacing: 10) {
-                    ThresholdPairField(title: L("settings.threshold.session"), thresholds: $settings.sessionThresholds)
-                    ThresholdPairField(title: L("settings.threshold.weekly"), thresholds: $settings.weeklyThresholds)
-                    PreferenceToggleRow(
-                        title: L("settings.general.play_sound"),
-                        subtitle: nil,
-                        binding: $settings.notificationSound)
-                    // EXB-4.3 AC5 §17 — predictive exhaustion alert. Default ON; suppressed entirely
-                    // when the master "Quota notifications" switch above is off.
-                    PreferenceToggleRow(
-                        title: L("settings.general.predictive_alerts"),
-                        subtitle: L("settings.general.predictive_alerts.subtitle"),
-                        binding: $settings.predictiveAlertsEnabled)
-                }
-                .padding(.leading, 20)
-            }
-        }
-    }
-
-    // MARK: - Usage (cost scan)
-
-    private var usageSection: some View {
-        SettingsSection(contentSpacing: 12) {
-            SectionHeader(L("settings.general.section.usage"))
             VStack(alignment: .leading, spacing: 4) {
                 Toggle(isOn: $settings.costEnabled) {
                     Text(L("settings.general.show_cost"))
@@ -169,16 +150,104 @@ struct PreferencesGeneralPane: View {
         }
     }
 
-    // MARK: - Quit
+    // MARK: - Connection (credential source + keychain + advanced)
 
-    private var quitSection: some View {
+    private var connectionSection: some View {
         SettingsSection(contentSpacing: 12) {
-            HStack {
-                Spacer()
-                Button(L("settings.general.quit")) { NSApp.terminate(nil) }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+            SectionHeader(L("settings.general.section.connection"))
+
+            LabelledRow(
+                title: L("settings.claude.source"),
+                subtitle: L("settings.claude.source.subtitle"))
+            {
+                Picker(L("settings.claude.source"), selection: sourceBinding) {
+                    ForEach(SourceChoice.allCases) { choice in
+                        Text(choice.label).tag(choice)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: 200)
             }
+            // Web is P2 (out of scope) — surfaced but disabled so the option is visible/greyed.
+            Text(L("settings.claude.source.web_note"))
+                .font(.footnote)
+                .foregroundStyle(.tertiary)
+
+            PreferenceToggleRow(
+                title: L("settings.claude.avoid_prompts"),
+                subtitle: L("settings.claude.avoid_prompts.subtitle"),
+                binding: $settings.useSecurityCLIReader)
+
+            // The prompt-policy picker is only relevant when the security CLI reader is ON.
+            if settings.useSecurityCLIReader {
+                LabelledRow(
+                    title: L("settings.claude.prompt_policy"),
+                    subtitle: L("settings.claude.prompt_policy.subtitle"))
+                {
+                    Picker(L("settings.claude.prompt_policy"), selection: $settings.keychainPromptPolicy) {
+                        ForEach(KeychainPromptPolicy.allCases) { policy in
+                            Text(policy.label).tag(policy)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 200)
+                }
+            }
+
+            DisclosureGroup(L("settings.claude.developer")) {
+                VStack(alignment: .leading, spacing: 12) {
+                    PreferenceToggleRow(
+                        title: L("settings.claude.web_extras"),
+                        subtitle: L("settings.claude.web_extras.subtitle"),
+                        binding: $settings.webExtrasEnabled)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(L("settings.claude.custom_binary"))
+                            .font(.body)
+                        TextField(L("settings.claude.custom_binary.placeholder"), text: claudeBinaryBinding)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.footnote)
+                        Text(L("settings.claude.custom_binary.subtitle"))
+                            .font(.footnote)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(.top, 8)
+            }
+            .font(.subheadline.weight(.semibold))
         }
+    }
+
+    private var sourceBinding: Binding<SourceChoice> {
+        Binding(
+            get: {
+                switch settings.source {
+                case .none: .auto
+                case .oauth: .oauth
+                case .cli: .cli
+                case .web: .web
+                }
+            },
+            set: { choice in
+                switch choice {
+                case .auto: settings.source = nil
+                case .oauth: settings.source = .oauth
+                case .cli: settings.source = .cli
+                // Web stays disabled — ignore the selection (P2 not available).
+                case .web: break
+                }
+            })
+    }
+
+    /// Maps the optional `claudeBinaryPath` to a non-optional text-field binding (empty → `nil`).
+    private var claudeBinaryBinding: Binding<String> {
+        Binding(
+            get: { settings.claudeBinaryPath ?? "" },
+            set: { value in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                settings.claudeBinaryPath = trimmed.isEmpty ? nil : trimmed
+            })
     }
 }

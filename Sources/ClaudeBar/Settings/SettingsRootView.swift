@@ -1,41 +1,54 @@
+import AppKit
 import SwiftUI
 
-/// The five-tab settings surface (AC2; EXB-3.1 adds Appearance).
+/// The settings surface — redesigned to four intent-based tabs (v2.1.4).
 ///
-/// A `TabView` with the macOS toolbar-style tab picker at the top — General, Claude, Display,
-/// Appearance, About. Each tab supplies its own internal scroll/padding (h24/v16, AC1). The hosting
-/// window is fixed to 546×638 pt by `SettingsWindowController` (AC1).
+/// `General` (system + data + connection), `Display` (menu bar + usage card + appearance, folding in
+/// the former separate Appearance tab), `Alerts` (notifications + thresholds, consolidated and
+/// de-duplicated), and `About`. A persistent window footer hosts a discreet Quit button (it used to
+/// live awkwardly inside a General section).
 ///
-/// EXB-2.1 AC2: the hosting window uses `.fullSizeContentView` so the visual-effect blur extends
-/// under the titlebar. The `titlebarInset` pushes the tab strip below the traffic-light band so the
-/// tabs do not collide with the window controls while the frosted material still shows through the
-/// titlebar area.
+/// A `TabView` with the macOS toolbar-style tab picker at the top. Each tab supplies its own internal
+/// scroll/padding (h24/v16). The hosting window is fixed to 546×(638+28) pt by
+/// `SettingsWindowController`.
+///
+/// EXB-2.1 AC2: the hosting window uses `.fullSizeContentView` so the visual-effect blur extends under
+/// the titlebar. The `titlebarInset` pushes the tab strip below the traffic-light band so the tabs do
+/// not collide with the window controls while the frosted material still shows through.
 @MainActor
 struct SettingsRootView: View {
     @Bindable var settings: SettingsStore
     let launchManager: LaunchAtLoginManager
 
-    /// Standard macOS titlebar height; reserved at the top so the tab strip clears the traffic
-    /// lights now that the content view spans the full window (`.fullSizeContentView`).
+    /// Standard macOS titlebar height; reserved at the top so the tab strip clears the traffic lights
+    /// now that the content view spans the full window (`.fullSizeContentView`).
     private static let titlebarInset: CGFloat = 28
 
     var body: some View {
-        TabView {
-            PreferencesGeneralPane(settings: settings, launchManager: launchManager)
-                .tabItem { Label(L("settings.tab.general"), systemImage: "gearshape") }
+        VStack(spacing: 0) {
+            TabView {
+                PreferencesGeneralPane(settings: settings, launchManager: launchManager)
+                    .tabItem { Label(L("settings.tab.general"), systemImage: "gearshape") }
 
-            PreferencesClaudePane(settings: settings)
-                .tabItem { Label(L("settings.tab.claude"), systemImage: "key") }
+                PreferencesDisplayPane(settings: settings)
+                    .tabItem { Label(L("settings.tab.display"), systemImage: "menubar.rectangle") }
 
-            PreferencesDisplayPane(settings: settings)
-                .tabItem { Label(L("settings.tab.display"), systemImage: "menubar.rectangle") }
+                PreferencesAlertsPane(settings: settings)
+                    .tabItem { Label(L("settings.tab.alerts"), systemImage: "bell") }
 
-            // EXB-3.1: the Appearance pane (transparency level + theme override).
-            AppearancePaneView(settings: settings)
-                .tabItem { Label(L("appearance.tab"), systemImage: "paintbrush") }
+                PreferencesAboutPane()
+                    .tabItem { Label(L("settings.tab.about"), systemImage: "info.circle") }
+            }
 
-            PreferencesAboutPane()
-                .tabItem { Label(L("settings.tab.about"), systemImage: "info.circle") }
+            Divider()
+
+            HStack {
+                Spacer()
+                Button(L("settings.general.quit")) { NSApp.terminate(nil) }
+                    .controlSize(.small)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 8)
         }
         .padding(.top, Self.titlebarInset)
         .frame(width: 546, height: 638 + Self.titlebarInset)

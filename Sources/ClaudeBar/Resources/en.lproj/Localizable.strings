@@ -83,7 +83,7 @@
 "dashboard.models.col.output"      = "Output";
 "dashboard.models.col.cost"        = "Cost";
 "dashboard.empty.message"          = "No usage data found. Make sure Claude Code is installed and has been used.";
-"dashboard.disabled.message"       = "Cost tracking is disabled. Enable it in Settings → Cost.";
+"dashboard.disabled.message"       = "Cost tracking is disabled. Enable it in Settings → General.";
 "dashboard.disabled.open_settings" = "Open Settings";
 
 /* MARK: - Dashboard Analytics v2 (EXB-3.2) */
@@ -161,8 +161,8 @@
 /* MARK: - Settings: window + tabs */
 "settings.window.title"        = "exímIABar Settings";
 "settings.tab.general"         = "General";
-"settings.tab.claude"          = "Claude";
 "settings.tab.display"         = "Display";
+"settings.tab.alerts"          = "Alerts";
 "settings.tab.about"           = "About";
 
 /* MARK: - Settings → Appearance (EXB-3.1) */
@@ -188,7 +188,9 @@
 "settings.general.language.portuguese" = "Português (Brasil)";
 
 "settings.general.section.system"      = "System";
-"settings.general.launch_at_login"          = "Launch at Login";
+"settings.general.section.data"        = "Data";
+"settings.general.section.connection"  = "Connection";
+"settings.general.launch_at_login"          = "Launch with macOS";
 "settings.general.launch_at_login.subtitle" = "Start exímIABar automatically when you log in.";
 "settings.general.launch_error"             = "Couldn't update login item: %@";
 
@@ -218,6 +220,10 @@
 "settings.cadence.min15"       = "Every 15 min";
 "settings.cadence.min30"       = "Every 30 min";
 
+/* MARK: - Settings → Alerts */
+"settings.alerts.section.notifications" = "Notifications";
+"settings.alerts.section.thresholds"    = "Warning limits";
+
 /* MARK: - Threshold pair editor */
 "settings.threshold.session"   = "Session warn at";
 "settings.threshold.weekly"    = "Weekly warn at";
@@ -245,7 +251,7 @@
 "settings.claude.policy.always"          = "Always";
 
 "settings.claude.section.per_window" = "Per-window warnings";
-"settings.claude.developer"          = "Developer";
+"settings.claude.developer"          = "Advanced";
 "settings.claude.web_extras"            = "Web extras";
 "settings.claude.web_extras.subtitle"   = "Fetch an extra window-enrichment call from claude.ai on top of OAuth. Stubbed in this build — toggling it logs and skips.";
 "settings.claude.custom_binary"         = "Custom claude binary path";
@@ -271,14 +277,15 @@
 "settings.display.hotkey.capturing"        = "Press shortcut…";
 "settings.display.hotkey.accessibility_hint" = "To use the shortcut while other apps are active, grant access in System Settings → Privacy & Security → Accessibility.";
 
-"settings.display.section.menu_content" = "Menu Content";
+"settings.display.section.menu_content" = "Usage card";
+"settings.display.section.appearance"   = "Appearance";
 "settings.display.show_used"           = "Show usage as used";
 "settings.display.show_used.subtitle"  = "Bars and numbers show consumed quota. Turn off to show remaining instead.";
 "settings.display.reset_clock"         = "Reset time as clock";
 "settings.display.reset_clock.subtitle" = "Show \"Resets 14:00\" instead of \"Resets in 2h 15m\".";
 "settings.display.warning_markers"          = "Warning markers";
 "settings.display.warning_markers.subtitle" = "Show threshold dashes on the usage bars.";
-"settings.display.workday_markers"          = "Workday markers";
+"settings.display.workday_markers"          = "Day markers";
 "settings.display.workday_markers.subtitle" = "Pace markers on the weekly bar.";
 "settings.display.workday.off"      = "Off";
 "settings.display.workday.four_day" = "4 days";

@@ -1,10 +1,12 @@
 import ApplicationServices
 import SwiftUI
 
-/// Display preferences pane (AC5).
+/// Display preferences pane — redesigned (v2.1.4): everything the user *sees*, under one roof.
 ///
-/// Two sections: Menu Bar (brand-icon-plus-percent display mode) and Menu Content (how the bars and
-/// reset times render). Layout mirrors `_reference_codexbar/Sources/CodexBar/PreferencesDisplayPane.swift`.
+/// Three sections: **Menu Bar** (icon style + what renders beside it + the global shortcut),
+/// **Usage Card** (how the popover bars and reset times render), and **Appearance** (transparency +
+/// theme — folded in from the former separate Appearance tab). Both appearance controls apply
+/// immediately with no relaunch via `SettingsStore.onTransparencyChange` / `onThemeChange`.
 @MainActor
 struct PreferencesDisplayPane: View {
     @Bindable var settings: SettingsStore
@@ -14,7 +16,9 @@ struct PreferencesDisplayPane: View {
             VStack(alignment: .leading, spacing: 16) {
                 menuBarSection
                 Divider()
-                menuContentSection
+                usageCardSection
+                Divider()
+                appearanceSection
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
@@ -27,13 +31,13 @@ struct PreferencesDisplayPane: View {
     private var menuBarSection: some View {
         SettingsSection(contentSpacing: 12) {
             SectionHeader(L("settings.display.section.menu_bar"))
-            // AC5: switches `displayMode` between `.meterIcon` and `.brandIconPercent` (F2/P1).
+            // Switches `displayMode` between `.meterIcon` and `.brandIconPercent` (F2/P1).
             PreferenceToggleRow(
                 title: L("settings.display.brand_icon"),
                 subtitle: L("settings.display.brand_icon.subtitle"),
                 binding: brandIconBinding)
 
-            // EXB-4.4 AC1: picks what renders next to the icon (none / % / time / cost / sparkline).
+            // Picks what renders next to the icon (none / % / time / cost / sparkline).
             LabelledRow(
                 title: L("settings.display.menu_content"),
                 subtitle: L("settings.display.menu_content.subtitle"))
@@ -48,7 +52,7 @@ struct PreferencesDisplayPane: View {
                 .frame(maxWidth: 160)
             }
 
-            // EXB-4.4 AC4: capture field for the global popover-toggle shortcut.
+            // Capture field for the global popover-toggle shortcut.
             LabelledRow(
                 title: L("settings.display.hotkey"),
                 subtitle: L("settings.display.hotkey.subtitle"))
@@ -60,8 +64,7 @@ struct PreferencesDisplayPane: View {
                     .frame(width: 130)
             }
 
-            // AC4 / Dev Notes: show the Accessibility hint when the process is not yet trusted, so the
-            // global (out-of-app) shortcut can be enabled. The in-app shortcut works regardless.
+            // Show the Accessibility hint when the process is not yet trusted (out-of-app shortcut).
             if !accessibilityTrusted {
                 Text(L("settings.display.hotkey.accessibility_hint"))
                     .font(.footnote)
@@ -71,20 +74,19 @@ struct PreferencesDisplayPane: View {
         }
     }
 
-    /// Whether the process has Accessibility permission. Read once per body build; the hint appears
-    /// until the user grants access (re-evaluated whenever the pane re-renders).
+    /// Whether the process has Accessibility permission, re-evaluated whenever the pane re-renders.
     private var accessibilityTrusted: Bool { AXIsProcessTrusted() }
 
-    /// `displayMode == .brandIconPercent` expressed as a Bool toggle (AC5/T5).
+    /// `displayMode == .brandIconPercent` expressed as a Bool toggle.
     private var brandIconBinding: Binding<Bool> {
         Binding(
             get: { settings.displayMode == .brandIconPercent },
             set: { settings.displayMode = $0 ? .brandIconPercent : .meterIcon })
     }
 
-    // MARK: - Menu Content
+    // MARK: - Usage Card (popover bars)
 
-    private var menuContentSection: some View {
+    private var usageCardSection: some View {
         SettingsSection(contentSpacing: 12) {
             SectionHeader(L("settings.display.section.menu_content"))
 
@@ -117,7 +119,7 @@ struct PreferencesDisplayPane: View {
                 .frame(maxWidth: 100)
             }
 
-            // EXB redesign: how the weekly pace / forecast is surfaced (stripe on the bar vs. text).
+            // How the weekly pace / forecast is surfaced (stripe on the bar vs. text).
             LabelledRow(
                 title: L("settings.display.pace_mode"),
                 subtitle: L("settings.display.pace_mode.subtitle"))
@@ -130,6 +132,42 @@ struct PreferencesDisplayPane: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .frame(maxWidth: 160)
+            }
+        }
+    }
+
+    // MARK: - Appearance (transparency + theme; folded in from the former Appearance tab)
+
+    private var appearanceSection: some View {
+        SettingsSection(contentSpacing: 12) {
+            SectionHeader(L("settings.display.section.appearance"))
+
+            LabelledRow(
+                title: L("appearance.transparency.label"),
+                subtitle: L("appearance.transparency.subtitle"))
+            {
+                Picker(L("appearance.transparency.label"), selection: $settings.transparencyLevel) {
+                    ForEach(TransparencyLevel.allCases) { level in
+                        Text(level.label).tag(level)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .fixedSize()
+            }
+
+            LabelledRow(
+                title: L("appearance.theme.label"),
+                subtitle: L("appearance.theme.subtitle"))
+            {
+                Picker(L("appearance.theme.label"), selection: $settings.themeOverride) {
+                    ForEach(ThemeOverride.allCases) { theme in
+                        Text(theme.label).tag(theme)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .fixedSize()
             }
         }
     }
