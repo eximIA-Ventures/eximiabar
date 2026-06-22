@@ -60,6 +60,26 @@ struct MetricRow: View {
         Int((self.showUsed ? self.window.utilization : self.remaining).rounded())
     }
 
+    /// Whether the bar is currently drawing a pace marker — `.bar` mode with a resolved pace detail.
+    /// The pace text in the sub-line and the marker on the bar are shown together (the number is on
+    /// the line, the position is on the bar); the two never disagree.
+    private var hasBarPace: Bool {
+        self.showPace && self.paceMode == .bar && self.paceDetail != nil
+    }
+
+    /// The enriched pace status line (`"folga no ritmo - 74%"`), shown only when the bar carries a
+    /// pace marker. `nil` otherwise (Session row, `.text` mode, or no pace).
+    private var paceLineText: String? {
+        guard self.hasBarPace else { return nil }
+        return self.paceDetail?.primary
+    }
+
+    /// `true` when the current pace is a deficit (over-pace) — drives the alert colour of the line.
+    private var paceIsDeficit: Bool {
+        guard let detail = self.paceDetail else { return false }
+        return !detail.isReserve
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: PopoverStyle.metricInternalSpacing) {
             // Headline: title (left) + big usage number (right), same baseline (#1). The number is
@@ -88,6 +108,18 @@ struct MetricRow: View {
                 warningMarkerPercents: self.warningMarkerPercents)
 
             VStack(alignment: .leading, spacing: 2) {
+                // Pace line (#bar mode): the pace number now lives here (the bar carries the marker,
+                // not a number), enriching the status into "folga no ritmo - 74%". Reserve reads in
+                // `.secondary`; deficit reads in the zone colour so the alert weight matches the bar.
+                if let paceText = self.paceLineText {
+                    Text(paceText)
+                        .font(.caption)
+                        .foregroundStyle(self.paceIsDeficit
+                            ? PopoverStyle.zoneTextColor(utilization: self.window.utilization)
+                            : Color.secondary)
+                        .lineLimit(1)
+                }
+
                 if let resetText = PopoverFormatter.resetText(
                     for: self.window.resetsAt, absolute: self.showAbsoluteReset)
                 {

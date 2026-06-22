@@ -29,15 +29,23 @@ enum UsagePaceText {
             isReserve: pace.reserve > 0)
     }
 
+    /// The pace status label, enriched with the pace point as a trailing percentage so the number
+    /// lives in the bottom line instead of a floating label over the bar (which does not fit the
+    /// tight popover). Composes `"<status> - <expectedUsedPercent>%"`, e.g. `"45% in reserve - 30%"`
+    /// / `"On pace - 50%"`. The status keeps its existing `L()` strings (both locales); only the
+    /// pace number is concatenated, so no new strings are required.
     private static func primaryLabel(for pace: UsagePace) -> String {
+        let status: String
         switch pace.status {
         case .onPace:
-            return L("popover.pace.on_pace")
+            status = L("popover.pace.on_pace")
         case let .deficit(value):
-            return L("popover.pace.deficit", Int(abs(value).rounded()))
+            status = L("popover.pace.deficit", Int(abs(value).rounded()))
         case let .reserve(value):
-            return L("popover.pace.reserve", Int(abs(value).rounded()))
+            status = L("popover.pace.reserve", Int(abs(value).rounded()))
         }
+        let pacePercent = Int(pace.expectedUsedPercent.rounded())
+        return "\(status) - \(pacePercent)%"
     }
 
     private static func secondaryLabel(for pace: UsagePace, now: Date) -> String? {

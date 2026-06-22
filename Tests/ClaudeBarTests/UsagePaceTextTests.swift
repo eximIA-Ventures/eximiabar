@@ -13,23 +13,25 @@ struct UsagePaceTextTests {
         return UsagePace.compute(window: window, now: now)!
     }
 
-    /// On-pace renders the exact "On pace" string and "Lasts until reset".
+    /// On-pace enriches the status with the pace point: "On pace - 50%" and "Lasts until reset".
+    /// The pace number now lives in the bottom line (no floating label over the bar).
     @Test
     func onPaceStrings() {
         let now = Date()
+        // 50% elapsed → expectedUsedPercent ≈ 50.
         let detail = UsagePaceText.detail(for: pace(utilization: 50, elapsedFraction: 0.5, now: now), now: now)
-        #expect(detail.primary == "On pace")
+        #expect(detail.primary == "On pace - 50%")
         #expect(detail.secondary == "Lasts until reset")
         #expect(detail.isReserve == false)
     }
 
-    /// Deficit renders "N% in deficit" with an integer N and a red stripe.
+    /// Deficit enriches "N% in deficit" with the pace point: "55% in deficit - 25%", red stripe.
     @Test
     func deficitStrings() {
         let now = Date()
-        // 25% elapsed, 80% used → delta +55.
+        // 25% elapsed, 80% used → delta +55, expectedUsedPercent ≈ 25.
         let detail = UsagePaceText.detail(for: pace(utilization: 80, elapsedFraction: 0.25, now: now), now: now)
-        #expect(detail.primary == "55% in deficit")
+        #expect(detail.primary == "55% in deficit - 25%")
         #expect(detail.isReserve == false)
         // Burning ahead → projected run-out before reset.
         #expect(detail.secondary?.hasPrefix("Runs out in ") == true || detail.secondary == "Runs out now")
@@ -37,22 +39,23 @@ struct UsagePaceTextTests {
 
     /// Slightly-ahead band (2 < |delta| ≤ 6) renders the number, not "On pace" — reference parity
     /// (`_reference_codexbar` `.slightlyAhead` → "N% in deficit"). Regression guard for the S3 fix.
+    /// The pace point is appended: "5% in deficit - 50%".
     @Test
     func slightlyAheadShowsNumberNotOnPace() {
         let now = Date()
-        // 50% elapsed, 55% used → delta +5.
+        // 50% elapsed, 55% used → delta +5, expectedUsedPercent ≈ 50.
         let detail = UsagePaceText.detail(for: pace(utilization: 55, elapsedFraction: 0.5, now: now), now: now)
-        #expect(detail.primary == "5% in deficit")
+        #expect(detail.primary == "5% in deficit - 50%")
         #expect(detail.isReserve == false)
     }
 
-    /// Reserve renders "N% in reserve" with a green stripe and "Lasts until reset".
+    /// Reserve enriches "N% in reserve" with the pace point: "45% in reserve - 75%", green stripe.
     @Test
     func reserveStrings() {
         let now = Date()
-        // 75% elapsed, 30% used → delta -45.
+        // 75% elapsed, 30% used → delta -45, expectedUsedPercent ≈ 75.
         let detail = UsagePaceText.detail(for: pace(utilization: 30, elapsedFraction: 0.75, now: now), now: now)
-        #expect(detail.primary == "45% in reserve")
+        #expect(detail.primary == "45% in reserve - 75%")
         #expect(detail.isReserve == true)
         #expect(detail.secondary == "Lasts until reset")
     }

@@ -10,13 +10,28 @@ import SwiftUI
 /// avoids the compositing modifiers that trigger RenderBox shader compilation (reference issue
 /// #805).
 ///
-/// - `percent`: fill percentage, 0–100.
+/// The pace treatment (redesign): the old diagonal punch-out tip is replaced by two filled layers
+/// drawn entirely with `context.fill` of plain rectangular `Path`s (no `blendMode`, no second
+/// `Canvas`):
+///   1. a translucent **reserve / deficit zone** between the consumed fill and the pace point, and
+///   2. a solid, full-height **pace marker** that supersedes the thin warning-style stripe.
+/// In the reserve case (pace > fill) the zone is sage green and the marker forest green; in the
+/// deficit case (fill > pace) the zone is alert red and the marker red. Warning markers that fall
+/// inside the zone are dimmed so they do not compete with the band.
+///
+/// - `percent`: fill percentage, 0–100 (consumed).
 /// - `tint`: fill colour (the Claude brand `#CC7C5E`).
-/// - `pacePercent`: when non-nil, draws the diagonal pace punch-out at this percentage (AC14).
-/// - `paceReserve`: `true` → green stripe (under-pace / reserve), `false` → red stripe (deficit).
+/// - `pacePercent`: when non-nil, draws the reserve/deficit zone + pace marker at this percentage.
+/// - `paceReserve`: `true` → green reserve (under-pace), `false` → red deficit (over-pace).
 /// - `warningMarkerPercents`: vertical dash markers at the given percentages (AC14).
 struct UsageProgressBar: View {
-    private static let paceStripeWidth: CGFloat = 2
+    /// Width of the solid pace marker, in points (replaces the 2 pt warning-style stripe).
+    static let paceMarkerWidth: CGFloat = 3.5
+    /// Fill opacity for the translucent reserve (green) zone over the dark popover track.
+    static let reserveZoneOpacity: CGFloat = 0.20
+    /// Fill opacity for the translucent deficit (red) zone — one stop heavier than reserve, because
+    /// an alert should read with more weight than a positive reserve.
+    static let deficitZoneOpacity: CGFloat = 0.22
 
     let percent: Double
     let tint: Color
@@ -48,13 +63,11 @@ struct UsageProgressBar: View {
     var body: some View {
         Canvas { context, size in
             let scale = max(self.displayScale, 1)
-            let fillWidth = size.width * self.clamped / 100
-            let paceWidth = size.width * Self.clampedPercent(self.pacePercent) / 100
-            // Tip width: max(25, height * 6.5) pt (AC14).
-            let tipWidth = max(25, size.height * 6.5)
-            let stripeInset = 1 / scale
-            let tipOffset = paceWidth - tipWidth + (Self.paceStripeSpan / 2) + stripeInset
-            let showTip = self.pacePercent != nil && tipWidth > 0.5
+            let geometry = Self.paceGeometry(
+                percent: self.clamped,
+                pacePercent: self.pacePercent,
+                size: size)
+            let fillWidth = geometry.xFill
             let markerPercents = self.warningMarkerPercents
                 .map(Self.clampedPercent)
                 .filter { $0 > 0 && $0 < 100 }
@@ -66,22 +79,43 @@ struct UsageProgressBar: View {
 
             context.clip(to: Path(rect))
 
-            // Track.
+            // 1. Track.
             let trackPath = Path { $0.addRoundedRect(in: rect, cornerSize: cornerSize) }
             context.fill(trackPath, with: .color(PopoverStyle.progressTrack))
 
-            // Fill.
+            // 2. Reserve / deficit zone — NEW. A straight rectangle drawn INSIDE the rounded clip,
+            //    so its right edge inherits the pill's rounding when it touches 100% (no own corners).
+            //    In the reserve case it sits to the RIGHT of the fill (no overlap); in the deficit
+            //    case it sits to the LEFT of the fill, and the fill (drawn next) seals its left edge.
+            if geometry.hasZone {
+                let zoneRect = CGRect(
+                    x: geometry.zoneLo,
+                    y: 0,
+                    width: geometry.zoneHi - geometry.zoneLo,
+                    height: size.height)
+                let zoneColor = self.paceReserve
+                    ? PopoverStyle.roiPositive.opacity(Self.reserveZoneOpacity)
+                    : DesignTokens.zoneCriticalBar.opacity(Self.deficitZoneOpacity)
+                context.fill(Path(zoneRect), with: .color(zoneColor))
+            }
+
+            // 3. Fill (terracotta). Drawn after the zone so it covers cleanly up to xFill; in the
+            //    deficit case this also seals the zone's left edge where the zone starts at xPace.
             if fillWidth > 0 {
                 let fillRect = CGRect(x: 0, y: 0, width: min(fillWidth, size.width), height: size.height)
                 let fillPath = Path { $0.addRoundedRect(in: fillRect, cornerSize: cornerSize) }
                 context.fill(fillPath, with: .color(self.tint))
             }
 
-            // Warning markers (AC14): vertical dashes, 1 px wide, 55% of bar height.
+            // 4. Warning markers (AC14): vertical dashes, 1 px wide, 55% of bar height. Markers that
+            //    fall inside the reserve/deficit zone are dimmed (0.14 vs 0.32) so they do not compete
+            //    with the band; those within 2 pt of the pace marker are skipped entirely.
             if !markerPercents.isEmpty {
-                let markerColor = Color.primary.opacity(0.32)
                 for markerPercent in markerPercents {
                     let x = size.width * markerPercent / 100
+                    if geometry.hasZone, abs(x - geometry.xPace) < 2 { continue }
+                    let inZone = geometry.hasZone && x >= geometry.zoneLo && x <= geometry.zoneHi
+                    let markerColor = Color.primary.opacity(inZone ? 0.14 : 0.32)
                     let markerRect = Self.warningMarkerRect(x: x, size: size, scale: scale)
                     let markerPath = Path {
                         $0.addRoundedRect(
@@ -92,21 +126,15 @@ struct UsageProgressBar: View {
                 }
             }
 
-            // Pace tip: punch-out triangle + centre stripe, drawn with CG blend modes so no SwiftUI
-            // compositing modifier is needed (AC14).
-            if showTip {
-                let stripeColor: Color = self.paceReserve ? .green : .red
-
-                let tipSize = CGSize(width: tipWidth, height: size.height)
-                let stripes = Self.paceStripePaths(size: tipSize, scale: scale)
-                let shift = CGAffineTransform(translationX: tipOffset, y: 0)
-
-                // Punch out of the accumulated track+fill pixels.
-                context.blendMode = .destinationOut
-                context.fill(stripes.punched.applying(shift), with: .color(.white.opacity(0.9)))
-                context.blendMode = .normal
-
-                context.fill(stripes.center.applying(shift), with: .color(stripeColor))
+            // 5. Pace marker — solid, full-height, drawn last so it sits over everything (the zone's
+            //    adjacent edge and any nearby warning markers). A plain rounded rectangle filled with
+            //    `context.fill`: no `blendMode`, no second `Canvas`, no compositing modifier.
+            if geometry.hasZone || geometry.markerOnly {
+                let markerPath = Self.paceMarkerPath(xPace: geometry.xPace, size: size, scale: scale)
+                let markerColor = self.paceReserve
+                    ? PopoverStyle.roiPositive
+                    : DesignTokens.zoneCriticalBar
+                context.fill(markerPath, with: .color(markerColor))
             }
         }
         .frame(height: 6) // AC14
@@ -114,48 +142,67 @@ struct UsageProgressBar: View {
         .accessibilityValue("\(Int(self.clamped)) percent")
     }
 
-    private static var paceStripeSpan: CGFloat { Self.paceStripeWidth * 3 }
+    // MARK: - Pure geometry (testable)
 
-    private static func paceStripePaths(size: CGSize, scale: CGFloat) -> (punched: Path, center: Path) {
-        let rect = CGRect(origin: .zero, size: size)
-        let extend = size.height * 2
-        let stripeTopY: CGFloat = -extend
-        let stripeBottomY: CGFloat = size.height + extend
+    /// The resolved coordinates of the pace treatment for one bar, all pure functions of the inputs.
+    struct PaceGeometry: Equatable {
+        /// Right edge of the consumed terracotta fill (points).
+        let xFill: CGFloat
+        /// Centre x of the pace marker (points). `0` when there is no pace.
+        let xPace: CGFloat
+        /// Left edge of the zone — `min(xFill, xPace)`.
+        let zoneLo: CGFloat
+        /// Right edge of the zone — `max(xFill, xPace)`.
+        let zoneHi: CGFloat
+        /// `true` when there is a pace AND the zone has visible width (> 0.5 pt).
+        let hasZone: Bool
+        /// `true` when there is a pace but the zone is too thin to draw (fill ≈ pace) — the solid
+        /// marker still shows so the pace point never silently disappears.
+        let markerOnly: Bool
+    }
+
+    /// Resolve the pace geometry for a bar. Returns a zero-pace geometry (`hasZone == false`,
+    /// `markerOnly == false`) when `pacePercent` is `nil` or resolves off-bar.
+    static func paceGeometry(percent: Double, pacePercent: Double?, size: CGSize) -> PaceGeometry {
+        let xFill = min(size.width * Self.clampedPercent(percent) / 100, size.width)
+        guard let pacePercent else {
+            return PaceGeometry(xFill: xFill, xPace: 0, zoneLo: 0, zoneHi: 0, hasZone: false, markerOnly: false)
+        }
+        let xPace = size.width * Self.clampedPercent(pacePercent) / 100
+        guard xPace > 0 else {
+            return PaceGeometry(xFill: xFill, xPace: 0, zoneLo: 0, zoneHi: 0, hasZone: false, markerOnly: false)
+        }
+        let zoneLo = min(xFill, xPace)
+        let zoneHi = max(xFill, xPace)
+        let hasZone = (zoneHi - zoneLo) > 0.5
+        return PaceGeometry(
+            xFill: xFill,
+            xPace: xPace,
+            zoneLo: zoneLo,
+            zoneHi: zoneHi,
+            hasZone: hasZone,
+            markerOnly: !hasZone)
+    }
+
+    /// The pixel-aligned rectangle of the solid pace marker: width `paceMarkerWidth`, full bar height
+    /// (`y == 0`, `height == size.height`), centred at `xPace`, left edge snapped to the pixel grid.
+    /// Pure geometry — no SwiftUI — so it is safe to assert on in a headless test process.
+    static func paceMarkerRect(xPace: CGFloat, size: CGSize, scale rawScale: CGFloat) -> CGRect {
+        let scale = max(rawScale, 1)
         let align: (CGFloat) -> CGFloat = { value in (value * scale).rounded() / scale }
+        let width = Self.paceMarkerWidth
+        let minX = align(xPace - width / 2)
+        return CGRect(x: minX, y: 0, width: width, height: size.height)
+    }
 
-        let stripeWidth = Self.paceStripeWidth
-        let punchWidth = stripeWidth * 3
-        let stripeInset = 1 / scale
-        let stripeAnchorX = align(rect.maxX - stripeInset)
-        let stripeMinY = align(stripeTopY)
-        let stripeMaxY = align(stripeBottomY)
-        let anchorTopX = stripeAnchorX
-        var punchedStripe = Path()
-        var centerStripe = Path()
-        let availableWidth = (anchorTopX - punchWidth) - rect.minX
-        guard availableWidth >= 0 else { return (punchedStripe, centerStripe) }
-
-        let punchRightTopX = align(anchorTopX)
-        let punchLeftTopX = punchRightTopX - punchWidth
-        punchedStripe.addPath(Path { path in
-            path.move(to: CGPoint(x: punchLeftTopX, y: stripeMinY))
-            path.addLine(to: CGPoint(x: punchRightTopX, y: stripeMinY))
-            path.addLine(to: CGPoint(x: punchRightTopX, y: stripeMaxY))
-            path.addLine(to: CGPoint(x: punchLeftTopX, y: stripeMaxY))
-            path.closeSubpath()
-        })
-
-        let centerLeftTopX = align(punchLeftTopX + (punchWidth - stripeWidth) / 2)
-        let centerRightTopX = centerLeftTopX + stripeWidth
-        centerStripe.addPath(Path { path in
-            path.move(to: CGPoint(x: centerLeftTopX, y: stripeMinY))
-            path.addLine(to: CGPoint(x: centerRightTopX, y: stripeMinY))
-            path.addLine(to: CGPoint(x: centerRightTopX, y: stripeMaxY))
-            path.addLine(to: CGPoint(x: centerLeftTopX, y: stripeMaxY))
-            path.closeSubpath()
-        })
-
-        return (punchedStripe, centerStripe)
+    /// The pixel-aligned rounded-rectangle path for the solid pace marker: width `paceMarkerWidth`,
+    /// full bar height, centred at `xPace`, corners `min(width/2, 1.25)` to take the edge off.
+    /// Thin wrapper over `paceMarkerRect` — the rect is the geometry, this only wraps it in a SwiftUI
+    /// `Path` for the `Canvas` draw, so the rendered output is unchanged.
+    static func paceMarkerPath(xPace: CGFloat, size: CGSize, scale rawScale: CGFloat) -> Path {
+        let markerRect = Self.paceMarkerRect(xPace: xPace, size: size, scale: rawScale)
+        let radius = min(Self.paceMarkerWidth / 2, 1.25)
+        return Path { $0.addRoundedRect(in: markerRect, cornerSize: CGSize(width: radius, height: radius)) }
     }
 
     static func warningMarkerRect(x: CGFloat, size: CGSize, scale rawScale: CGFloat) -> CGRect {
@@ -174,5 +221,9 @@ struct UsageProgressBar: View {
     private static func clampedPercent(_ value: Double?) -> Double {
         guard let value else { return 0 }
         return min(100, max(0, value))
+    }
+
+    private static func clampedPercent(_ value: Double) -> Double {
+        min(100, max(0, value))
     }
 }
