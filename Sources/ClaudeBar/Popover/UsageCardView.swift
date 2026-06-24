@@ -184,9 +184,13 @@ private struct MetricsSection: View {
             isWeekly: isWeekly)
     }
 
-    private var weeklyPace: UsagePace? {
-        guard let weekly = self.snapshot?.weekly else { return nil }
-        return UsagePace.compute(window: weekly)
+    /// Pace for any window with a usable `resetsAt`; `nil` when the window is missing or it is too
+    /// early in the window to project (see `UsagePace.compute`). Used for BOTH Session and Weekly so
+    /// each bar shows its own rhythm — the Session window has elapsed time too, so it gets the same
+    /// reserve/deficit stripe and label as Weekly.
+    private func pace(for window: RateWindow?) -> UsagePace? {
+        guard let window else { return nil }
+        return UsagePace.compute(window: window)
     }
 
     /// The localized "No ritmo atual…" forecast line for `windowId`.
@@ -202,8 +206,8 @@ private struct MetricsSection: View {
     /// mode — the row always shows *something* the moment a forecast exists, and the stripe and the
     /// text are still never shown together (the fallback only fires when the stripe is missing).
     ///
-    /// `barStripeAbsent` is only meaningful for the Weekly row (the one with a pace stripe); the
-    /// Session row passes `false` and keeps its `.text`-only behaviour.
+    /// Both the Session and Weekly rows now carry a pace stripe, so both pass `barStripeAbsent`: it
+    /// makes a row fall back to the forecast text whenever its stripe would otherwise be missing.
     private func forecastText(for windowId: String, barStripeAbsent: Bool = false) -> String? {
         let showText = self.options.paceDisplayMode == .text
             || (self.options.paceDisplayMode == .bar && barStripeAbsent)
@@ -218,17 +222,24 @@ private struct MetricsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: PopoverStyle.metricRowSpacing) {
             if let session = self.snapshot?.session {
+                let pace = self.pace(for: session)
                 MetricRow(
                     title: L("popover.metric.session"),
                     window: session,
+                    showPace: pace != nil,
+                    pace: pace,
+                    paceDetail: pace.map { UsagePaceText.detail(for: $0) },
                     warningMarkerPercents: self.markers(thresholds: self.options.sessionThresholds, isWeekly: false),
                     showUsed: self.options.showUsed,
                     showAbsoluteReset: self.options.showAbsoluteReset,
                     prominence: .primary,
-                    forecastText: self.forecastText(for: RateWindowID.session))
+                    paceMode: self.options.paceDisplayMode,
+                    forecastText: self.forecastText(
+                        for: RateWindowID.session,
+                        barStripeAbsent: pace == nil))
             }
             if let weekly = self.snapshot?.weekly {
-                let pace = self.weeklyPace
+                let pace = self.pace(for: weekly)
                 MetricRow(
                     title: L("popover.metric.weekly"),
                     window: weekly,
