@@ -58,6 +58,9 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
     private var glassBacking: NSView?
     /// The live transparency level, read at `open()` to seed the glass backing on macOS 26.
     private let transparencyProvider: @MainActor () -> TransparencyLevel
+    /// The active popover theme (v2.3.0), read when the window is built so the dashboard's accent
+    /// (charts, highlight numbers, the model ramp's accent swatch) matches the popover skin.
+    private let themeProvider: @MainActor () -> PopoverTheme
 
     /// In-memory cache: one built `DashboardData` per period (AC12). Cleared when the source
     /// directories change (fingerprint mismatch) or on each fresh `open()`-with-stale-data.
@@ -70,12 +73,14 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
         costSettingsProvider: @escaping @Sendable () -> LiveUsageProvider.CostSettings,
         costScanner: CostScanner = .shared,
         openSettings: @escaping @MainActor () -> Void,
-        transparencyProvider: @escaping @MainActor () -> TransparencyLevel = { .frosted })
+        transparencyProvider: @escaping @MainActor () -> TransparencyLevel = { .frosted },
+        themeProvider: @escaping @MainActor () -> PopoverTheme = { .classic })
     {
         self.costSettingsProvider = costSettingsProvider
         self.costScanner = costScanner
         self.openSettings = openSettings
         self.transparencyProvider = transparencyProvider
+        self.themeProvider = themeProvider
     }
 
     // MARK: - Open (AC1/AC12)
@@ -100,7 +105,9 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
         model.onPeriodChange = { [weak self] period in self?.loadData(for: period) }
         model.onExportCSV = { [weak self] in self?.exportCSV() }
 
-        let hostingView = NSHostingView(rootView: DashboardRoot(model: model, openSettings: openSettings))
+        let hostingView = NSHostingView(
+            rootView: DashboardRoot(model: model, openSettings: openSettings)
+                .environment(\.popoverTheme, themeProvider()))
         hostingView.translatesAutoresizingMaskIntoConstraints = false
 
         // AC11: standard NSWindow, 760×560 minimum, resizable, titled.

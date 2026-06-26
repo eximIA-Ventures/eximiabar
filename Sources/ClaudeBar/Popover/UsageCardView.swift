@@ -73,8 +73,15 @@ private struct HeaderSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: PopoverStyle.headerLineSpacing) {
-            // Line 1: "Claude" + email.
-            HStack(alignment: .firstTextBaseline, spacing: PopoverStyle.headerColumnSpacing) {
+            // Line 1: eximIA symbol + "Claude" + email. The symbol is a template image tinted with the
+            // theme accent (terracotta classic / amber meter), so the popover carries the brand mark.
+            HStack(spacing: 8) {
+                if let logo = EximiaLogo.image(height: 16) {
+                    Image(nsImage: logo)
+                        .renderingMode(.template)
+                        .foregroundStyle(PopoverStyle.accent(for: self.popoverTheme))
+                        .accessibilityHidden(true)
+                }
                 Text(L("popover.provider_name"))
                     .font(.headline)
                     .fontWeight(.semibold)

@@ -12,6 +12,7 @@ struct PreferencesAboutPane: View {
 
     @State private var iconHover = false
     @StateObject private var updateModel = UpdateViewModel()
+    @Environment(\.popoverTheme) private var popoverTheme
 
     private var versionString: String {
         let version = Bundle.main
@@ -80,7 +81,7 @@ struct PreferencesAboutPane: View {
                     .cornerRadius(16)
                     .scaleEffect(self.iconHover ? 1.05 : 1.0)
                     .shadow(
-                        color: self.iconHover ? DesignTokens.brand.opacity(0.25) : .clear,
+                        color: self.iconHover ? DesignTokens.accent(for: self.popoverTheme).opacity(0.25) : .clear,
                         radius: 6)
             }
             .buttonStyle(.plain)

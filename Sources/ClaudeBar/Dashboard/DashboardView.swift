@@ -230,10 +230,30 @@ enum DashboardPalette {
     /// Colour for model at sorted position `index`, cycling the ramp for >8 models.
     static func color(at index: Int) -> Color { ramp[index % ramp.count] }
 
+    /// Theme-aware ramp (v2.3.0): only the accent swatch (index 0) follows the popover theme —
+    /// terracotta in classic, amber in meter. The rest are stable per-model identities, untouched.
+    static func ramp(for theme: PopoverTheme) -> [Color] {
+        guard theme == .meter else { return ramp }
+        var themed = ramp
+        themed[0] = DesignTokens.meterAccent
+        return themed
+    }
+
+    static func color(at index: Int, theme: PopoverTheme) -> Color {
+        let r = ramp(for: theme)
+        return r[index % r.count]
+    }
+
     /// `(domain, range)` for `chartForegroundStyleScale` — the models in their stable cost order and
     /// the matching swatches.
     static func scale(for models: [String]) -> (domain: [String], range: [Color]) {
         (models, models.indices.map { color(at: $0) })
+    }
+
+    /// Theme-aware `(domain, range)` — same stable model order, with the accent swatch following the
+    /// active theme.
+    static func scale(for models: [String], theme: PopoverTheme) -> (domain: [String], range: [Color]) {
+        (models, models.indices.map { color(at: $0, theme: theme) })
     }
 }
 
@@ -425,6 +445,7 @@ private struct DeltaBadge: View {
 /// The cache-hit KPI card (EXB-4.5 AC1): hit-rate percentage as the headline, estimated savings as the
 /// secondary line. Matches the visual language of the other KPI cards (tokens-first headline slot).
 private struct CacheHitCard: View {
+    @Environment(\.popoverTheme) private var popoverTheme
     let hitRate: Double
     let savings: Double
 
@@ -436,7 +457,7 @@ private struct CacheHitCard: View {
                 .lineLimit(1)
             Text(DashboardFormat.percent1(hitRate))
                 .font(.system(.title2, design: .rounded).bold().monospacedDigit())
-                .foregroundStyle(PopoverStyle.brand)
+                .foregroundStyle(PopoverStyle.accent(for: self.popoverTheme))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
             Text(L("dashboard.insights.cache_hit.savings", DashboardFormat.compactCurrency(savings)))
@@ -524,6 +545,7 @@ private struct WeeklySummarySection: View {
 /// One "Esta semana" highlight card (EXB-4.5 AC3/AC9): SF Symbol + small title + a prominent value,
 /// sharing the rounded-rect KPI styling used across the dashboard.
 private struct WeeklyHighlightCard: View {
+    @Environment(\.popoverTheme) private var popoverTheme
     let icon: String
     let title: String
     let value: String
@@ -532,7 +554,7 @@ private struct WeeklyHighlightCard: View {
         HStack(alignment: .center, spacing: 12) {
             Image(systemName: icon)
                 .font(.title2)
-                .foregroundStyle(PopoverStyle.brand)
+                .foregroundStyle(PopoverStyle.accent(for: self.popoverTheme))
                 .frame(width: 28)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -557,6 +579,7 @@ private struct WeeklyHighlightCard: View {
 // MARK: - Cost-per-day + cumulative line (AC3)
 
 private struct CostPerDayChart: View {
+    @Environment(\.popoverTheme) private var popoverTheme
     let data: DashboardData
     private var entries: [DashboardDailyEntry] { data.dailyCosts }
 
@@ -631,7 +654,7 @@ private struct CostPerDayChart: View {
         }
         // EXB-3.7 AC5: bind the two series to brand (daily) / secondary (cumulative) so the colours in
         // the visible legend match the bars and line.
-        .chartForegroundStyleScale(domain: [dailyLabel, cumulativeLabel], range: [PopoverStyle.brand, Color.secondary])
+        .chartForegroundStyleScale(domain: [dailyLabel, cumulativeLabel], range: [PopoverStyle.accent(for: self.popoverTheme), Color.secondary])
         .chartXAxis {
             AxisMarks(values: .stride(by: .day, count: DashboardFormat.axisStride(for: data.period))) { value in
                 AxisGridLine()
@@ -867,6 +890,7 @@ private struct StackedTokensChart: View {
 // MARK: - Model breakdown: donut + table (AC5)
 
 private struct ModelBreakdownSection: View {
+    @Environment(\.popoverTheme) private var popoverTheme
     let data: DashboardData
     private var rows: [DashboardModelEntry] { data.byModel }
 
@@ -879,7 +903,7 @@ private struct ModelBreakdownSection: View {
 
     /// Stable model→colour scale shared by the donut and the table swatches (AC12).
     private var colorScale: (domain: [String], range: [Color]) {
-        DashboardPalette.scale(for: data.sortedModelNames)
+        DashboardPalette.scale(for: data.sortedModelNames, theme: self.popoverTheme)
     }
 
     var body: some View {
@@ -1062,6 +1086,7 @@ private struct ModelBreakdownTable: View {
 /// `DashboardPalette.scale(for: sortedModelNames)` the donut uses (AC11), so a model reads identically
 /// across the donut, the table and here. Hover surfaces a per-model breakdown for the day (AC13).
 private struct ModelsByDayChart: View {
+    @Environment(\.popoverTheme) private var popoverTheme
     let data: DashboardData
     private var entries: [DailyModelEntry] { data.byDayByModel }
 
@@ -1070,7 +1095,7 @@ private struct ModelsByDayChart: View {
     /// The stable model→colour scale (shared with the donut, AC11). Computed once per render from the
     /// view model's pre-sorted model names — never recomputed inside the chart closure (anti-freeze).
     private var colorScale: (domain: [String], range: [Color]) {
-        DashboardPalette.scale(for: data.sortedModelNames)
+        DashboardPalette.scale(for: data.sortedModelNames, theme: self.popoverTheme)
     }
 
     /// Total token volume over the window — the header highlight number.

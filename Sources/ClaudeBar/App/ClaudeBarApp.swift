@@ -157,7 +157,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // EXB-3.5 AC3: seed the dashboard's macOS 26 Liquid Glass backing from the live level.
             // `settings` is owned by the app delegate (lives for the whole process) and never references
             // the dashboard, so a strong capture is cycle-free.
-            transparencyProvider: { [settings] in settings.transparencyLevel })
+            transparencyProvider: { [settings] in settings.transparencyLevel },
+            // v2.3.0: the dashboard's accent follows the popover theme (terracotta / amber).
+            themeProvider: { [settings] in settings.popoverTheme })
 
         let controller = StatusItemController(settings: settings)
         statusItemController = controller

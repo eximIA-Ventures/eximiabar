@@ -52,9 +52,11 @@ struct SettingsRootView: View {
         }
         .padding(.top, Self.titlebarInset)
         .frame(width: 546, height: 638 + Self.titlebarInset)
-        // v2.1 design system: terracotta accent across every control (toggles, selection, focus) so
-        // Preferences reads as the same family as the popover, instead of the system blue.
-        .tint(DesignTokens.brand)
+        // v2.1 design system: accent across every control (toggles, selection, focus) so Preferences
+        // reads as the same family as the popover. v2.3.0: the accent now follows the popover theme —
+        // terracotta in classic, amber in meter — and the theme is injected so detail links pick it up.
+        .tint(DesignTokens.accent(for: settings.popoverTheme))
+        .environment(\.popoverTheme, settings.popoverTheme)
         // EXB-2.2 AC5/AC7 (Option A): `L(…)` reads the active `.lproj` table, not an `@Observable`
         // property, so keying the subtree on the selected language is what forces SwiftUI to rebuild
         // every localized body the instant the picker changes — an immediate, relaunch-free switch.

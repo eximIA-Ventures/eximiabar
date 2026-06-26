@@ -28,6 +28,7 @@ let package = Package(
             exclude: ["Info.plist"],
             resources: [
                 .copy("Resources/ProviderIcon-claude.svg"),
+                .copy("Resources/eximia-symbol.svg"),
                 .copy("Resources/AppIcon.icns"),
                 // EXB-2.2 AC2: ship both localization tables inside the package resource bundle
                 // (`ClaudeBar_ClaudeBar.bundle`). `.copy` preserves the `.lproj` folder structure so

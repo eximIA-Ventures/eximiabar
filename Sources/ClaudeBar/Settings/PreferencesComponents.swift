@@ -129,6 +129,7 @@ struct AboutLinkRow: View {
     let title: String
     let url: String
     @State private var hovering = false
+    @Environment(\.popoverTheme) private var popoverTheme
 
     var body: some View {
         Button {
@@ -137,11 +138,11 @@ struct AboutLinkRow: View {
             HStack(spacing: 8) {
                 Image(systemName: self.icon)
                 Text(self.title)
-                    .underline(self.hovering, color: DesignTokens.brand)
+                    .underline(self.hovering, color: DesignTokens.accent(for: self.popoverTheme))
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
-            .foregroundColor(DesignTokens.brand)
+            .foregroundColor(DesignTokens.accent(for: self.popoverTheme))
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())
