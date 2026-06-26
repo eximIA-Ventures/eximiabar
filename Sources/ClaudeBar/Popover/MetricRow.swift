@@ -52,6 +52,10 @@ struct MetricRow: View {
     /// `.text` mode), or `nil` to render nothing.
     var forecastText: String? = nil
 
+    /// The active popover skin, injected by `UsageCardView`. Decides whether the healthy `< 70` zone
+    /// reads terracotta (classic) or amber (meter); attention/critical are shared across themes.
+    @Environment(\.popoverTheme) private var popoverTheme
+
     private var remaining: Double { min(100, max(0, self.window.remaining)) }
 
     /// The number shown in the headline: consumed or remaining per `showUsed`, matching the bar fill
@@ -94,14 +98,14 @@ struct MetricRow: View {
                 Spacer(minLength: 8)
                 Text(verbatim: "\(self.headlineValue)%")
                     .font(self.prominence.numberFont)
-                    .foregroundStyle(PopoverStyle.zoneTextColor(utilization: self.window.utilization))
+                    .foregroundStyle(PopoverStyle.zoneTextColor(utilization: self.window.utilization, theme: self.popoverTheme))
                     .monospacedDigit()
                     .lineLimit(1)
             }
 
             UsageProgressBar(
                 percent: self.showUsed ? self.window.utilization : self.window.remaining,
-                tint: PopoverStyle.zoneBarColor(utilization: self.window.utilization),
+                tint: PopoverStyle.zoneBarColor(utilization: self.window.utilization, theme: self.popoverTheme),
                 accessibilityLabel: L("popover.metric.usage_accessibility", self.title),
                 pacePercent: (self.showPace && self.paceMode == .bar) ? self.paceDetail?.pacePercent : nil,
                 paceReserve: self.paceDetail?.isReserve ?? true,
@@ -115,7 +119,7 @@ struct MetricRow: View {
                     Text(paceText)
                         .font(.caption)
                         .foregroundStyle(self.paceIsDeficit
-                            ? PopoverStyle.zoneTextColor(utilization: self.window.utilization)
+                            ? PopoverStyle.zoneTextColor(utilization: self.window.utilization, theme: self.popoverTheme)
                             : Color.secondary)
                         .lineLimit(1)
                 }
@@ -134,7 +138,7 @@ struct MetricRow: View {
                 if let forecastText = self.forecastText {
                     Text(forecastText)
                         .font(.caption)
-                        .foregroundStyle(PopoverStyle.zoneTextColor(utilization: self.window.utilization))
+                        .foregroundStyle(PopoverStyle.zoneTextColor(utilization: self.window.utilization, theme: self.popoverTheme))
                         .lineLimit(1)
                 }
             }

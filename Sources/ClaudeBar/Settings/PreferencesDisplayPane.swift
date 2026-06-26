@@ -142,6 +142,21 @@ struct PreferencesDisplayPane: View {
         SettingsSection(contentSpacing: 12) {
             SectionHeader(L("settings.display.section.appearance"))
 
+            // v2.2.0: popover skin — Classic (terracotta) or the opt-in Meter (amber on black).
+            LabelledRow(
+                title: L("settings.display.theme.label"),
+                subtitle: L("settings.display.theme.subtitle"))
+            {
+                Picker(L("settings.display.theme.label"), selection: $settings.popoverTheme) {
+                    ForEach(PopoverTheme.allCases) { theme in
+                        Text(theme.label).tag(theme)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .fixedSize()
+            }
+
             LabelledRow(
                 title: L("appearance.transparency.label"),
                 subtitle: L("appearance.transparency.subtitle"))

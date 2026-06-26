@@ -294,6 +294,12 @@
 "settings.display.pace.bar"           = "Listra na barra";
 "settings.display.pace.text"          = "Texto (No ritmo atual…)";
 
+/* MARK: - Preferências → Exibição → Tema do popover (v2.2.0) */
+"settings.display.theme.label"        = "Tema do popover";
+"settings.display.theme.subtitle"     = "Clássico (terracota) ou Meter (âmbar sobre preto).";
+"settings.display.theme.classic"      = "Clássico";
+"settings.display.theme.meter"        = "Meter";
+
 /* MARK: - Preferências → Sobre */
 "about.app_name"               = "exímIABar";
 "about.version"                = "Versão %@";

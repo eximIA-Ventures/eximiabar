@@ -296,6 +296,12 @@
 "settings.display.pace.bar"           = "Bar stripe";
 "settings.display.pace.text"          = "Text (At current pace…)";
 
+/* MARK: - Settings → Display → Popover theme (v2.2.0) */
+"settings.display.theme.label"        = "Popover theme";
+"settings.display.theme.subtitle"     = "Classic (terracotta) or Meter (amber on black).";
+"settings.display.theme.classic"      = "Classic";
+"settings.display.theme.meter"        = "Meter";
+
 /* MARK: - Settings → About */
 "about.app_name"               = "exímIABar";
 "about.version"                = "Version %@";

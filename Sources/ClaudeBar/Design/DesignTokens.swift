@@ -72,6 +72,43 @@ enum DesignTokens {
         }
     }
 
+    // MARK: - Popover theme (v2.2.0 — opt-in "eximIA Meter" skin)
+
+    /// "eximIA Meter" amber accent `#EB9A2C` — the meter theme's brand colour, in place of terracotta.
+    static let meterAccent = Color(red: 235 / 255, green: 154 / 255, blue: 44 / 255)
+    /// Lighter amber for thin headline glyphs in the meter theme: `#F2A93E`.
+    static let meterAccentText = Color(red: 242 / 255, green: 169 / 255, blue: 62 / 255)
+    /// Deep near-black surface behind the meter theme's card: `#0C0C0E`. Painted over the window
+    /// material only when the meter skin is active, to get the "eximIA Meter" black depth.
+    static let meterSurface = Color(red: 12 / 255, green: 12 / 255, blue: 14 / 255)
+
+    /// The brand accent for a theme: terracotta (classic) or amber (meter). The attention/critical
+    /// bands stay shared amber/red, so the theme switch is just the healthy-band accent swap.
+    static func accent(for theme: PopoverTheme) -> Color {
+        switch theme {
+        case .classic: return brand
+        case .meter: return meterAccent
+        }
+    }
+
+    /// Themed bar fill: the healthy `< 70` band uses the theme accent; attention/critical are shared.
+    static func zoneBarColor(utilization: Double, theme: PopoverTheme) -> Color {
+        switch utilization {
+        case ..<70: return accent(for: theme)
+        case ..<90: return zoneAttentionBar
+        default: return zoneCriticalBar
+        }
+    }
+
+    /// Themed headline-number colour. Healthy band uses the theme accent's lighter text variant.
+    static func zoneTextColor(utilization: Double, theme: PopoverTheme) -> Color {
+        switch utilization {
+        case ..<70: return theme == .meter ? meterAccentText : brand
+        case ..<90: return zoneAttentionText
+        default: return zoneCriticalText
+        }
+    }
+
     // MARK: - Spacing (one vertical rhythm)
 
     /// Between metric rows / sections.

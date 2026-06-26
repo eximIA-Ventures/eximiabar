@@ -52,6 +52,16 @@ struct UsageCardView: View {
         .padding(.horizontal, PopoverStyle.horizontalPadding)
         .padding(.vertical, 10)
         .frame(width: PopoverStyle.panelWidth, alignment: .leading)
+        // Meter skin (v2.2.0): paint a deep near-black card over the window material so the amber
+        // accent reads on black. Classic keeps the translucent material untouched.
+        .background {
+            if self.options.popoverTheme == .meter {
+                RoundedRectangle(cornerRadius: PopoverStyle.cornerRadius)
+                    .fill(DesignTokens.meterSurface)
+            }
+        }
+        // Inject the skin once so every descendant (rows, header badge) reads it from the environment.
+        .environment(\.popoverTheme, self.options.popoverTheme)
     }
 }
 
@@ -59,6 +69,7 @@ struct UsageCardView: View {
 
 private struct HeaderSection: View {
     let snapshot: DisplaySnapshot?
+    @Environment(\.popoverTheme) private var popoverTheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: PopoverStyle.headerLineSpacing) {
@@ -90,12 +101,33 @@ private struct HeaderSection: View {
                     CopyIconButton(copyText: message)
                 }
                 if let plan = self.snapshot?.plan {
-                    Text(plan.compactLoginMethod)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    PlanBadge(text: plan.compactLoginMethod, isMeter: self.popoverTheme == .meter)
                 }
             }
+        }
+    }
+}
+
+/// The plan label ("Max"). Classic: plain secondary text. Meter: an amber outlined pill that echoes
+/// the "Max · 20×" badge of the eximIA Meter reference, giving the header its signature accent.
+private struct PlanBadge: View {
+    let text: String
+    let isMeter: Bool
+
+    var body: some View {
+        if self.isMeter {
+            Text(self.text)
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(PopoverStyle.meterAccent)
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
+                .overlay(Capsule().stroke(PopoverStyle.meterAccent.opacity(0.55), lineWidth: 1))
+        } else {
+            Text(self.text)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
     }
 }
@@ -284,6 +316,7 @@ private struct MetricsSection: View {
 private struct ModelRow: View {
     let title: String
     let window: RateWindow
+    @Environment(\.popoverTheme) private var popoverTheme
 
     var body: some View {
         HStack(spacing: 10) {
@@ -293,7 +326,7 @@ private struct ModelRow: View {
                 .frame(width: 48, alignment: .leading)
             UsageProgressBar(
                 percent: self.window.utilization,
-                tint: PopoverStyle.zoneBarColor(utilization: self.window.utilization),
+                tint: PopoverStyle.zoneBarColor(utilization: self.window.utilization, theme: self.popoverTheme),
                 accessibilityLabel: L("popover.metric.usage_accessibility", self.title))
             Text(verbatim: "\(Int(self.window.utilization.rounded()))%")
                 .font(.system(size: 12, weight: .medium, design: .rounded))

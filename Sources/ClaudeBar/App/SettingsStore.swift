@@ -475,6 +475,11 @@ final class SettingsStore {
         didSet { scheduleSaveIfChanged(paceDisplayMode, oldValue); onMenuContentChange?() }
     }
 
+    /// The popover skin (v2.2.0). Default `.classic` (terracotta); `.meter` is the opt-in amber look.
+    var popoverTheme: PopoverTheme = .classic {
+        didSet { scheduleSaveIfChanged(popoverTheme, oldValue); onMenuContentChange?() }
+    }
+
     /// The "Menu Content" display preferences plus thresholds, packaged as one immutable value the
     /// popover card renders from (AC5). `AppState` reads this on every card (re)build and on
     /// `onMenuContentChange`.
@@ -486,7 +491,8 @@ final class SettingsStore {
             workdayMarkers: workdayMarkers,
             paceDisplayMode: paceDisplayMode,
             sessionThresholds: sessionThresholds,
-            weeklyThresholds: weeklyThresholds)
+            weeklyThresholds: weeklyThresholds,
+            popoverTheme: popoverTheme)
     }
 
     /// What renders next to the status-item icon (EXB-4.4 AC1). Default `.none` (icon only).
@@ -690,6 +696,7 @@ final class SettingsStore {
         static let globalHotkeyCleared = "settings.globalHotkeyCleared"
         static let transparencyLevel = "settings.transparencyLevel"
         static let themeOverride = "settings.themeOverride"
+        static let popoverTheme = "settings.popoverTheme"
     }
 
     /// Immutable, `Sendable` carrier of every persisted value so the write can hop off-main (AC8).
@@ -720,6 +727,7 @@ final class SettingsStore {
         let globalHotkeyData: Data?
         let transparencyLevel: String
         let themeOverride: String
+        let popoverTheme: String
 
         func write(to defaults: UserDefaults) {
             defaults.set(appLanguage, forKey: Key.appLanguage)
@@ -755,6 +763,7 @@ final class SettingsStore {
             }
             defaults.set(transparencyLevel, forKey: Key.transparencyLevel)
             defaults.set(themeOverride, forKey: Key.themeOverride)
+            defaults.set(popoverTheme, forKey: Key.popoverTheme)
         }
     }
 
@@ -784,7 +793,8 @@ final class SettingsStore {
             menuBarContent: menuBarContent.rawValue,
             globalHotkeyData: globalHotkey.flatMap { try? JSONEncoder().encode($0) },
             transparencyLevel: transparencyLevel.rawValue,
-            themeOverride: themeOverride.rawValue)
+            themeOverride: themeOverride.rawValue,
+            popoverTheme: popoverTheme.rawValue)
     }
 
     /// Hydrate from `UserDefaults`. Missing keys keep the code default (AC8 — settings survive
@@ -875,6 +885,10 @@ final class SettingsStore {
         if let raw = defaults.string(forKey: Key.themeOverride),
            let value = ThemeOverride(rawValue: raw) {
             themeOverride = value
+        }
+        if let raw = defaults.string(forKey: Key.popoverTheme),
+           let value = PopoverTheme(rawValue: raw) {
+            popoverTheme = value
         }
     }
 }

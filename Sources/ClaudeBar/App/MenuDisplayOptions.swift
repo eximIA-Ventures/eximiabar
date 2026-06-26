@@ -26,6 +26,8 @@ struct MenuDisplayOptions: Sendable, Equatable {
     var sessionThresholds: [Int]
     /// Weekly-window warning thresholds (percent remaining, e.g. `[50, 20]`).
     var weeklyThresholds: [Int]
+    /// The popover skin (v2.2.0): `.classic` terracotta or the opt-in `.meter` amber look.
+    var popoverTheme: PopoverTheme
 
     init(
         showUsed: Bool = true,
@@ -34,7 +36,8 @@ struct MenuDisplayOptions: Sendable, Equatable {
         workdayMarkers: WorkdayMarkers = .off,
         paceDisplayMode: PaceDisplayMode = .bar,
         sessionThresholds: [Int] = [50, 20],
-        weeklyThresholds: [Int] = [50, 20])
+        weeklyThresholds: [Int] = [50, 20],
+        popoverTheme: PopoverTheme = .classic)
     {
         self.showUsed = showUsed
         self.showAbsoluteReset = showAbsoluteReset
@@ -43,6 +46,7 @@ struct MenuDisplayOptions: Sendable, Equatable {
         self.paceDisplayMode = paceDisplayMode
         self.sessionThresholds = sessionThresholds
         self.weeklyThresholds = weeklyThresholds
+        self.popoverTheme = popoverTheme
     }
 
     /// The shipping defaults — consumed bars, absolute reset, markers on, no workday pace. Matches the

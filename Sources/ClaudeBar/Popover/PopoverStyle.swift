@@ -31,6 +31,22 @@ enum PopoverStyle {
         DesignTokens.zoneTextColor(utilization: utilization)
     }
 
+    // MARK: - Themed palette (v2.2.0 — opt-in "eximIA Meter" skin), re-exported from `DesignTokens`.
+
+    static let meterAccent = DesignTokens.meterAccent
+
+    static func accent(for theme: PopoverTheme) -> Color {
+        DesignTokens.accent(for: theme)
+    }
+
+    static func zoneBarColor(utilization: Double, theme: PopoverTheme) -> Color {
+        DesignTokens.zoneBarColor(utilization: utilization, theme: theme)
+    }
+
+    static func zoneTextColor(utilization: Double, theme: PopoverTheme) -> Color {
+        DesignTokens.zoneTextColor(utilization: utilization, theme: theme)
+    }
+
     /// Panel width in points (AC4).
     static let panelWidth: CGFloat = 310
 
