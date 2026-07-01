@@ -294,21 +294,26 @@ private struct MetricsSection: View {
                         for: RateWindowID.weekly,
                         barStripeAbsent: pace == nil))
             }
-            // Per-model sub-windows (Opus + Sonnet). The "Por modelo" group label appears only with
-            // 2+ models — a label over a single child is empty ceremony (refinement). Rotinas Diárias
-            // removed; Haiku and routines fold into the weekly global cap (no separate API window).
-            let models: [(id: String, title: String, window: RateWindow)] = [
-                self.snapshot?.opus.map { (RateWindowID.opus, L("popover.metric.opus"), $0) },
-                self.snapshot?.sonnet.map { (RateWindowID.sonnet, L("popover.metric.sonnet"), $0) },
-            ].compactMap { $0 }
-            if !models.isEmpty {
+            // Per-model sub-windows (Opus + Sonnet). Shown as a STABLE PAIR whenever the card has real
+            // window data (session or weekly). The API only returns `seven_day_sonnet` / `seven_day_opus`
+            // when a model has recorded usage in the window; omitting them used to hide the whole
+            // "Por modelo" section, so the bars blinked in and out between fetches. Now a missing model
+            // renders at 0% instead of vanishing — the same 0%-when-absent treatment daily routines get —
+            // so the two bars are a fixture the eye can rely on.
+            if self.snapshot?.session != nil || self.snapshot?.weekly != nil {
+                let opusWindow = self.snapshot?.opus
+                    ?? RateWindow(utilization: 0, resetsAt: nil, windowMinutes: 10080)
+                let sonnetWindow = self.snapshot?.sonnet
+                    ?? RateWindow(utilization: 0, resetsAt: nil, windowMinutes: 10080)
+                let models: [(id: String, title: String, window: RateWindow)] = [
+                    (RateWindowID.opus, L("popover.metric.opus"), opusWindow),
+                    (RateWindowID.sonnet, L("popover.metric.sonnet"), sonnetWindow),
+                ]
                 VStack(alignment: .leading, spacing: 8) {
-                    if models.count >= 2 {
-                        Text(L("popover.metric.by_model"))
-                            .font(DesignTokens.Label.section)
-                            .foregroundStyle(.tertiary)
-                            .tracking(DesignTokens.sectionTracking)
-                    }
+                    Text(L("popover.metric.by_model"))
+                        .font(DesignTokens.Label.section)
+                        .foregroundStyle(.tertiary)
+                        .tracking(DesignTokens.sectionTracking)
                     ForEach(models, id: \.id) { model in
                         ModelRow(title: model.title, window: model.window)
                     }
