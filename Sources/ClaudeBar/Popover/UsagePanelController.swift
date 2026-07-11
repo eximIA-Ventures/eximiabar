@@ -24,6 +24,8 @@ final class UsagePanelController: NSObject, NSWindowDelegate {
     private var glassBacking: NSView?
     private let hostingView: NSHostingView<UsageCardView>
     private let actions: UsageCardActions
+    /// App-level system stats source consumed by the card's System section.
+    private let systemProvider: SystemStatsProvider
 
     /// Supplies the current snapshot when the panel needs to (re)build its card.
     private let snapshotProvider: @MainActor () -> DisplaySnapshot?
@@ -41,11 +43,13 @@ final class UsagePanelController: NSObject, NSWindowDelegate {
         snapshotProvider: @escaping @MainActor () -> DisplaySnapshot?,
         actions: UsageCardActions,
         optionsProvider: @escaping @MainActor () -> MenuDisplayOptions = { .default },
+        systemProvider: SystemStatsProvider,
         transparency: TransparencyLevel = .frosted)
     {
         self.snapshotProvider = snapshotProvider
         self.optionsProvider = optionsProvider
         self.actions = actions
+        self.systemProvider = systemProvider
 
         // AC1: nonactivating + titled style mask, status-bar level, buffered, deferred false.
         self.panel = KeyablePanel(
@@ -70,7 +74,11 @@ final class UsagePanelController: NSObject, NSWindowDelegate {
 
         // AC2: single hosting view wrapping the SwiftUI card.
         self.hostingView = NSHostingView(
-            rootView: UsageCardView(snapshot: snapshotProvider(), actions: actions, options: optionsProvider()))
+            rootView: UsageCardView(
+                snapshot: snapshotProvider(),
+                actions: actions,
+                systemProvider: systemProvider,
+                options: optionsProvider()))
         self.hostingView.translatesAutoresizingMaskIntoConstraints = false
 
         super.init()
@@ -293,7 +301,10 @@ final class UsagePanelController: NSObject, NSWindowDelegate {
 
     private func rebuildCard() {
         self.hostingView.rootView = UsageCardView(
-            snapshot: self.snapshotProvider(), actions: self.actions, options: self.optionsProvider())
+            snapshot: self.snapshotProvider(),
+            actions: self.actions,
+            systemProvider: self.systemProvider,
+            options: self.optionsProvider())
     }
 
     /// Rebuild the card so a "Menu Content" preference change (AC5) is reflected immediately while the

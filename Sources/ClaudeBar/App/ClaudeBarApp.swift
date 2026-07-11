@@ -107,6 +107,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         claudeBinaryProvider: { [claudeBinaryHolder] in claudeBinaryHolder.resolve() },
         costSettingsProvider: { [costSettingsHolder] in costSettingsHolder.get() })
     private let notificationPoster = SystemNotificationPoster()
+    /// Continuous system sampler feeding the popover's System section and the system alerts
+    /// (low RAM, Claude footprint, same-repo session collisions).
+    private lazy var systemStatsProvider = SystemStatsProvider(
+        alertNotifier: SystemAlertNotifier(poster: notificationPoster))
     private lazy var appState = AppState(
         fetch: provider.makeFetch(),
         settingsStore: settings,
@@ -214,6 +218,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             snapshotProvider: { [weak self] in self?.appState.snapshot },
             actions: makeCardActions(),
             optionsProvider: { [weak self] in self?.settings.menuDisplayOptions ?? .default },
+            systemProvider: systemStatsProvider,
             transparency: settings.transparencyLevel)
         panelController = panel
 
@@ -223,6 +228,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.onMenuContentChange = { [weak self] in
             self?.panelController?.reflectMenuContentChange()
         }
+
+        // Start the continuous system sampling loop (30 s cadence, off-main syscalls) so idle
+        // tracking and the system alerts run even while the popover stays closed.
+        systemStatsProvider.start()
 
         // EXB-3.1 AC3: re-apply the material to both the popover and the Settings window the instant
         // the transparency level changes — no relaunch, no window recreation (the Settings window

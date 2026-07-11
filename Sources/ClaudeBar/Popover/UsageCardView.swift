@@ -22,6 +22,7 @@ struct UsageCardActions {
 struct UsageCardView: View {
     let snapshot: DisplaySnapshot?
     let actions: UsageCardActions
+    let systemProvider: SystemStatsProvider
     /// The four "Menu Content" display preferences (AC5), resolved from `SettingsStore`. The default
     /// keeps SwiftUI previews and tests that build the card without settings visually stable.
     var options: MenuDisplayOptions = .default
@@ -45,6 +46,9 @@ struct UsageCardView: View {
                 Divider()
                 CostSection(cost: cost, plan: self.snapshot?.plan)
             }
+
+            Divider()
+            SystemSection(provider: self.systemProvider)
 
             Divider()
             ActionSection(showRelogin: self.snapshot?.error?.isAuthOrScope == true, actions: self.actions)

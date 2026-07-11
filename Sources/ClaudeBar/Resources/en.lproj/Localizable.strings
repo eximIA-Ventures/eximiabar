@@ -56,6 +56,28 @@
 "popover.cost.more_models"     = "+%1$d more models";
 "popover.cost.today"           = "Today: %1$@ · %2$@ tokens";
 
+/* MARK: - System section */
+"popover.system.title"           = "System";
+"popover.system.free"            = "%d%% free";
+"popover.system.sampling"        = "Sampling…";
+"popover.system.claude_line"     = "Claude: %1$@ · %2$d sessions";
+"popover.system.claude_line_one" = "Claude: %1$@ · 1 session";
+"popover.system.session_idle"    = "idle %@";
+"popover.system.session_unknown_dir" = "(unknown folder)";
+"popover.system.collision"       = "2+ sessions in %@";
+"popover.system.kill_title"      = "End Claude session?";
+"popover.system.kill_body"       = "The session in %1$@ has been idle for %2$@ and holds %3$@ of RAM. It will be asked to quit (SIGTERM).";
+"popover.system.kill_confirm"    = "End Session";
+"popover.system.kill_cancel"     = "Cancel";
+
+/* MARK: - System notifications */
+"notification.system.low_memory_title"        = "Low memory";
+"notification.system.low_memory_body"         = "Only %1$d%% of RAM free. Claude sessions hold %2$@ across %3$d sessions.";
+"notification.system.claude_footprint_title"  = "Claude sessions are heavy";
+"notification.system.claude_footprint_body"   = "Claude CLI holds %1$@ across %2$d sessions. Consider closing idle ones.";
+"notification.system.collision_title"         = "Two Claude sessions in the same repo";
+"notification.system.collision_body"          = "%@ has 2+ active sessions — they can overwrite each other's work.";
+
 /* MARK: - Action rows (UsageCardView) */
 "popover.refresh_now"          = "Refresh Now";
 "popover.dashboard"            = "Dashboard";

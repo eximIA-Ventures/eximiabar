@@ -120,4 +120,19 @@ enum PopoverFormatter {
         }
         return "\(count)"
     }
+
+    /// `"3.7 GB"` style memory size (System section / alerts).
+    static func bytes(_ value: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(clamping: value), countStyle: .memory)
+    }
+
+    /// Home-relative path for session rows: `"~/eximiabar"`; other roots stay absolute.
+    static func abbreviatePath(_ path: String) -> String {
+        let home = NSHomeDirectory()
+        if path == home { return "~" }
+        if path.hasPrefix(home + "/") {
+            return "~" + path.dropFirst(home.count)
+        }
+        return path
+    }
 }
