@@ -18,6 +18,7 @@ struct GlassRuntimeSmoke {
         let controller = UsagePanelController(
             snapshotProvider: { nil },
             actions: UsageCardActions(),
+            systemProvider: SystemStatsProvider(),
             transparency: TransparencyLevel.frosted)
         let mirror = Mirror(reflecting: controller)
         let panel = mirror.children.first { $0.label == "panel" }!.value as! NSWindow
