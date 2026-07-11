@@ -32,10 +32,11 @@ struct SystemStatsSamplerTests {
         #expect(stats.memoryFreePercent <= 100)
         // Any Mac this runs on has at least 1 GB of RAM.
         #expect(stats.memoryTotalBytes > 1_000_000_000)
-        #expect(stats.claudeSessionCount >= 0)
-        // Sessions and bytes agree: bytes without a session would mean we mis-attributed a process.
-        if stats.claudeSessionCount == 0 {
-            #expect(stats.claudeResidentBytes == 0)
-        }
+        #expect(stats.claudeSessionCount == stats.sessions.count)
+        // Aggregates derive from the session list — they can never disagree.
+        #expect(stats.claudeResidentBytes == stats.sessions.reduce(0) { $0 + $1.residentBytes })
+        // Sorted by resident size descending.
+        let sizes = stats.sessions.map(\.residentBytes)
+        #expect(sizes == sizes.sorted(by: >))
     }
 }

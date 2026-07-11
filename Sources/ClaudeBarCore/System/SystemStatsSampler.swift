@@ -1,6 +1,26 @@
 import Darwin
 import Foundation
 
+/// One live Claude CLI process: identity, where it runs, and what it costs.
+public struct ClaudeSessionInfo: Sendable, Equatable, Identifiable {
+    public var id: Int32 { self.pid }
+    public let pid: Int32
+    /// The process's current working directory — the repo/folder the session runs in.
+    /// Empty when the vnode info could not be read.
+    public let workingDirectory: String
+    public let residentBytes: UInt64
+    /// Total user+system CPU time in **nanoseconds** (converted from Mach time units).
+    /// Only deltas between samples are meaningful; used for idle detection.
+    public let cpuTotalNanos: UInt64
+
+    public init(pid: Int32, workingDirectory: String, residentBytes: UInt64, cpuTotalNanos: UInt64) {
+        self.pid = pid
+        self.workingDirectory = workingDirectory
+        self.residentBytes = residentBytes
+        self.cpuTotalNanos = cpuTotalNanos
+    }
+}
+
 /// A point-in-time reading of the local machine's memory plus the Claude CLI footprint.
 /// Value type so the popover section stays a pure function of one immutable sample.
 public struct SystemStats: Sendable, Equatable {
@@ -10,23 +30,24 @@ public struct SystemStats: Sendable, Equatable {
     public let memoryFreePercent: Double
     /// Total physical RAM (`hw.memsize`).
     public let memoryTotalBytes: UInt64
-    /// Summed resident size of every process named exactly `claude` (the CLI sessions).
-    public let claudeResidentBytes: UInt64
-    /// Number of processes named exactly `claude`.
-    public let claudeSessionCount: Int
+    /// Every live Claude CLI session, sorted by resident size descending.
+    public let sessions: [ClaudeSessionInfo]
     public let sampledAt: Date
+
+    /// Summed resident size of every Claude CLI session.
+    public var claudeResidentBytes: UInt64 { self.sessions.reduce(0) { $0 + $1.residentBytes } }
+    /// Number of live Claude CLI sessions.
+    public var claudeSessionCount: Int { self.sessions.count }
 
     public init(
         memoryFreePercent: Double,
         memoryTotalBytes: UInt64,
-        claudeResidentBytes: UInt64,
-        claudeSessionCount: Int,
+        sessions: [ClaudeSessionInfo],
         sampledAt: Date)
     {
         self.memoryFreePercent = memoryFreePercent
         self.memoryTotalBytes = memoryTotalBytes
-        self.claudeResidentBytes = claudeResidentBytes
-        self.claudeSessionCount = claudeSessionCount
+        self.sessions = sessions
         self.sampledAt = sampledAt
     }
 }
@@ -40,12 +61,10 @@ public enum SystemStatsSampler {
 
     public static func sample(now: Date = Date()) -> SystemStats? {
         guard let memory = Self.memorySample() else { return nil }
-        let claude = Self.claudeSample()
         return SystemStats(
             memoryFreePercent: memory.freePercent,
             memoryTotalBytes: memory.totalBytes,
-            claudeResidentBytes: claude.residentBytes,
-            claudeSessionCount: claude.sessionCount,
+            sessions: Self.claudeSessions(),
             sampledAt: now)
     }
 
@@ -93,19 +112,30 @@ public enum SystemStatsSampler {
         return (path as NSString).lastPathComponent == Self.claudeProcessName
     }
 
-    private static func claudeSample() -> (residentBytes: UInt64, sessionCount: Int) {
+    /// Mach time units → nanoseconds (`pti_total_user`/`pti_total_system` are Mach units on arm64).
+    private static let timebase: mach_timebase_info_data_t = {
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        return info
+    }()
+
+    private static func machToNanos(_ value: UInt64) -> UInt64 {
+        guard Self.timebase.denom > 0 else { return value }
+        return value * UInt64(Self.timebase.numer) / UInt64(Self.timebase.denom)
+    }
+
+    private static func claudeSessions() -> [ClaudeSessionInfo] {
         let declaredCount = proc_listallpids(nil, 0)
-        guard declaredCount > 0 else { return (0, 0) }
+        guard declaredCount > 0 else { return [] }
 
         // Over-allocate: processes can spawn between the count call and the fill call.
         var pids = [pid_t](repeating: 0, count: Int(declaredCount) * 2)
         let filledCount = pids.withUnsafeMutableBufferPointer { buffer in
             proc_listallpids(buffer.baseAddress, Int32(buffer.count * MemoryLayout<pid_t>.size))
         }
-        guard filledCount > 0 else { return (0, 0) }
+        guard filledCount > 0 else { return [] }
 
-        var residentBytes: UInt64 = 0
-        var sessionCount = 0
+        var sessions: [ClaudeSessionInfo] = []
         var nameBuffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
         var pathBuffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
         for pid in pids.prefix(Int(filledCount)) where pid > 0 {
@@ -116,15 +146,33 @@ public enum SystemStatsSampler {
             guard Self.isClaudeCLI(
                 path: String(cString: pathBuffer),
                 name: String(cString: nameBuffer)) else { continue }
-            sessionCount += 1
 
+            var residentBytes: UInt64 = 0
+            var cpuNanos: UInt64 = 0
             var taskInfo = proc_taskinfo()
             let infoSize = Int32(MemoryLayout<proc_taskinfo>.size)
-            let read = proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &taskInfo, infoSize)
-            if read == infoSize {
-                residentBytes += taskInfo.pti_resident_size
+            if proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &taskInfo, infoSize) == infoSize {
+                residentBytes = taskInfo.pti_resident_size
+                cpuNanos = Self.machToNanos(taskInfo.pti_total_user &+ taskInfo.pti_total_system)
             }
+
+            sessions.append(ClaudeSessionInfo(
+                pid: pid,
+                workingDirectory: Self.workingDirectory(of: pid),
+                residentBytes: residentBytes,
+                cpuTotalNanos: cpuNanos))
         }
-        return (residentBytes, sessionCount)
+        return sessions.sorted { $0.residentBytes > $1.residentBytes }
+    }
+
+    private static func workingDirectory(of pid: pid_t) -> String {
+        var vnodeInfo = proc_vnodepathinfo()
+        let size = Int32(MemoryLayout<proc_vnodepathinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &vnodeInfo, size) == size else {
+            return ""
+        }
+        return withUnsafePointer(to: &vnodeInfo.pvi_cdir.vip_path) { pointer in
+            pointer.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) { String(cString: $0) }
+        }
     }
 }

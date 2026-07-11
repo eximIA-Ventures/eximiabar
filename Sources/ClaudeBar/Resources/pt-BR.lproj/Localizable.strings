@@ -60,6 +60,21 @@
 "popover.system.sampling"        = "Medindo…";
 "popover.system.claude_line"     = "Claude: %1$@ · %2$d sessões";
 "popover.system.claude_line_one" = "Claude: %1$@ · 1 sessão";
+"popover.system.session_idle"    = "ociosa %@";
+"popover.system.session_unknown_dir" = "(pasta desconhecida)";
+"popover.system.collision"       = "2+ sessões em %@";
+"popover.system.kill_title"      = "Encerrar sessão do Claude?";
+"popover.system.kill_body"       = "A sessão em %1$@ está ociosa há %2$@ e segura %3$@ de RAM. Ela receberá o pedido de encerrar (SIGTERM).";
+"popover.system.kill_confirm"    = "Encerrar";
+"popover.system.kill_cancel"     = "Cancelar";
+
+/* MARK: - Notificações de sistema */
+"notification.system.low_memory_title"        = "Memória baixa";
+"notification.system.low_memory_body"         = "Só %1$d%% de RAM livre. Sessões Claude seguram %2$@ em %3$d sessões.";
+"notification.system.claude_footprint_title"  = "Sessões Claude pesadas";
+"notification.system.claude_footprint_body"   = "O Claude CLI segura %1$@ em %2$d sessões. Considere fechar as ociosas.";
+"notification.system.collision_title"         = "Duas sessões Claude no mesmo repo";
+"notification.system.collision_body"          = "%@ tem 2+ sessões ativas — uma pode sobrescrever o trabalho da outra.";
 
 /* MARK: - Linhas de ação */
 "popover.refresh_now"          = "Atualizar Agora";
