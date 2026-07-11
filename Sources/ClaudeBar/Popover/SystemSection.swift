@@ -15,19 +15,30 @@ struct SystemSection: View {
     let provider: SystemStatsProvider
 
     @State private var expanded = false
+    /// Active popover skin — the RAM numeral/bar use the same zone palette as the metric rows.
+    @Environment(\.popoverTheme) private var popoverTheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: PopoverStyle.metricInternalSpacing) {
             self.header
 
             if let stats = self.provider.stats {
+                let usedPercent = 100 - stats.memoryFreePercent
                 UsageProgressBar(
-                    percent: 100 - stats.memoryFreePercent,
+                    percent: usedPercent,
+                    tint: PopoverStyle.zoneBarColor(utilization: usedPercent, theme: self.popoverTheme),
                     accessibilityLabel: L("popover.system.free", Int(stats.memoryFreePercent.rounded())))
 
-                Text(Self.claudeLine(stats))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline) {
+                    Text(L("popover.system.free", Int(stats.memoryFreePercent.rounded())))
+                        .font(.footnote)
+                        .lineLimit(1)
+                    Spacer()
+                    Text(Self.claudeLine(stats))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
 
                 ForEach(self.provider.collisionPaths, id: \.self) { path in
                     CollisionWarningRow(path: path)
@@ -67,20 +78,27 @@ struct SystemSection: View {
         Button {
             withAnimation(.easeInOut(duration: 0.12)) { self.expanded.toggle() }
         } label: {
-            HStack(alignment: .firstTextBaseline) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(L("popover.system.title"))
-                    .font(.body)
-                    .fontWeight(.medium)
-                Spacer()
-                if let stats = self.provider.stats {
-                    Text(L("popover.system.free", Int(stats.memoryFreePercent.rounded())))
-                        .font(.footnote)
-                        .fontWeight(.medium)
-                        .foregroundStyle(PopoverStyle.brand)
-                }
-                Image(systemName: self.expanded ? "chevron.down" : "chevron.right")
-                    .font(.footnote)
+                    .font(MetricRow.Prominence.secondary.titleFont)
                     .foregroundStyle(.secondary)
+                    .tracking(DesignTokens.sectionTracking)
+                    .lineLimit(1)
+                Image(systemName: self.expanded ? "chevron.down" : "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                if let stats = self.provider.stats {
+                    // Big numeral = RAM **used** percent, same zone palette and weight as the
+                    // Weekly row, so every big number in the card means "how much is consumed".
+                    let usedPercent = 100 - stats.memoryFreePercent
+                    Text(verbatim: "\(Int(usedPercent.rounded()))%")
+                        .font(MetricRow.Prominence.secondary.numberFont)
+                        .foregroundStyle(PopoverStyle.zoneTextColor(
+                            utilization: usedPercent, theme: self.popoverTheme))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                }
             }
             .contentShape(Rectangle())
         }
