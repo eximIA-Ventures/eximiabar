@@ -54,6 +54,13 @@
 "popover.cost.more_models"     = "+%1$d modelos";
 "popover.cost.today"           = "Hoje: %1$@ · %2$@ tokens";
 
+/* MARK: - Sistema */
+"popover.system.title"           = "Sistema";
+"popover.system.free"            = "%d%% livre";
+"popover.system.sampling"        = "Medindo…";
+"popover.system.claude_line"     = "Claude: %1$@ · %2$d sessões";
+"popover.system.claude_line_one" = "Claude: %1$@ · 1 sessão";
+
 /* MARK: - Linhas de ação */
 "popover.refresh_now"          = "Atualizar Agora";
 "popover.dashboard"            = "Painel";

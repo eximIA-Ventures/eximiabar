@@ -47,6 +47,9 @@ struct UsageCardView: View {
             }
 
             Divider()
+            SystemSection()
+
+            Divider()
             ActionSection(showRelogin: self.snapshot?.error?.isAuthOrScope == true, actions: self.actions)
         }
         .padding(.horizontal, PopoverStyle.horizontalPadding)

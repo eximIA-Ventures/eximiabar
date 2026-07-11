@@ -56,6 +56,13 @@
 "popover.cost.more_models"     = "+%1$d more models";
 "popover.cost.today"           = "Today: %1$@ · %2$@ tokens";
 
+/* MARK: - System section */
+"popover.system.title"           = "System";
+"popover.system.free"            = "%d%% free";
+"popover.system.sampling"        = "Sampling…";
+"popover.system.claude_line"     = "Claude: %1$@ · %2$d sessions";
+"popover.system.claude_line_one" = "Claude: %1$@ · 1 session";
+
 /* MARK: - Action rows (UsageCardView) */
 "popover.refresh_now"          = "Refresh Now";
 "popover.dashboard"            = "Dashboard";
