@@ -6,6 +6,23 @@ import Testing
 /// any Mac rather than fixture equality: a sample exists, percentages are clamped, totals are sane.
 struct SystemStatsSamplerTests {
     @Test
+    func classifiesClaudeCLIByPathNotName() {
+        // Versioned install: the process NAME is the version number, the path is the signal.
+        #expect(SystemStatsSampler.isClaudeCLI(
+            path: "/Users/frm/.local/share/claude/versions/2.1.207", name: "2.1.207"))
+        // Plain binary named claude (e.g. ~/.local/bin/claude).
+        #expect(SystemStatsSampler.isClaudeCLI(path: "/Users/frm/.local/bin/claude", name: "claude"))
+        // Path unreadable → fall back to the process name.
+        #expect(SystemStatsSampler.isClaudeCLI(path: "", name: "claude"))
+        // Non-Claude processes, including the bar itself and the desktop app.
+        #expect(!SystemStatsSampler.isClaudeCLI(
+            path: "/Users/frm/Applications/ExímIABar.app/Contents/MacOS/ClaudeBar", name: "ClaudeBar"))
+        #expect(!SystemStatsSampler.isClaudeCLI(
+            path: "/Applications/Claude.app/Contents/MacOS/Claude", name: "Claude"))
+        #expect(!SystemStatsSampler.isClaudeCLI(path: "/usr/local/bin/node", name: "node"))
+    }
+
+    @Test
     func sampleProducesSaneValues() throws {
         let now = Date(timeIntervalSince1970: 1_750_000_000)
         let stats = try #require(SystemStatsSampler.sample(now: now))

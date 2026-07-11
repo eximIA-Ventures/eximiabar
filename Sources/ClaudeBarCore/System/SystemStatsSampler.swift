@@ -83,6 +83,16 @@ public enum SystemStatsSampler {
 
     // MARK: - Claude processes (libproc)
 
+    /// Whether an executable path/name belongs to a Claude CLI session. The CLI installs as a
+    /// versioned binary (`~/.local/share/claude/versions/2.1.207`), so the *process name* is the
+    /// version number — matching by name alone counts zero sessions. Path is the reliable signal;
+    /// name is the fallback for processes whose path could not be read.
+    static func isClaudeCLI(path: String, name: String) -> Bool {
+        if path.isEmpty { return name == Self.claudeProcessName }
+        if path.contains("/claude/versions/") { return true }
+        return (path as NSString).lastPathComponent == Self.claudeProcessName
+    }
+
     private static func claudeSample() -> (residentBytes: UInt64, sessionCount: Int) {
         let declaredCount = proc_listallpids(nil, 0)
         guard declaredCount > 0 else { return (0, 0) }
@@ -97,12 +107,15 @@ public enum SystemStatsSampler {
         var residentBytes: UInt64 = 0
         var sessionCount = 0
         var nameBuffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        var pathBuffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
         for pid in pids.prefix(Int(filledCount)) where pid > 0 {
             nameBuffer[0] = 0
-            let nameLength = proc_name(pid, &nameBuffer, UInt32(nameBuffer.count))
-            guard nameLength > 0, String(cString: nameBuffer) == Self.claudeProcessName else {
-                continue
-            }
+            pathBuffer[0] = 0
+            _ = proc_name(pid, &nameBuffer, UInt32(nameBuffer.count))
+            _ = proc_pidpath(pid, &pathBuffer, UInt32(pathBuffer.count))
+            guard Self.isClaudeCLI(
+                path: String(cString: pathBuffer),
+                name: String(cString: nameBuffer)) else { continue }
             sessionCount += 1
 
             var taskInfo = proc_taskinfo()

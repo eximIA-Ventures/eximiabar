@@ -23,14 +23,13 @@ struct SystemSection: View {
                     Text(L("popover.system.free", Int(stats.memoryFreePercent.rounded())))
                         .font(.footnote)
                         .fontWeight(.medium)
-                        .foregroundStyle(Self.statusColor(freePercent: stats.memoryFreePercent))
+                        .foregroundStyle(PopoverStyle.brand)
                 }
             }
 
             if let stats = self.stats {
                 UsageProgressBar(
                     percent: 100 - stats.memoryFreePercent,
-                    tint: Self.statusColor(freePercent: stats.memoryFreePercent),
                     accessibilityLabel: L("popover.system.free", Int(stats.memoryFreePercent.rounded())))
 
                 Text(Self.claudeLine(stats))
@@ -46,13 +45,6 @@ struct SystemSection: View {
     }
 
     // MARK: - Presentation
-
-    /// 🟢 comfortable / 🟡 tightening / 🔴 under pressure, keyed on free RAM.
-    private static func statusColor(freePercent: Double) -> Color {
-        if freePercent >= 40 { return Color(nsColor: .systemGreen) }
-        if freePercent >= 20 { return Color(nsColor: .systemYellow) }
-        return Color(nsColor: .systemRed)
-    }
 
     private static func claudeLine(_ stats: SystemStats) -> String {
         let bytes = ByteCountFormatter.string(
