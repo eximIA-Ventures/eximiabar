@@ -34,10 +34,20 @@ if [[ ! -f "${RES_DIR}/AppIcon.icns" ]]; then
 fi
 
 # ── Step 1 — universal release build (AC2a) ────────────────────────────────────
+# SwiftPM's multi-arch mode delegates to `xcbuild`, which only ships with a full
+# Xcode. On a Command Line Tools-only machine it fails with "xcbuild executable
+# […] does not exist"; building each arch separately works fine, and Step 3/4
+# fuse them with lipo. Same class of toolchain gap that Scripts/run-tests.sh
+# works around for swift-testing.
 echo "==> Building universal release (arm64 + x86_64)…"
-swift build -c release --arch arm64 --arch x86_64
-
-BIN_PATH="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
+if swift build -c release --arch arm64 --arch x86_64 2>/dev/null; then
+  BIN_PATH="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
+else
+  echo "==> Multi-arch build unavailable (no xcbuild) — building each arch separately"
+  swift build -c release --arch arm64
+  swift build -c release --arch x86_64
+  BIN_PATH="$(swift build -c release --arch arm64 --show-bin-path)"
+fi
 
 # Resolve a universal binary for a given product. SwiftPM emits a fat binary at
 # BIN_PATH when building with two --arch flags; if a toolchain ever stops doing
