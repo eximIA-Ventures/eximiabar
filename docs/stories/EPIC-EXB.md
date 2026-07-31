@@ -263,6 +263,73 @@ Feature wave com 5 histórias independentes: correção definitiva de visibilida
 
 ---
 
+## Onda 10 (v2.4.0)
+
+**Status:** Ready (validada @po 2026-07-31) | **Target:** v2.4.0 | **Created:** 2026-07-31
+
+Multi-conta Claude + provider Codex enxuto. Design técnico completo em `docs/architecture/onda-10-multi-account-codex.md` (Aria, @architect). Introduz um **roster de contas** alimentado por **captura automática no momento do login** (quando o polling de fingerprint detecta troca de identidade, a conta anterior é arquivada como somente-leitura, nunca renovada), e um **provider Codex** enxuto (apenas OAuth via `~/.codex/auth.json`, sem WebView, sem RPC, sem cost scan). UX: switcher (uma conta/provider em foco por vez), ícone da menu bar sempre ancorado na conta viva do CLI.
+
+**Nota de honestidade documental:** `git tag` mostra releases de **v1.7 até v2.3.2** sem story files correspondentes em `docs/stories/` — este `EPIC-EXB.md` está defasado do código real (a última onda documentada antes desta era a v1.6.0/Onda 9, o HEAD real na baseline desta onda é v2.3.2). Esta seção **não tenta reconstruir retroativamente** as ondas ausentes; a Onda 10 é anexada como continuação direta da Onda 9. Reconciliar o histórico v1.7–v2.3.2 é trabalho documental separado, recomendado para registro em inbox, fora do escopo desta onda.
+
+**Decisões do dono do produto sobre o design do Aria** (seção "6. Decisões" do documento de arquitetura):
+- **D-A:** confirmado — refresh token **não** é arquivado para contas somente-leitura (só `accessToken` + `expiresAt`).
+- **D-B:** confirmado — teto de **8 contas** no roster, evicção LRU.
+- **D-C:** **divergiu** da recomendação do Aria (persistir foco) — o foco do switcher **NUNCA** persiste entre reinícios do app; sempre volta para a conta `.live`. Aplicado em `EXB-5.3` (definição do `WorkspaceSnapshot`) e `EXB-5.5` (switcher).
+- **D-D:** **divergiu** da recomendação do Aria (adiar para Onda 11) — o Codex **participa das notificações de cota** já nesta onda. Aplicado em `EXB-5.3` (wiring do `QuotaNotifier`).
+
+| Order | Story ID | Title | Executor | Rationale |
+|-------|----------|-------|----------|-----------|
+| 1 | EXB-5.1 | Resolução de identidade da conta Claude (`~/.claude.json`) | @dev | Fundação de tudo — `UsageSnapshot.identity` existe mas é sempre `nil`; sem isso não há como detectar troca de conta nem popular o e-mail que o header do popover tenta exibir desde a EXB-1.3 |
+| 2 | EXB-5.2 | Roster de contas: captura no login + persistência somente-leitura | @dev | Depende de 5.1 (indexado por e-mail). `AccountRosterStore` (actor), índice `0600` + segredos em keychain próprio, gancho de captura no polling de fingerprint existente |
+| 3 | EXB-5.4 | Provider Codex enxuto (OAuth via `~/.codex/auth.json`) | @dev | Só depende de `AccountKey` (5.1) — pode rodar em paralelo com 5.2. `CodexAuthStore`, decode de JWT, `CodexUsageFetcher`; regra dura: nunca renovar o token |
+| 4 | EXB-5.3 | `WorkspaceSnapshot` + generalização do `AppState` | @dev | Depende de 5.2 (roster) e 5.4 (painel Codex). Ponto de maior risco arquitetural: uma propriedade armazenada observável, fan-out `async let` com uma única atribuição por ciclo; aplica D-C e D-D |
+| 5 | EXB-5.5 | Switcher no painel + gestão de contas em Settings | @dev | Depende de 5.3. Chip de conta vira lista inline; restrição inegociável: sem `NSMenu`/`Menu`/`NSPopUpButton` |
+| 6 | EXB-5.6 | Release v2.4.0 | @devops | Última por construção — corta a release do código completo da onda, atualiza cask Homebrew e README |
+
+**Execution order:** `5.1 → (5.2 ∥ 5.4) → 5.3 → 5.5 → 5.6` (paralelo se houver dois executores; sequencial puro `5.1 → 5.2 → 5.4 → 5.3 → 5.5 → 5.6` se executor único). **Ordem validada pelo @po** contra as dependências reais declaradas em cada story: coerente, sem ciclo, sem dependência implícita não declarada.
+
+### Validação @po — 2026-07-31 (Pax)
+
+Checklist de 10 pontos aplicado às 6 stories. Veredito: **6 GO, 0 NO-GO** (2 stories exigiram correção bloqueante antes do GO, feita pelo @po sob sua autoridade sobre AC/escopo).
+
+| Story | Nota | Veredito | Correção aplicada |
+|---|:---:|---|---|
+| EXB-5.1 | 9/10 | GO | AC4 estava factualmente errada: `UsageSnapshot.from` não aceita identidade, e trocar o tipo `UsageSnapshot.Identity` por `AccountIdentity` quebraria `DisplaySnapshot.swift:134` + `UsageCardView.swift:92`. AC6 nova (comandos mecânicos). |
+| EXB-5.2 | 9/10 | GO | Tipo `ClaudeCredentials` → `ClaudeOAuthCredentials` (nome real). **AC4.11 nova:** a captura tem de acontecer ANTES da invalidação de cache do polling, senão falha em silêncio sempre. AC8 nova (5 comandos que provam D-A e D-B). |
+| EXB-5.3 | 9/10 | GO *(era NO-GO)* | **Bloqueante:** AC4 mandava alimentar o `QuotaNotifier` por `menuBarSnapshot` **e** monitorar o Codex (D-D) — incompatíveis; o painel Codex não existe dentro desse valor. A D-D morreria na implementação ou custaria uma 2ª propriedade observável (fere I3). AC4.10 muda a entrada para a coleção de painéis `.live`. AC4.11 nova (arquivada nunca notifica). AC6.17 nova (`LiveUsageProvider` como ponto de composição). |
+| EXB-5.4 | 9/10 | GO | Baseline de teste apontava para `EXB-5.2`, com a qual esta story roda **em paralelo** — corrigida para `EXB-5.1`. AC7 nova, incl. prova estrutural da não-renovação (R6 estendida). |
+| EXB-5.5 | 9/10 | GO *(era NO-GO)* | **Bloqueante:** o grep T-R18 (`NSPopUpButton\|NSMenu(`) **não casa com o `Menu` do SwiftUI** — o item mais provável de ser usado por engano, num risco de probabilidade ALTA. Gate falso-verde. Grep ampliado + baseline medida. AC4.9 virou comando literal. AC3.7, AC5.12 e AC6 (localização) novas. |
+| EXB-5.6 | 8/10 | GO | AC0 nova com 6 gates bloqueantes pré-release que só existiam como Dev Notes e Wave DoD sem dono — incl. os 30 min sem pop-up de keychain (R16, o risco que custou a Onda `EXB-3.8` inteira). |
+
+**Decisões do dono sobreviveram como AC verificável:** D-A → `EXB-5.2` AC2.5 + AC8.20 (grep) + teste. D-B → `EXB-5.2` AC3.8 + AC8.23 + teste. D-C → `EXB-5.3` AC5.12-15 + `EXB-5.5` AC4.8-9 (grep literal) + teste. D-D → `EXB-5.3` AC4.9-11 + teste (**só sobreviveu porque a AC4.10 foi adicionada**; como estava escrita, a D-D era estruturalmente inalcançável).
+
+**Invariantes anti-freeze:** nenhuma story permite violar I1/I2/I3/I4/R6-estendida. Ponto de maior exposição era o grep incompleto da `EXB-5.5` (I4), agora fechado.
+
+**Wave DoD** — verificado pelo @qa (Quinn) em 2026-07-31, cada item com evidência executada, não relatada:
+
+- [x] **5 de 6 stories `Done`** — `EXB-5.1` a `EXB-5.5` aprovadas no gate de QA (PASS cada uma). `EXB-5.6` (release) é a única aberta, por construção.
+- [x] **`swift build -c release` sem novos warnings** — `swift build -c release --arch arm64 --scratch-path /tmp/…` (scratch **limpo**, sem cache, para que "zero warnings" seja prova e não artefato de build incremental) → `Build complete! (95.97s)`, **0 warnings, 0 errors**.
+- [x] **`swift test` sem regressão** — `Scripts/run-tests.sh` rodado pelo @qa do zero → **403 testes em 49 suítes, exit 0**, zero linhas `✘` ou `error:` no log. Progressão da onda: 324 (baseline `7b48acb`) → 336 → 367 → 392 → **403**.
+- [x] **Identidade** — provado ponta a ponta por binário descartável linkado contra o `ClaudeBarCore` de **release**, lendo o `~/.claude.json` **real**: `email = hugocapitelli@gmail.com`, idêntico ao `python3 -c json.load(...)['oauthAccount']['emailAddress']`. O gate de fingerprint também foi provado por execução: dois `resolve()` consecutivos deixam `parseCount` em **1 → 1** (o arquivo de 45 KB não é reparseado). `grep -n "identity:" UsageFetcher.swift` = 2 ocorrências, contra **0 na baseline `git show HEAD:`** — D1 fechada de forma medida.
+- [~] **Captura** — **verificado por teste ponta a ponta, não por segunda conta real.** `capturesPreviousCredentialBeforeCacheInvalidation` usa home temporário com `.credentials.json` e `.claude.json` reais e mtime manipulado para simular `claude login`, e assere que o segredo arquivado é `TOKEN-A` (o anterior) e **não** `TOKEN-B`. A ordem que torna isso possível foi confirmada no código: captura na linha 482, invalidação de cache na 484. Não há segunda conta Claude neste ambiente; o `claude login` real fica para o smoke da `EXB-5.6`.
+- [x] **Somente-leitura (T-R9)** — `archivedAccountsNeverTriggerRefreshOrFetch`: 3 contas arquivadas + ciclo completo → exatamente **1 POST + 1 GET**, e a varredura de corpos **e** headers prova que nenhum token arquivado deixou o processo. A contagem não escala com o tamanho do roster.
+- [x] **Invariante I3 (T-I3)** — **provado por mutação pelo @qa**, não por leitura. Substituindo `publish(merged)` por montagem incremental (um `publish` por conta), o teste falha com `(many.writes → 6) == (single.writes → 2)`. Restaurado, `shasum` idêntico. O teste morde pelo motivo certo. *Nota de precisão:* o teste assere **2** escritas (flip do spinner + publicação do agregado), não 1; o invariante que de fato importa e está provado é a **invariância em relação a N** — 5 contas custam o mesmo número de notificações observáveis que 1. O texto anterior deste item ("exatamente uma atribuição") era impreciso e foi corrigido aqui.
+- [x] **Anti-`NSMenu` (T-R18)** — o grep literal deste DoD retorna vazio, **e** o grep ampliado do @po (que inclui o `Menu` do SwiftUI) também. O @qa foi além e varreu o target inteiro incluindo `Picker(`: as únicas ocorrências de menu são 2 `NSMenu()` em `ClaudeBarApp.swift` (menu principal do ⌘,), **pré-existentes com contagem idêntica em `git show HEAD:`**, e 11 `Picker(` em `Settings/`/`Dashboard/`, todos pré-existentes (`git diff` do pane modificado adiciona 5 linhas, **nenhuma** contendo `Picker(`/`Menu(`/`NSPopUpButton`).
+- [x] **Menu bar ancorada** — estrutural: `focusAccount(_:)` faz `publish(next)` e **nada mais**; os 3 `notifier.evaluate*` vivem todos dentro de `completeFetch`. Trocar foco não tem caminho para notificar. Coberto por `menuBarNeverChangesWhenFocusChanges` e `menuBarSnapshotIsUnaffectedByFocusChange`.
+- [x] **D-C** — garantido **por construção**, não por convenção: `WorkspaceSnapshot` é `Sendable, Equatable` e **não é `Codable`**, logo não existe caminho de serialização do foco; o único `init` público fixa `focusedKey = menuBarKey` e o que aceita foco divergente é `private`, alcançável só por `withFocus(_:)` em memória. `grep -rn "focusedKey" | grep -iE "UserDefaults|AppStorage|accounts.json|encode|Codable"` → exit 1.
+- [x] **D-D** — a entrada do notifier é a **coleção** `merged.accounts` (linhas 267/281), nunca o painel em foco — o achado bloqueante do @po está fechado na raiz. O filtro `lifecycle == .live` mora **dentro** do notifier (linha 166), então arquivada nunca notifica independente do call site. Dedup por conta é do tipo: `ThresholdKey(account, window, threshold)` e `DepletionKey(account, window)`.
+- [~] **Codex** — o ramo "ausente" está provado (`missingAuthJsonMeansProviderSimplyAbsent`: `.absent` **e** zero requisições). O ramo "presente com session/weekly **reais**" **NÃO pôde ser verificado**: o `access_token` do `~/.codex/auth.json` real desta máquina **expirou em 2026-07-27**. Contra esse arquivo real, o provider devolve `.expired("expirado — rode \`codex login\`")` com **0 tentativas de rede** — comportamento correto e provado, mas é o ramo terminal, não o caminho feliz. **Requer `codex login` antes do smoke da `EXB-5.6`.** Ver QA-C1 na `EXB-5.4`.
+- [x] **Keychain (R16):** 30 min de uso contínuo (19:49:18 → 20:19:19, 2026-07-31), **zero** diálogos Allow/Deny em 179 amostras. Medido pelo @devops sobre a v2.4.0 já instalada, assinada com a identidade estável. Método e sua limitação declarados na `EXB-5.6`.
+- [~] **Codex presente com dado real** — a pré-condição do @qa foi cumprida: com o `codex login` refeito, `GET wham/usage` devolve **HTTP 200** com `plan_type: plus` e `rate_limit.primary_window.limit_window_seconds: 604800`. O caminho feliz deixou de ser hipótese. Falta apenas a confirmação **visual** do painel no popover.
+- [ ] Release GitHub `v2.4.0` publicada — **RETIDA pelo @devops**. Artefato pronto e verificado (universal, assinado, `sha256 a929f131…`), mas o corte público aguarda GO humano: os gates `AC0.4`, `AC0.5` e `AC0.6` são explicitamente "a olho" e não têm equivalente automatizável, e o `AC4`/`AC5` (Homebrew) partem de premissa caída — o cask está na `1.4.1`, nove releases atrás, e o canal ativo é o auto-updater in-app.
+- [x] App v2.4.0 instalado em `/Applications/ExímIABar.app`; `pgrep -x ClaudeBar` → **54147**.
+
+**Legenda:** `[x]` verificado com evidência executada · `[~]` parcialmente verificado, com a lacuna nomeada · `[ ]` pendente, escopo da `EXB-5.6`.
+
+**Veredito consolidado do @qa:** **APROVADO para a `EXB-5.6`**, com 1 pré-condição (`codex login` antes do smoke) e 2 CONCERNS de severidade baixa registradas nas stories (`QA-C2`: `LiveUsageProvider.makeFetch()` sem teste automatizado, lacuna declarada honestamente pelo @dev; `QA-C3`: divergência documental já corrigida acima).
+
+---
+
 ## Definition of Done (Epic)
 
 - [ ] All 8 stories Done

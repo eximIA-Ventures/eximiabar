@@ -11,6 +11,19 @@ It reads the same OAuth credentials your `claude` CLI uses — and never writes 
 > _Screenshot placeholder — replace `docs/screenshot.png` with a real capture of the
 > menu bar icon + popover._
 
+## Features
+
+- **Live rate-limit meter** in the menu bar — session, weekly and (when reported) Opus windows.
+- **Pace indicator and local cost breakdown** in the popover.
+- **Multiple Claude accounts.** Accounts are captured automatically as you log in and kept
+  in a read-only roster; an inline switcher in the popover lets you inspect any of them.
+  Archived accounts show no live reading, and switching focus never changes the menu bar
+  meter — it stays anchored to the account currently logged in.
+- **Codex provider.** When `~/.codex/auth.json` is present, a Codex pane shows your session
+  and weekly usage alongside Claude. No Codex login, no pane — and no error either.
+- **Read-only by design.** Credentials are read from the same stores the `claude` and
+  `codex` CLIs use, and never written to.
+
 ## Requirements
 
 - macOS 14+ (Sonoma)
