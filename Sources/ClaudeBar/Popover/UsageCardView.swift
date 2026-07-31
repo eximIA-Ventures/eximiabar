@@ -6,6 +6,9 @@ import SwiftUI
 /// `UsageCardView` stays a pure function of the snapshot plus this callback set.
 struct UsageCardActions {
     var refresh: () -> Void = {}
+    /// Move the popover focus to another account (EXB-5.5 AC3.6). Routed to `AppState.focusAccount`,
+    /// which is an in-memory reassignment of the workspace — no fetch, no I/O, no persistence.
+    var focusAccount: (AccountKey) -> Void = { _ in }
     /// Opens the local Swift Charts dashboard window (EXB-2.3 AC1).
     var openLocalDashboard: () -> Void = {}
     /// Opens the Anthropic web usage page in the browser (EXB-2.3 AC1 — renamed "Claude Usage (Web)").
@@ -17,37 +20,51 @@ struct UsageCardActions {
 }
 
 /// The dropdown card (AC7–AC17). Assembles every section top-to-bottom from a single immutable
-/// `DisplaySnapshot`. Purely a function of its inputs (AC21) — no state beyond the local copy-button
-/// animation. Width is fixed at 310 pt (AC4); height is left to SwiftUI auto-sizing (AC2).
+/// `DisplaySnapshot`. Purely a function of its inputs (AC21) — the only local state is presentational
+/// (the copy-button animation, the cost disclosure, and the switcher disclosure below). Width is
+/// fixed at 310 pt (AC4); height is left to SwiftUI auto-sizing (AC2).
+///
+/// ## The account switcher (EXB-5.5)
+///
+/// `workspace` carries every known account. When it holds more than one, the header line turns into a
+/// clickable chip and the card body swaps in place for an inline account list — same `VStack`, same
+/// `NSPanel`, no new window and no AppKit menu anywhere (AC1/AC2).
+///
+/// `isSwitcherOpen` is disclosure state, **not** focus. The focus lives in `WorkspaceSnapshot`
+/// (decision D-C) and reaches this view only through `workspace`; selecting a row calls back out to
+/// `actions.focusAccount` and the new focus arrives on the next render. Nothing here remembers which
+/// account was selected, and nothing here writes to any store.
 struct UsageCardView: View {
     let snapshot: DisplaySnapshot?
     let actions: UsageCardActions
     /// The four "Menu Content" display preferences (AC5), resolved from `SettingsStore`. The default
     /// keeps SwiftUI previews and tests that build the card without settings visually stable.
     var options: MenuDisplayOptions = .default
+    /// Every account the app knows about (EXB-5.3). `nil` for callers that predate multi-account —
+    /// they simply get the card with a non-clickable header, exactly as before.
+    var workspace: WorkspaceSnapshot?
+
+    /// Whether the card body is currently showing the account list instead of the metrics.
+    @State private var isSwitcherOpen = false
+
+    /// The chip is only interactive when there is somewhere to switch to.
+    private var canSwitchAccounts: Bool { (self.workspace?.accounts.count ?? 0) > 1 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HeaderSection(snapshot: self.snapshot)
-
-            Divider() // AC8
-
-            MetricsSection(snapshot: self.snapshot, options: self.options)
-
-            if let extra = self.snapshot?.extraUsage, extra.isEnabled {
-                Divider()
-                ExtraUsageSection(extra: extra)
+            if self.isSwitcherOpen, let workspace = self.workspace {
+                AccountSwitcherListView(
+                    items: AccountSwitcherItem.items(from: workspace),
+                    onSelect: { key in
+                        // Close first, then hand the focus move to `AppState`: the reassignment
+                        // re-renders this card, and the user lands straight on the account they picked.
+                        self.isSwitcherOpen = false
+                        self.actions.focusAccount(key)
+                    },
+                    onBack: { self.isSwitcherOpen = false })
+            } else {
+                self.cardBody
             }
-
-            // AC11: the cost section is present only when a scan produced a `ProviderCost`
-            // (`costEnabled == true`). When cost is disabled it is `nil` and the section is hidden.
-            if let cost = self.snapshot?.cost {
-                Divider()
-                CostSection(cost: cost, plan: self.snapshot?.plan)
-            }
-
-            Divider()
-            ActionSection(showRelogin: self.snapshot?.error?.isAuthOrScope == true, actions: self.actions)
         }
         .padding(.horizontal, PopoverStyle.horizontalPadding)
         .padding(.vertical, 10)
@@ -63,39 +80,62 @@ struct UsageCardView: View {
         // Inject the skin once so every descendant (rows, header badge) reads it from the environment.
         .environment(\.popoverTheme, self.options.popoverTheme)
     }
+
+    /// The card as it has always been: header, metrics, extras, cost, actions.
+    @ViewBuilder
+    private var cardBody: some View {
+        HeaderSection(
+            snapshot: self.snapshot,
+            canSwitchAccounts: self.canSwitchAccounts,
+            onOpenSwitcher: { self.isSwitcherOpen = true })
+
+        Divider() // AC8
+
+        MetricsSection(snapshot: self.snapshot, options: self.options)
+
+        if let extra = self.snapshot?.extraUsage, extra.isEnabled {
+            Divider()
+            ExtraUsageSection(extra: extra)
+        }
+
+        // AC11: the cost section is present only when a scan produced a `ProviderCost`
+        // (`costEnabled == true`). When cost is disabled it is `nil` and the section is hidden.
+        if let cost = self.snapshot?.cost {
+            Divider()
+            CostSection(cost: cost, plan: self.snapshot?.plan)
+        }
+
+        Divider()
+        ActionSection(showRelogin: self.snapshot?.error?.isAuthOrScope == true, actions: self.actions)
+    }
 }
 
 // MARK: - Header (AC7)
 
 private struct HeaderSection: View {
     let snapshot: DisplaySnapshot?
+    /// `true` once the workspace holds more than one account (EXB-5.5 AC1) — the chip is only
+    /// interactive when there is somewhere to switch to.
+    var canSwitchAccounts = false
+    var onOpenSwitcher: () -> Void = {}
+
     @Environment(\.popoverTheme) private var popoverTheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: PopoverStyle.headerLineSpacing) {
-            // Line 1: eximIA symbol + "Claude" + email. The symbol is a template image tinted with the
-            // theme accent (terracotta classic / amber meter), so the popover carries the brand mark.
-            HStack(spacing: 8) {
-                if let logo = EximiaLogo.image(height: 16) {
-                    Image(nsImage: logo)
-                        .renderingMode(.template)
-                        .foregroundStyle(PopoverStyle.accent(for: self.popoverTheme))
-                        .accessibilityHidden(true)
+            // Line 1: the account chip — eximIA symbol + "Claude" + email. The symbol is a template
+            // image tinted with the theme accent (terracotta classic / amber meter), so the popover
+            // carries the brand mark. With several accounts the whole line becomes a button that
+            // swaps the card body for the inline switcher (EXB-5.5 AC1).
+            if self.canSwitchAccounts {
+                Button(action: self.onOpenSwitcher) {
+                    self.chip
+                        .contentShape(Rectangle())
                 }
-                Text(L("popover.provider_name"))
-                    .font(.headline)
-                    .fontWeight(.semibold)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .layoutPriority(1)
-                Spacer()
-                if let email = self.snapshot?.identity.email, !email.isEmpty {
-                    Text(email)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L("switcher.open_accessibility"))
+            } else {
+                self.chip
             }
 
             // Line 2: status (updated / refreshing / error) + plan.
@@ -112,6 +152,40 @@ private struct HeaderSection: View {
                 }
             }
         }
+    }
+
+    /// The chip's content, identical whether or not it is wrapped in a button — so a single-account
+    /// user sees exactly the header EXB-1.3 shipped, with no chevron and nothing to click.
+    private var chip: some View {
+        HStack(spacing: 8) {
+            if let logo = EximiaLogo.image(height: 16) {
+                Image(nsImage: logo)
+                    .renderingMode(.template)
+                    .foregroundStyle(PopoverStyle.accent(for: self.popoverTheme))
+                    .accessibilityHidden(true)
+            }
+            Text(L("popover.provider_name"))
+                .font(.headline)
+                .fontWeight(.semibold)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(1)
+            Spacer()
+            if let email = self.snapshot?.identity.email, !email.isEmpty {
+                Text(email)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            if self.canSwitchAccounts {
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            }
+        }
+        .foregroundStyle(Color(nsColor: .labelColor))
     }
 }
 

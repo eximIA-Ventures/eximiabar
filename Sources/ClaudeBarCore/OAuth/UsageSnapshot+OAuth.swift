@@ -104,3 +104,17 @@ public extension UsageSnapshot {
             currency: currency)
     }
 }
+
+public extension UsageSnapshot.Identity {
+    /// Projects the roster-level `AccountIdentity` onto the display shape the popover header
+    /// already consumes (EXB-5.1 AC4.9).
+    ///
+    /// The two types stay separate deliberately: `AccountIdentity` carries the provider key and
+    /// the org/UUID metadata the roster needs, while this one is the two-field value
+    /// `DisplaySnapshot` and `UsageCardView` were written against. Replacing it would break both.
+    init(_ account: AccountIdentity) {
+        self.init(
+            name: account.displayName ?? account.organizationName ?? account.email,
+            email: account.email)
+    }
+}

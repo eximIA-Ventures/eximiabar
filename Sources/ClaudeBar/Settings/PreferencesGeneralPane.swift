@@ -16,6 +16,9 @@ struct PreferencesGeneralPane: View {
     @Bindable var settings: SettingsStore
     /// Applies the launch-at-login change to `SMAppService` when the toggle flips.
     let launchManager: LaunchAtLoginManager
+    /// The account roster shown in the "Accounts" section (EXB-5.5 AC5). Defaults to an empty port so
+    /// previews and tests can build the pane without a wired roster.
+    var accounts: AccountRosterViewModel = AccountRosterViewModel()
 
     @State private var launchError: String?
 
@@ -41,6 +44,8 @@ struct PreferencesGeneralPane: View {
                 dataSection
                 Divider()
                 connectionSection
+                Divider()
+                AccountsSettingsSection(model: accounts)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)

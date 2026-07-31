@@ -44,7 +44,7 @@ struct AppStateTests {
         let counter = FetchCounter()
         let settings = SettingsStore(defaults: Self.ephemeralDefaults(), refreshCadence: .manual)
         let state = AppState(
-            fetch: { _ in
+            displayFetch: { _ in
                 await counter.increment()
                 // Hold the first fetch open long enough for the burst of triggers to arrive.
                 try? await Task.sleep(for: .milliseconds(50))
@@ -74,7 +74,7 @@ struct AppStateTests {
         let recorder = PhaseRecorder()
         let settings = SettingsStore(defaults: Self.ephemeralDefaults(), refreshCadence: .manual)
         let state = AppState(
-            fetch: { phase in
+            displayFetch: { phase in
                 await recorder.record(phase)
                 return DisplaySnapshot(session: nil, weekly: nil, updatedAt: Date())
             },

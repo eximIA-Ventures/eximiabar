@@ -88,7 +88,7 @@ struct ClaudeBarApp: App {
 ///  1. Request notification authorization once (fire-and-forget).
 ///  2. Launch the watchdog helper if present (no-op if absent — S6).
 ///  3. Kick the startup refresh (`.startup` phase) and start the repeating timer.
-///  4. Observe `AppState.snapshot` and push every change to the status item.
+///  4. Observe `AppState.workspace` and push every change to the status item.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settings = SettingsStore()
@@ -144,9 +144,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         costSettingsHolder.set(enabled: settings.costEnabled, days: settings.costDays)
 
         // EXB-1.5: build the settings window controller (opened from the menu action / ⌘,).
+        // EXB-5.5 AC5: the General tab lists the account roster and can forget an account. It reads
+        // the roster through the provider's port, so the actor itself stays owned by the provider.
         settingsWindowController = SettingsWindowController(
             settings: settings,
-            launchManager: launchManager)
+            launchManager: launchManager,
+            rosterAccess: provider.rosterAccess)
 
         // EXB-2.3: build the local dashboard window controller. It reads the same off-MainActor
         // cost-settings holder and shared `CostScanner` the menu-bar fetch uses, so opening the
@@ -168,12 +171,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // off-MainActor policy holder in lock-step with the live keychain-prompt-policy setting.
         settings.onDisplayModeChange = { [weak self] in
             guard let self else { return }
-            self.statusItemController?.update(snapshot: self.appState.snapshot)
+            self.statusItemController?.update(snapshot: self.appState.menuBarSnapshot)
         }
         // EXB-4.4 AC1 §3: re-render the status item the instant the menu-bar content preference flips.
         settings.onMenuBarContentChange = { [weak self] in
             guard let self else { return }
-            self.statusItemController?.update(snapshot: self.appState.snapshot)
+            self.statusItemController?.update(snapshot: self.appState.menuBarSnapshot)
         }
         // EXB-4.4 AC4 §11: re-register the global shortcut whenever the user rebinds (or clears) it.
         settings.onGlobalHotkeyChange = { [weak self] binding in
@@ -194,7 +197,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.onAppLanguageChange = { [weak self] _ in
             guard let self else { return }
             self.installSettingsShortcutMenu()
-            self.statusItemController?.update(snapshot: self.appState.snapshot)
+            self.statusItemController?.update(snapshot: self.appState.menuBarSnapshot)
         }
         // EXB-1.6: keep the off-MainActor CLI binary holder in lock-step with the live setting.
         settings.onClaudeBinaryChange = { [claudeBinaryHolder] override in
@@ -210,11 +213,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // EXB-1.3: build the popover (NSPanel) and wire its actions. The card reads the live
         // snapshot through the provider closure; opening it triggers a user-initiated refresh (AC6).
         // EXB-3.1 AC3: seed the panel's frosted material from the persisted transparency level.
+        // EXB-5.5 AC1: the card also receives the whole workspace so the header chip can open the
+        // inline account switcher.
         let panel = UsagePanelController(
             snapshotProvider: { [weak self] in self?.appState.snapshot },
             actions: makeCardActions(),
             optionsProvider: { [weak self] in self?.settings.menuDisplayOptions ?? .default },
-            transparency: settings.transparencyLevel)
+            transparency: settings.transparencyLevel,
+            workspaceProvider: { [weak self] in self?.appState.workspace })
         panelController = panel
 
         // AC5: rebuild the open popover card the instant any "Menu Content" toggle flips (consumed vs
@@ -251,7 +257,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appState.launchWatchdogIfPresent()
 
         // Render the initial (empty) state, then start observing.
-        controller.update(snapshot: appState.snapshot)
+        controller.update(snapshot: appState.menuBarSnapshot)
         startObserving(controller: controller)
 
         // AC1: install a minimal main menu so ⌘, routes to the settings window even though the app
@@ -322,6 +328,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             refresh: { [weak self] in
                 self?.appState.triggerRefresh(.userInitiated)
             },
+            focusAccount: { [weak self] key in
+                // EXB-5.5 AC3.6: an in-memory reassignment of the workspace — no fetch, no I/O.
+                self?.appState.focusAccount(key)
+            },
             openLocalDashboard: { [weak self] in
                 // EXB-2.3: open the local Swift Charts dashboard window.
                 self?.dashboardWindowController?.open()
@@ -354,17 +364,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observationTask = Task { @MainActor [weak self, weak controller] in
             while !Task.isCancelled {
                 guard let self, let controller else { return }
-                // Suspend until `snapshot` changes, then re-render. Each iteration re-registers via
-                // `withObservationTracking` (one observable property → one re-render, AC2).
+                // Suspend until `workspace` changes, then re-render. Each iteration re-registers via
+                // `withObservationTracking` (one observable property → one re-render, AC2). Tracking
+                // the stored `workspace` rather than a computed read of it keeps the registration
+                // honest: the icon re-renders once per published cycle, whatever the account count.
                 await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                     withObservationTracking {
-                        _ = self.appState.snapshot
+                        _ = self.appState.workspace
                     } onChange: {
                         continuation.resume()
                     }
                 }
                 guard !Task.isCancelled else { return }
-                controller.update(snapshot: self.appState.snapshot)
+                controller.update(snapshot: self.appState.menuBarSnapshot)
             }
         }
     }

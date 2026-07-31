@@ -17,10 +17,21 @@ enum WindowKind: String, Sendable, Equatable, CaseIterable {
     }
 }
 
-/// A `(window, threshold)` pair already fired, for anti-spam tracking (AC9c).
+/// An `(account, window, threshold)` triple already fired, for anti-spam tracking (AC9c).
+///
+/// The `account` dimension is what makes the Codex provider a first-class notification source
+/// (EXB-5.3, decision D-D): dedup is **per account**, never global per window. A global key would
+/// mean whichever provider crossed 20 % first silences the other one for that window.
 struct ThresholdKey: Hashable, Sendable {
+    let account: AccountKey
     let window: WindowKind
     let threshold: Int
+}
+
+/// An `(account, window)` pair currently flagged depleted — same per-account reasoning.
+struct DepletionKey: Hashable, Sendable {
+    let account: AccountKey
+    let window: WindowKind
 }
 
 /// Notification preferences (AC9/AC10). In S4 these come from a stub on `SettingsStore`;
@@ -115,10 +126,10 @@ protocol QuotaNotificationPosting: AnyObject {
 final class QuotaNotifier {
     private let poster: QuotaNotificationPosting
 
-    /// `(window, threshold)` pairs already warned about (AC9c anti-spam).
+    /// `(account, window, threshold)` triples already warned about (AC9c anti-spam).
     private(set) var firedThresholds: Set<ThresholdKey> = []
-    /// Windows currently flagged depleted (AC9a/AC9b).
-    private(set) var depletedWindows: Set<WindowKind> = []
+    /// `(account, window)` pairs currently flagged depleted (AC9a/AC9b).
+    private(set) var depletedWindows: Set<DepletionKey> = []
     /// Window ids for which a predictive (≤30 min) alert has already fired this cycle (EXB-4.3 AC5
     /// §15). Cleared per window once its forecast no longer fires (a window reset removes the
     /// forecast), so the next approach to exhaustion can alert again.
@@ -131,20 +142,65 @@ final class QuotaNotifier {
         self.poster = poster ?? SystemNotificationPoster()
     }
 
-    /// Diff `old` → `new` and post any depleted / restored / threshold notifications.
+    /// The multi-account entry point (EXB-5.3 AC4.10) — the one `AppState` calls.
+    ///
+    /// It takes the **whole pane collection**, not a single `DisplaySnapshot`, for a structural
+    /// reason: a lone `DisplaySnapshot` is one account's reading, so the Codex panel is simply not
+    /// reachable from it and decision D-D would be undeliverable. It also takes the collection
+    /// rather than a pre-filtered "live only" list because the `lifecycle == .live` filter belongs
+    /// **here**, at the entry point — an archived account must be unable to notify no matter what
+    /// the caller passes (AC4.11). Archived accounts are frozen readings; alerting on a quota that
+    /// cannot move is noise by construction.
     ///
     /// - Parameters:
-    ///   - old: the previously published snapshot (`nil` on the first evaluation).
-    ///   - new: the snapshot just published.
+    ///   - panes: every pane of the workspace just published (live and archived alike).
+    ///   - previous: the workspace published before it, for the per-account diff (`nil` on the
+    ///     first evaluation).
     ///   - settings: notification preferences.
+    func evaluate(
+        panes: [WorkspaceSnapshot.AccountPane],
+        previous: WorkspaceSnapshot?,
+        settings: NotificationSettings)
+    {
+        guard settings.enabled else { return }
+        for pane in panes where pane.lifecycle == .live {
+            guard let new = pane.display else { continue }
+            self.evaluate(
+                account: pane.key,
+                old: previous?.pane(for: pane.key)?.display,
+                new: new,
+                settings: settings)
+        }
+    }
+
+    /// Single-account convenience, kept so every pre-multi-account consumer and test compiles
+    /// untouched (AC6.16). Attributes the diff to the live Claude account.
     func evaluate(old: DisplaySnapshot?, new: DisplaySnapshot, settings: NotificationSettings) {
         guard settings.enabled else { return }
+        self.evaluate(
+            account: WorkspaceSnapshot.claudeLiveFallbackKey,
+            old: old,
+            new: new,
+            settings: settings)
+    }
+
+    /// Diff `old` → `new` for one account and post any depleted / restored / threshold
+    /// notifications. Every bit of dedup state is keyed by `account`, so two providers crossing the
+    /// same threshold in the same cycle produce two independent notifications, never one silencing
+    /// the other (D-D).
+    private func evaluate(
+        account: AccountKey,
+        old: DisplaySnapshot?,
+        new: DisplaySnapshot,
+        settings: NotificationSettings)
+    {
         for window in WindowKind.allCases {
             let oldWindow = Self.window(window, in: old)
             let newWindow = Self.window(window, in: new)
             guard let newWindow else { continue }
             self.evaluateWindow(
                 window,
+                account: account,
                 oldRemaining: oldWindow?.remaining,
                 newRemaining: newWindow.remaining,
                 settings: settings)
@@ -182,8 +238,13 @@ final class QuotaNotifier {
 
             // AC5 §16 — defer to the fixed-threshold path: a window already depleted has been
             // covered by `postDepleted`; sending a predictive "≈X min left" on top is noise.
+            // Forecasts are produced for the live Claude pane only (`AppState.enrich`), and the
+            // roster keeps at most one live Claude account, so matching on the provider identifies
+            // that account exactly without the forecast having to carry an `AccountKey`.
             if let kind = WindowKind(rawValue: forecast.windowId),
-               self.depletedWindows.contains(kind) {
+               self.depletedWindows.contains(where: {
+                   $0.window == kind && $0.account.provider == .claude
+               }) {
                 self.predictiveAlertedWindows.insert(forecast.windowId)
                 continue
             }
@@ -212,30 +273,35 @@ final class QuotaNotifier {
 
     private func evaluateWindow(
         _ window: WindowKind,
+        account: AccountKey,
         oldRemaining: Double?,
         newRemaining: Double,
         settings: NotificationSettings)
     {
         // 1. Depleted / restored (AC9a / AC9b).
-        let wasDepleted = self.depletedWindows.contains(window)
+        let depletionKey = DepletionKey(account: account, window: window)
+        let wasDepleted = self.depletedWindows.contains(depletionKey)
         let isDepleted = QuotaNotificationLogic.isDepleted(newRemaining)
 
         if isDepleted, !wasDepleted {
-            self.depletedWindows.insert(window)
-            self.postDepleted(window, settings: settings)
+            self.depletedWindows.insert(depletionKey)
+            self.postDepleted(window, account: account, settings: settings)
         } else if !isDepleted, wasDepleted {
-            self.depletedWindows.remove(window)
-            self.postRestored(window, settings: settings)
+            self.depletedWindows.remove(depletionKey)
+            self.postRestored(window, account: account, settings: settings)
         }
 
         // 2. Threshold warnings (AC9c). Clear any thresholds usage has receded above first.
         let firedForWindow = Set(
-            self.firedThresholds.filter { $0.window == window }.map(\.threshold))
+            self.firedThresholds
+                .filter { $0.account == account && $0.window == window }
+                .map(\.threshold))
         let toClear = QuotaNotificationLogic.thresholdsToClear(
             currentRemaining: newRemaining,
             alreadyFired: firedForWindow)
         for threshold in toClear {
-            self.firedThresholds.remove(ThresholdKey(window: window, threshold: threshold))
+            self.firedThresholds.remove(
+                ThresholdKey(account: account, window: window, threshold: threshold))
         }
 
         let stillFired = firedForWindow.subtracting(toClear)
@@ -250,34 +316,49 @@ final class QuotaNotifier {
                 thresholds: settings.thresholds,
                 alreadyFired: stillFired)
             for threshold in newlyFired {
-                self.firedThresholds.insert(ThresholdKey(window: window, threshold: threshold))
+                self.firedThresholds.insert(
+                    ThresholdKey(account: account, window: window, threshold: threshold))
             }
-            self.postThreshold(window, remaining: newRemaining, threshold: crossed, settings: settings)
+            self.postThreshold(
+                window,
+                account: account,
+                remaining: newRemaining,
+                threshold: crossed,
+                settings: settings)
         }
     }
 
     // MARK: - Posting
 
-    private func postDepleted(_ window: WindowKind, settings: NotificationSettings) {
+    private func postDepleted(
+        _ window: WindowKind,
+        account: AccountKey,
+        settings: NotificationSettings)
+    {
         self.playSoundIfEnabled(settings)
         self.poster.post(
-            idPrefix: "depleted-\(window.rawValue)",
+            idPrefix: Self.idPrefix("depleted-\(window.rawValue)", account: account),
             title: L("popover.provider_name"),
-            body: L("notification.quota_exhausted", window.label),
+            body: L(Self.key("notification.quota_exhausted", account), window.label),
             soundEnabled: false)
     }
 
-    private func postRestored(_ window: WindowKind, settings: NotificationSettings) {
+    private func postRestored(
+        _ window: WindowKind,
+        account: AccountKey,
+        settings: NotificationSettings)
+    {
         self.playSoundIfEnabled(settings)
         self.poster.post(
-            idPrefix: "restored-\(window.rawValue)",
+            idPrefix: Self.idPrefix("restored-\(window.rawValue)", account: account),
             title: L("popover.provider_name"),
-            body: L("notification.quota_restored", window.label),
+            body: L(Self.key("notification.quota_restored", account), window.label),
             soundEnabled: false)
     }
 
     private func postThreshold(
         _ window: WindowKind,
+        account: AccountKey,
         remaining: Double,
         threshold: Int,
         settings: NotificationSettings)
@@ -285,10 +366,26 @@ final class QuotaNotifier {
         let percent = Int(min(100, max(0, remaining)).rounded())
         self.playSoundIfEnabled(settings)
         self.poster.post(
-            idPrefix: "threshold-\(window.rawValue)-\(threshold)",
+            idPrefix: Self.idPrefix("threshold-\(window.rawValue)-\(threshold)", account: account),
             title: L("popover.provider_name"),
-            body: L("notification.quota_remaining", window.label, percent),
+            body: L(Self.key("notification.quota_remaining", account), window.label, percent),
             soundEnabled: false)
+    }
+
+    /// Notification id prefix, suffixed by provider for anything that is not Claude.
+    ///
+    /// Claude keeps the bare prefix on purpose: it is the identifier already shipped, and the
+    /// roster guarantees at most one live Claude account, so there is nothing to disambiguate on
+    /// that side. Codex gets its own prefix so the two notifications coexist in Notification
+    /// Center instead of replacing one another (D-D).
+    private static func idPrefix(_ base: String, account: AccountKey) -> String {
+        account.provider == .claude ? base : "\(base)-\(account.provider.rawValue)"
+    }
+
+    /// The localized key for `account`'s provider. The Claude strings are hard-wired to the word
+    /// "Claude"; a Codex alert must not claim to be one.
+    private static func key(_ base: String, _ account: AccountKey) -> String {
+        account.provider == .claude ? base : "\(base).\(account.provider.rawValue)"
     }
 
     /// AC10: play `NSSound("Glass")` when the sound toggle is on. We trigger the sound here rather

@@ -59,6 +59,12 @@ public actor CredentialsStore {
     /// How layer (e) reads the Claude keychain item. Read live on every `load`, like the prompt
     /// policy, so a settings change is honoured on the next fetch without rebuilding the store.
     private let readStrategyProvider: @Sendable () -> KeychainReadStrategy
+    /// Where account switches are captured (EXB-5.2 AC4). `nil` disables capture entirely, which
+    /// is the default so every existing construction site keeps its exact previous behaviour.
+    private let accountRoster: AccountRosterStore?
+    /// Resolves who is logged in right now (EXB-5.1). Capture needs both this and the roster;
+    /// with either missing it is a no-op.
+    private let identityResolver: ClaudeIdentityResolver?
 
     // MARK: In-memory cache
 
@@ -75,6 +81,13 @@ public actor CredentialsStore {
     func setSecurityCLIReadOverrideForTesting(_ override: SecurityCLIReadOverride?) {
         self.securityCLIReadOverride = override
     }
+
+    /// Test seam: lets the next `load` poll instead of waiting out the 60 s throttle. A test that
+    /// simulates `claude login` needs two consecutive polls; sleeping a minute for each is not an
+    /// option.
+    func expireFingerprintThrottleForTesting() {
+        self.lastFingerprintCheckAt = nil
+    }
     #endif
 
     public init(
@@ -84,7 +97,9 @@ public actor CredentialsStore {
         promptPolicy: PromptPolicy = .onUserAction,
         enableSystemKeychain: Bool = true,
         readStrategy: KeychainReadStrategy = .securityCLIPrimary,
-        cacheKeychainService: String = CredentialsStore.cacheKeychainService)
+        cacheKeychainService: String = CredentialsStore.cacheKeychainService,
+        accountRoster: AccountRosterStore? = nil,
+        identityResolver: ClaudeIdentityResolver? = nil)
     {
         self.init(
             environment: environment,
@@ -93,7 +108,9 @@ public actor CredentialsStore {
             promptPolicyProvider: { promptPolicy },
             enableSystemKeychain: enableSystemKeychain,
             readStrategyProvider: { readStrategy },
-            cacheKeychainService: cacheKeychainService)
+            cacheKeychainService: cacheKeychainService,
+            accountRoster: accountRoster,
+            identityResolver: identityResolver)
     }
 
     /// Designated initializer (EXB-1.5 AC11). The `promptPolicyProvider` and `readStrategyProvider`
@@ -106,7 +123,9 @@ public actor CredentialsStore {
         promptPolicyProvider: @escaping @Sendable () -> PromptPolicy,
         enableSystemKeychain: Bool = true,
         readStrategyProvider: @escaping @Sendable () -> KeychainReadStrategy = { .securityCLIPrimary },
-        cacheKeychainService: String = CredentialsStore.cacheKeychainService)
+        cacheKeychainService: String = CredentialsStore.cacheKeychainService,
+        accountRoster: AccountRosterStore? = nil,
+        identityResolver: ClaudeIdentityResolver? = nil)
     {
         self.environment = environment
         self.homeDirectory = homeDirectory
@@ -115,6 +134,8 @@ public actor CredentialsStore {
         self.enableSystemKeychain = enableSystemKeychain
         self.readStrategyProvider = readStrategyProvider
         self.cacheKeychainService = cacheKeychainService
+        self.accountRoster = accountRoster
+        self.identityResolver = identityResolver
     }
 
     // MARK: Public API
@@ -123,9 +144,10 @@ public actor CredentialsStore {
     /// (e) reads the Claude keychain via the trusted `/usr/bin/security` CLI (prompt-free) and, if
     /// that yields nothing usable, via a no-UI `SecItemCopyMatching` fallback. `phase` is retained
     /// for call-site provenance (and 429-gate / notification decisions upstream).
-    public func load(phase: RefreshPhase = .background) throws -> ClaudeOAuthCredentialRecord {
-        // Throttled fingerprint poll → invalidate caches on change (AC3).
-        self.pollFingerprintsAndInvalidateIfChanged()
+    public func load(phase: RefreshPhase = .background) async throws -> ClaudeOAuthCredentialRecord {
+        // Throttled fingerprint poll → capture the account switch, then invalidate caches (AC3,
+        // EXB-5.2 AC4.11 — that order is load-bearing).
+        await self.pollFingerprintsAndInvalidateIfChanged()
 
         // (a) environment
         if let credentials = self.loadFromEnvironment() {
@@ -424,9 +446,9 @@ public actor CredentialsStore {
 
     // MARK: Fingerprint polling (AC3)
 
-    /// Throttled (≤ once / 60 s). On a change to the file or keychain fingerprint, drops
-    /// the in-memory and keychain caches.
-    private func pollFingerprintsAndInvalidateIfChanged() {
+    /// Throttled (≤ once / 60 s). Captures the current account into the roster and, on a change
+    /// to the file or keychain fingerprint, drops the in-memory and keychain caches.
+    private func pollFingerprintsAndInvalidateIfChanged() async {
         let now = Date()
         if let last = self.lastFingerprintCheckAt,
            now.timeIntervalSince(last) < Self.fingerprintThrottle
@@ -454,12 +476,37 @@ public actor CredentialsStore {
         }
         #endif
 
+        // EXB-5.2 AC4.11 — ORDER IS LOAD-BEARING. The credentials of the account we are leaving
+        // live only in the caches this method is about to drop. Capture first, invalidate after;
+        // the other way round the archive would silently record nothing.
+        await self.captureAccountIntoRoster()
+
         if changed {
             self.log.debug("Credential fingerprint changed — invalidating caches")
             self.cachedRecord = nil
             self.cacheTimestamp = nil
             self.clearCacheKeychain()
         }
+    }
+
+    /// Feeds the account roster (EXB-5.2 AC4). Runs on every poll, not only on a change, so the
+    /// live account is already on record before the switch that archives it happens.
+    ///
+    /// R11 (AC4.12): archiving garbage is worse than missing one cycle. Nothing is written
+    /// unless the previous credentials **and** the identity resolution both succeeded — a
+    /// half-written `.credentials.json` simply waits for the next poll, 60 s later.
+    private func captureAccountIntoRoster() async {
+        guard let accountRoster = self.accountRoster,
+              let identityResolver = self.identityResolver
+        else { return }
+        guard let previous = self.cachedRecord?.credentials else { return }
+        guard let identity = await identityResolver
+            .resolve(accessToken: previous.accessToken)
+        else { return }
+
+        await accountRoster.captureIfIdentityChanged(
+            current: identity,
+            credentials: previous)
     }
 
     /// File fingerprint = (mtime ms, size), serialized as a string (AC3).

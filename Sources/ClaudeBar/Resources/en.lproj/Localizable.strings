@@ -154,6 +154,11 @@
 "notification.quota_restored"  = "Claude %@ quota restored";
 "notification.quota_remaining" = "Claude %1$@ at %2$d%% remaining";
 "notification.predictive_exhaustion" = "Claude %1$@ runs out in ~%2$d min at current pace";
+/* Codex variants (EXB-5.3 D-D): the Codex provider notifies on its own thresholds, so it needs
+   its own wording — the strings above are hard-wired to "Claude". */
+"notification.quota_exhausted.codex" = "Codex %@ quota exhausted";
+"notification.quota_restored.codex"  = "Codex %@ quota restored";
+"notification.quota_remaining.codex" = "Codex %1$@ at %2$d%% remaining";
 
 /* MARK: - Status item tooltip / accessibility */
 "statusitem.tooltip"           = "exímIABar";
@@ -327,3 +332,22 @@
 "update.error.invalid_bundle"  = "Downloaded bundle is invalid.";
 "update.error.install_failed"  = "Update failed: %@";
 "update.error.generic"         = "Update failed. Try again later.";
+
+/* MARK: - Popover → Account switcher (EXB-5.5) */
+"switcher.title"               = "Accounts";
+"switcher.back"                = "Back to usage";
+"switcher.open_accessibility"  = "Switch account";
+"switcher.provider.codex"      = "Codex";
+"switcher.status.live"         = "live";
+"switcher.status.archived"     = "archived";
+"switcher.status.expired"      = "expired — log in to this account again to recapture it";
+"switcher.status.unavailable"  = "unavailable";
+
+/* MARK: - Settings → General → Accounts (EXB-5.5) */
+"settings.accounts.section"    = "Accounts";
+"settings.accounts.readonly_note" = "Archived accounts are read-only: exímIABar never refreshes them and never renews their token. To bring one back, log in to it again with the Claude CLI. Removing an account erases its entry and its stored token.";
+"settings.accounts.empty"      = "No accounts recorded yet.";
+"settings.accounts.remove"     = "Remove";
+"settings.accounts.badge.live" = "live";
+"settings.accounts.badge.archived" = "archived";
+"settings.accounts.badge.expired"  = "expired";

@@ -10,6 +10,9 @@ import SwiftUI
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let settings: SettingsStore
     private let launchManager: LaunchAtLoginManager
+    /// The account roster model rendered by the General tab (EXB-5.5 AC5). Held here so the list
+    /// survives closing and reopening the window.
+    private let accounts: AccountRosterViewModel
     private var window: NSWindow?
     /// The window's frosted backing. Held so `applyTransparency(_:)` can swap the material live on the
     /// already-open window without recreating it (EXB-3.1 AC3).
@@ -21,9 +24,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     /// selected. Typed as `NSView?` so the stored property needs no availability annotation.
     private var glassBacking: NSView?
 
-    init(settings: SettingsStore, launchManager: LaunchAtLoginManager) {
+    init(
+        settings: SettingsStore,
+        launchManager: LaunchAtLoginManager,
+        rosterAccess: AccountRosterAccess = .empty)
+    {
         self.settings = settings
         self.launchManager = launchManager
+        self.accounts = AccountRosterViewModel(access: rosterAccess)
     }
 
     /// Show the settings window, creating it on first use. Brings the app forward (AC10).
@@ -32,13 +40,20 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
 
+        // EXB-5.5: refresh the roster on every open — reopening an existing window fires no
+        // `onAppear`, and the live account may have changed since the window was last shown.
+        accounts.reload()
+
         if let window {
             window.makeKeyAndOrderFront(nil)
             window.center()
             return
         }
 
-        let root = SettingsRootView(settings: settings, launchManager: launchManager)
+        let root = SettingsRootView(
+            settings: settings,
+            launchManager: launchManager,
+            accounts: accounts)
         let hostingView = NSHostingView(rootView: root)
         hostingView.translatesAutoresizingMaskIntoConstraints = false
 

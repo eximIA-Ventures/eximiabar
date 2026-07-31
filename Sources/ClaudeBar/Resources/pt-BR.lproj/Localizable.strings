@@ -152,6 +152,11 @@
 "notification.quota_restored"  = "Cota %@ do Claude restaurada";
 "notification.quota_remaining" = "Claude %1$@ com %2$d%% restante";
 "notification.predictive_exhaustion" = "Claude %1$@ esgota em ~%2$d min no ritmo atual";
+/* Variantes do Codex (EXB-5.3 D-D): o provider Codex notifica os próprios limiares e precisa do
+   próprio texto — as strings acima citam "Claude" literalmente. */
+"notification.quota_exhausted.codex" = "Cota %@ do Codex esgotada";
+"notification.quota_restored.codex"  = "Cota %@ do Codex restaurada";
+"notification.quota_remaining.codex" = "Codex %1$@ com %2$d%% restante";
 
 /* MARK: - Tooltip / acessibilidade do item de menu */
 "statusitem.tooltip"           = "exímIABar";
@@ -325,3 +330,22 @@
 "update.error.invalid_bundle"  = "O pacote baixado é inválido.";
 "update.error.install_failed"  = "Falha na atualização: %@";
 "update.error.generic"         = "Falha na atualização. Tente novamente mais tarde.";
+
+/* MARK: - Popover → Alternador de contas (EXB-5.5) */
+"switcher.title"               = "Contas";
+"switcher.back"                = "Voltar ao consumo";
+"switcher.open_accessibility"  = "Trocar de conta";
+"switcher.provider.codex"      = "Codex";
+"switcher.status.live"         = "ao vivo";
+"switcher.status.archived"     = "arquivada";
+"switcher.status.expired"      = "expirada — faça login nesta conta para recapturar";
+"switcher.status.unavailable"  = "indisponível";
+
+/* MARK: - Preferências → Geral → Contas (EXB-5.5) */
+"settings.accounts.section"    = "Contas";
+"settings.accounts.readonly_note" = "Contas arquivadas são somente-leitura: o exímIABar nunca as atualiza nem renova o token delas. Para reativar uma, faça login nela de novo pelo Claude CLI. Remover uma conta apaga o registro e o token guardado.";
+"settings.accounts.empty"      = "Nenhuma conta registrada ainda.";
+"settings.accounts.remove"     = "Remover";
+"settings.accounts.badge.live" = "ao vivo";
+"settings.accounts.badge.archived" = "arquivada";
+"settings.accounts.badge.expired"  = "expirada";

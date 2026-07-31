@@ -16,15 +16,21 @@ public actor UsageFetcher {
 
     private let transport: HTTPTransport
     private let userAgentVersion: String
+    /// Supplies the account identity the OAuth payload does not carry (EXB-5.1 AC4).
+    /// `nil` disables identity resolution entirely — tests that assert HTTP behaviour pass
+    /// `nil` so no real `~/.claude.json` is ever read.
+    private let identityResolver: ClaudeIdentityResolver?
     private let log = CoreLog.logger(CoreLog.Category.usage)
 
     public init(
         transport: HTTPTransport = HTTPClient(),
-        userAgentVersion: String? = nil)
+        userAgentVersion: String? = nil,
+        identityResolver: ClaudeIdentityResolver? = ClaudeIdentityResolver())
     {
         self.transport = transport
         self.userAgentVersion = Self.normalizedVersion(userAgentVersion)
             ?? Self.fallbackUserAgentVersion
+        self.identityResolver = identityResolver
     }
 
     /// Fetches and maps a snapshot for the given credentials.
@@ -40,10 +46,21 @@ public actor UsageFetcher {
             accessToken: credentials.accessToken,
             mode: mode,
             now: now)
+
+        // The OAuth payload carries no e-mail — the identity comes from `~/.claude.json`
+        // (EXB-5.1 AC4, closing D1: `identity` was hardcoded `nil` until now).
+        var identity: UsageSnapshot.Identity?
+        if let identityResolver = self.identityResolver {
+            identity = await identityResolver
+                .resolve(accessToken: credentials.accessToken)
+                .map(UsageSnapshot.Identity.init)
+        }
+
         return UsageSnapshot.from(
             response,
             rateLimitTier: credentials.rateLimitTier,
             subscriptionType: credentials.subscriptionType,
+            identity: identity,
             source: .oauth,
             now: now)
     }

@@ -28,6 +28,10 @@ final class UsagePanelController: NSObject, NSWindowDelegate {
     /// Supplies the current snapshot when the panel needs to (re)build its card.
     private let snapshotProvider: @MainActor () -> DisplaySnapshot?
 
+    /// Supplies the whole multi-account workspace so the card can draw the inline switcher
+    /// (EXB-5.5). Defaults to `nil`, which yields the pre-multi-account card unchanged.
+    private let workspaceProvider: @MainActor () -> WorkspaceSnapshot?
+
     /// Supplies the current "Menu Content" display options when the panel (re)builds its card (AC5).
     private let optionsProvider: @MainActor () -> MenuDisplayOptions
 
@@ -41,10 +45,12 @@ final class UsagePanelController: NSObject, NSWindowDelegate {
         snapshotProvider: @escaping @MainActor () -> DisplaySnapshot?,
         actions: UsageCardActions,
         optionsProvider: @escaping @MainActor () -> MenuDisplayOptions = { .default },
-        transparency: TransparencyLevel = .frosted)
+        transparency: TransparencyLevel = .frosted,
+        workspaceProvider: @escaping @MainActor () -> WorkspaceSnapshot? = { nil })
     {
         self.snapshotProvider = snapshotProvider
         self.optionsProvider = optionsProvider
+        self.workspaceProvider = workspaceProvider
         self.actions = actions
 
         // AC1: nonactivating + titled style mask, status-bar level, buffered, deferred false.
@@ -70,7 +76,11 @@ final class UsagePanelController: NSObject, NSWindowDelegate {
 
         // AC2: single hosting view wrapping the SwiftUI card.
         self.hostingView = NSHostingView(
-            rootView: UsageCardView(snapshot: snapshotProvider(), actions: actions, options: optionsProvider()))
+            rootView: UsageCardView(
+                snapshot: snapshotProvider(),
+                actions: actions,
+                options: optionsProvider(),
+                workspace: workspaceProvider()))
         self.hostingView.translatesAutoresizingMaskIntoConstraints = false
 
         super.init()
@@ -293,7 +303,10 @@ final class UsagePanelController: NSObject, NSWindowDelegate {
 
     private func rebuildCard() {
         self.hostingView.rootView = UsageCardView(
-            snapshot: self.snapshotProvider(), actions: self.actions, options: self.optionsProvider())
+            snapshot: self.snapshotProvider(),
+            actions: self.actions,
+            options: self.optionsProvider(),
+            workspace: self.workspaceProvider())
     }
 
     /// Rebuild the card so a "Menu Content" preference change (AC5) is reflected immediately while the
@@ -311,6 +324,9 @@ final class UsagePanelController: NSObject, NSWindowDelegate {
                 await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                     withObservationTracking {
                         _ = self.snapshotProvider()
+                        // EXB-5.5: the switcher renders from the whole workspace, so a change that
+                        // only moves the focus (same focused reading) still has to redraw the list.
+                        _ = self.workspaceProvider()
                     } onChange: {
                         continuation.resume()
                     }

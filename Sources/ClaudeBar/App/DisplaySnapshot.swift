@@ -236,6 +236,29 @@ extension DisplaySnapshot {
             sparklineSamples: previous.sparklineSamples)
     }
 
+    /// Returns a copy of this snapshot with the spinner flag flipped, everything else preserved.
+    /// Used when a cycle produces no data: the spinner has to stop without the last good reading
+    /// being discarded.
+    func settingRefreshing(_ isRefreshing: Bool) -> DisplaySnapshot {
+        guard self.isRefreshing != isRefreshing else { return self }
+        return DisplaySnapshot(
+            session: session,
+            weekly: weekly,
+            sonnet: sonnet,
+            opus: opus,
+            dailyRoutines: dailyRoutines,
+            extraUsage: extraUsage,
+            cost: cost,
+            plan: plan,
+            identity: identity,
+            updatedAt: updatedAt,
+            source: source,
+            error: error,
+            isRefreshing: isRefreshing,
+            forecasts: forecasts,
+            sparklineSamples: sparklineSamples)
+    }
+
     /// Returns a copy of this snapshot with `forecasts` (and optionally `sparklineSamples`) replaced —
     /// used by `AppState` to attach the predictor's output after the off-main fetch produced the base
     /// snapshot (EXB-4.3 AC1/T2, EXB-4.4 AC2). Passing `sparklineSamples == nil` preserves the

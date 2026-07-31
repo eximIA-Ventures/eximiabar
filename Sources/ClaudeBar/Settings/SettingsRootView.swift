@@ -19,6 +19,8 @@ import SwiftUI
 struct SettingsRootView: View {
     @Bindable var settings: SettingsStore
     let launchManager: LaunchAtLoginManager
+    /// The account roster surfaced in the General tab (EXB-5.5 AC5).
+    var accounts: AccountRosterViewModel = AccountRosterViewModel()
 
     /// Standard macOS titlebar height; reserved at the top so the tab strip clears the traffic lights
     /// now that the content view spans the full window (`.fullSizeContentView`).
@@ -27,7 +29,10 @@ struct SettingsRootView: View {
     var body: some View {
         VStack(spacing: 0) {
             TabView {
-                PreferencesGeneralPane(settings: settings, launchManager: launchManager)
+                PreferencesGeneralPane(
+                    settings: settings,
+                    launchManager: launchManager,
+                    accounts: accounts)
                     .tabItem { Label(L("settings.tab.general"), systemImage: "gearshape") }
 
                 PreferencesDisplayPane(settings: settings)
