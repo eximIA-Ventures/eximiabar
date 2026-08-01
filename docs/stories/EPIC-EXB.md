@@ -265,7 +265,9 @@ Feature wave com 5 histórias independentes: correção definitiva de visibilida
 
 ## Onda 10 (v2.4.0)
 
-**Status:** Ready (validada @po 2026-07-31) | **Target:** v2.4.0 | **Created:** 2026-07-31
+**Status:** **Done** — [v2.4.0 publicada](https://github.com/eximIA-Ventures/eximiabar/releases/tag/v2.4.0) em 2026-07-31 | **Target:** v2.4.0 | **Created:** 2026-07-31
+
+**Fechamento da onda:** 6 stories (`EXB-5.1` a `EXB-5.6`) em `Done`, 403 testes verdes, build universal assinado, R16 medido em 30 min sem um único pop-up de keychain. Uma pendência aberta e nomeada, não bloqueante: o cask Homebrew (ver DoD abaixo).
 
 Multi-conta Claude + provider Codex enxuto. Design técnico completo em `docs/architecture/onda-10-multi-account-codex.md` (Aria, @architect). Introduz um **roster de contas** alimentado por **captura automática no momento do login** (quando o polling de fingerprint detecta troca de identidade, a conta anterior é arquivada como somente-leitura, nunca renovada), e um **provider Codex** enxuto (apenas OAuth via `~/.codex/auth.json`, sem WebView, sem RPC, sem cost scan). UX: switcher (uma conta/provider em foco por vez), ícone da menu bar sempre ancorado na conta viva do CLI.
 
@@ -321,7 +323,9 @@ Checklist de 10 pontos aplicado às 6 stories. Veredito: **6 GO, 0 NO-GO** (2 st
 - [~] **Codex** — o ramo "ausente" está provado (`missingAuthJsonMeansProviderSimplyAbsent`: `.absent` **e** zero requisições). O ramo "presente com session/weekly **reais**" **NÃO pôde ser verificado**: o `access_token` do `~/.codex/auth.json` real desta máquina **expirou em 2026-07-27**. Contra esse arquivo real, o provider devolve `.expired("expirado — rode \`codex login\`")` com **0 tentativas de rede** — comportamento correto e provado, mas é o ramo terminal, não o caminho feliz. **Requer `codex login` antes do smoke da `EXB-5.6`.** Ver QA-C1 na `EXB-5.4`.
 - [x] **Keychain (R16):** 30 min de uso contínuo (19:49:18 → 20:19:19, 2026-07-31), **zero** diálogos Allow/Deny em 179 amostras. Medido pelo @devops sobre a v2.4.0 já instalada, assinada com a identidade estável. Método e sua limitação declarados na `EXB-5.6`.
 - [~] **Codex presente com dado real** — a pré-condição do @qa foi cumprida: com o `codex login` refeito, `GET wham/usage` devolve **HTTP 200** com `plan_type: plus` e `rate_limit.primary_window.limit_window_seconds: 604800`. O caminho feliz deixou de ser hipótese. Falta apenas a confirmação **visual** do painel no popover.
-- [ ] Release GitHub `v2.4.0` publicada — **RETIDA pelo @devops**. Artefato pronto e verificado (universal, assinado, `sha256 a929f131…`), mas o corte público aguarda GO humano: os gates `AC0.4`, `AC0.5` e `AC0.6` são explicitamente "a olho" e não têm equivalente automatizável, e o `AC4`/`AC5` (Homebrew) partem de premissa caída — o cask está na `1.4.1`, nove releases atrás, e o canal ativo é o auto-updater in-app.
+- [x] **Release GitHub [`v2.4.0`](https://github.com/eximIA-Ventures/eximiabar/releases/tag/v2.4.0) publicada** — asset `EximIABar-2.4.0.zip`, `sha256 a929f131…` idêntico ao calculado antes do upload, `draft:false`. O @devops havia **retido** o corte por causa dos gates "a olho" `AC0.4–0.6`; o Senhor deu GO explícito ("pode publicar para eu atualizar") e a publicação saiu. Os três gates seguem cobertos por teste verde, faltando só a confirmação visual — se divergir, é hotfix.
+- [x] **Auto-updater enxerga a v2.4.0** — verificado contra `api.github.com/repos/eximIA-Ventures/eximiabar/releases/latest` com a mesma lógica do `UpdateChecker`: tag → versão `2.4.0`, primeiro asset `.zip` resolvível, sem `UpdateError.noAsset`.
+- [ ] **Homebrew cask — pendência aberta, não bloqueante.** Cask na `1.4.1`, dez releases atrás; o README ainda oferece `brew install`, que entrega versão obsoleta a quem seguir a instrução. Decisão do Senhor: ressuscitar o cask ou aposentá-lo e limpar o README. **Único débito real da onda.**
 - [x] App v2.4.0 instalado em `/Applications/ExímIABar.app`; `pgrep -x ClaudeBar` → **54147**.
 
 **Legenda:** `[x]` verificado com evidência executada · `[~]` parcialmente verificado, com a lacuna nomeada · `[ ]` pendente, escopo da `EXB-5.6`.

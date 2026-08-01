@@ -1,7 +1,7 @@
 # Story EXB-5.6: Release v2.4.0
 
 **ID:** EXB-5.6
-**Status:** InProgress — release preparada e verificada localmente; corte público retido aguardando GO humano nos gates AC0.4–0.6
+**Status:** Done — [release v2.4.0 publicada](https://github.com/eximIA-Ventures/eximiabar/releases/tag/v2.4.0)
 **Depends on:** EXB-5.1, EXB-5.2, EXB-5.3, EXB-5.4, EXB-5.5 (todas `Done`) — última por construção, corta a release do código completo da onda
 **Epic:** EPIC-EXB
 **Wave:** Onda 10 (v2.4.0)
@@ -50,9 +50,9 @@
 - [x] **T0 — Gates de saúde bloqueantes** (AC0) — 3 de 6 fechados por medição, 3 pendentes de olho humano (ver Evidências)
 - [x] **T1 — Bump versão e teste final** (AC1) — `Sources/ClaudeBar/Info.plist` em `2.4.0`
 - [x] **T2 — Build + empacotamento** (AC2) — `make build`, `ditto`
-- [ ] **T3 — Git + GitHub release** (AC3) — **BLOQUEADO**: aguarda GO humano (AC0.4–0.6 abertos)
-- [ ] **T4 — Atualizar cask Homebrew** (AC4) — **PREMISSA CAÍDA**: cask parado na `1.4.1`, não é o canal ativo
-- [ ] **T5 — Validação do cask** (AC5) — depende de T4
+- [x] **T3 — Git + GitHub release** (AC3) — push, tag `v2.4.0`, release publicada
+- [—] **T4 — Atualizar cask Homebrew** (AC4) — **NÃO EXECUTADO por decisão**: premissa caída, vira pendência separada (ver abaixo)
+- [—] **T5 — Validação do cask** (AC5) — depende de T4
 - [x] **T6 — Migração local** (AC6) — v2.4.0 instalada e rodando (PID 54147)
 - [x] **T7 — README** (AC7) — seção `## Features` com multi-conta + Codex
 
@@ -87,11 +87,30 @@
 | Instalação | `/Applications/ExímIABar.app` = `2.4.0`; `pgrep -x ClaudeBar` → **54147** |
 | Codex ao vivo | `GET wham/usage` → **HTTP 200**, `plan_type: plus`, `rate_limit.primary_window.limit_window_seconds: 604800` |
 
+### Publicação (2026-07-31)
+
+| Item | Valor |
+|:---|:---|
+| Release | <https://github.com/eximIA-Ventures/eximiabar/releases/tag/v2.4.0> |
+| Tag | `v2.4.0` (anotada), commits `681b5b9`, `89c821c`, `c156604` |
+| Asset | `EximIABar-2.4.0.zip` — o GitHub sanitiza o acento, como previsto nas Dev Notes |
+| sha256 publicado | `a929f131f08ec1d8fefd2e218e3887c8001fd100ef7a22a81dd42b288c9f02f8` — **idêntico** ao calculado localmente antes do upload |
+| Estado | `draft: false`, `prerelease: false` |
+| Auto-updater | **enxerga a v2.4.0**. Verificado contra o endpoint real que o `UpdateChecker` consome (`api.github.com/.../releases/latest`), aplicando a mesma lógica do código: `tag_name` `v2.4.0` → versão `2.4.0`, primeiro asset `.zip` = `EximIABar-2.4.0.zip` com `browser_download_url` resolvível. Sem `UpdateError.noAsset`. |
+
+**Nota sobre o teste do auto-updater:** exercitei o endpoint e o parsing, não o clique em *Configurações → Sobre → Verificar atualizações*. Como a máquina do Senhor **já está na 2.4.0** (instalei antes do smoke de 30 min), o botão diria "já está atualizado" e não exercitaria o caminho de download — o teste do endpoint prova mais, não menos.
+
+### Pendência separada, não bloqueante desta release
+
+**Homebrew cask** — decisão adiada pelo Senhor. O cask `eximia-ventures/homebrew-tap` segue na `1.4.1`, dez releases atrás. Duas saídas honestas: (a) ressuscitá-lo com um salto `1.4.1 → 2.4.0`, ou (b) aposentá-lo formalmente e remover as instruções de Homebrew do README, deixando o auto-updater como único caminho documentado. Hoje o README ainda oferece o `brew install`, que entrega uma versão de dez releases atrás a quem seguir a recomendação — **esse é o único débito real aberto desta onda**.
+
 ### Achados que alteram o plano da story
 
 1. **`make build` estava quebrado nesta máquina.** O modo multi-arch do SwiftPM delega ao `xcbuild`, que só existe com Xcode completo — mesma classe de lacuna que o `Scripts/run-tests.sh` já contornava para o swift-testing. Corrigido em `Scripts/package_app.sh`: cada arquitetura é construída em separado e fundida com `lipo`, **preservando o binário universal** do artefato distribuído (nenhuma regressão de compatibilidade Intel).
 2. **AC4/AC5 partem de premissa caída.** O cask `eximia-ventures/homebrew-tap` está na **`1.4.1`**, nove releases atrás do app (`2.3.2`). O canal de distribuição real, confirmado no README (`## Releases` → `Auto-updater`) e nas notas da `v2.3.2` ("Atualize pelo próprio app em Verificar atualizações"), é **GitHub Releases + auto-updater in-app**. Ressuscitar o cask fazendo-o saltar `1.4.1 → 2.4.0` é decisão de distribuição do Senhor, não consequência mecânica desta release — **não executado**.
-3. **PII de terceiro barrada antes do commit.** A `EXB-5.4` continha `rinacapitelli@gmail.com` (conta Codex secundária) e o `account_id` real como evidência de teste. O repositório é **público** e esse endereço **nunca esteve no histórico** (`git log -S` vazio), ao contrário do e-mail do Senhor, que já é público como autor dos commits. Ambos os valores foram redigidos; a evidência preserva o valor probatório (o ponto era a correspondência, não o literal).
+3. **Publicação liberada por GO explícito do Senhor**, com os gates `AC0.4–0.6` ainda sem confirmação visual. Registro a ordem dos fatos para não reescrever a história: eu **retive** o corte público justamente por esses três gates, o Senhor respondeu *"pode publicar para eu atualizar"*, e o dono da régua dispensou a própria régua. Isso é prerrogativa dele, não um gate silenciosamente afrouxado por mim. Os três continuam **cobertos por teste automatizado verde**; o que falta é o olho, e ele pode ser passado a qualquer momento sobre a versão já instalada — se algo divergir, é hotfix, não release abortada.
+
+4. **PII de terceiro barrada antes do commit.** A `EXB-5.4` continha `rinacapitelli@gmail.com` (conta Codex secundária) e o `account_id` real como evidência de teste. O repositório é **público** e esse endereço **nunca esteve no histórico** (`git log -S` vazio), ao contrário do e-mail do Senhor, que já é público como autor dos commits. Ambos os valores foram redigidos; a evidência preserva o valor probatório (o ponto era a correspondência, não o literal).
 
 ---
 
@@ -139,3 +158,4 @@
 | 2026-07-31 | 1.1 | Validação @po: **GO 8/10**. Adicionada AC0 com 6 gates bloqueantes pré-release que estavam apenas em Dev Notes (sugestão) e no Wave DoD (sem dono): stories `Done`, grep anti-freeze ampliado, 30 min sem pop-up de keychain (R16 — o risco que custou a `EXB-3.8` inteira), e checks a olho de D-C, menu bar ancorada e Codex ausente. Item de Wave DoD que não é AC de nenhuma story não é verificado por ninguém. Complexidade estimada. Status → Ready. | @po Pax |
 
 | 2026-07-31 | 1.2 | Execução @devops: AC0.1/0.2/0.3 fechados por medição (403/403 testes, grep limpo, 30 min instrumentados sem prompt de keychain); v2.4.0 empacotada, assinada, universal e instalada. `package_app.sh` corrigido para máquina sem Xcode. **Corte público retido**: AC0.4–0.6 são gates "a olho" e AC4/AC5 partem de premissa caída (cask defasado 9 releases). PII de terceiro redigida antes do commit. | @devops Gage |
+| 2026-07-31 | 1.3 | GO explícito do Senhor ("pode publicar para eu atualizar") destrava o corte retido. Publicadas tag `v2.4.0` e [release](https://github.com/eximIA-Ventures/eximiabar/releases/tag/v2.4.0) com o zip; sha256 publicado confere com o local. Auto-updater verificado contra o endpoint real do `UpdateChecker`. Homebrew **não** tocado por decisão, vira pendência separada. Status → Done. | @devops Gage |
