@@ -1038,3 +1038,37 @@ Lição para os próximos handoffs: **fixar um hash como critério de aceite con
 `swiftc -typecheck … Sources/ClaudeBarCore/Export/*.swift` prova a saúde de quem for **dono da pasta inteira**. Enquanto duas frentes escreviam ali, o glob compilava arquivos alheios e deixava de ser prova sobre uma só frente. Com a propriedade consolidada, volta a ser.
 
 Registro porque ninguém relê o comando: **se a pasta voltar a ter mais de um dono, o gate precisa listar arquivos em vez de usar o glob.**
+
+### 11.13 Retratação — o corpo do commit `c06254a` afirma algo que a medição derrubou
+
+O commit **`c06254a`** (*"fix(export): apaga a terceira cópia do cálculo de dia, em vez de corrigi-la"*) encerra, no último parágrafo, esta frase:
+
+> *"os valores são constantes, então duas rodadas na mesma máquina dão os mesmos bytes, mas as datas são meia-noite local e os bytes não são idênticos entre fusos."*
+
+**A segunda metade é falsa.** Os bytes **são** idênticos entre fusos. Medido rodando os mesmos artefatos sob três `TZ`:
+
+| Artefato | sha256 | `America/Sao_Paulo` | `Asia/Tokyo` | `UTC` |
+|:---|:---|:---:|:---:|:---:|
+| `planilha.xlsx` | `9a5681a9…5247` | ✓ | ✓ | ✓ |
+| `diario.csv` | `85a86713…6787` | ✓ | ✓ | ✓ |
+| `painel.html` | `fa7f3db8…06dc` | ✓ | ✓ | ✓ |
+
+A razão é o próprio remédio da onda: a fixture **nomeia** a data (*"1 de agosto de 2026"*) em vez de derivá-la de um instante, e os dois escritores a convertem de volta ao mesmo dia local em qualquer lugar. Nunca houve perda de reprodutibilidade entre fusos. O que houve foi uma **fixture instável** (`PainelSampleData`, que derivava o início da janela de um instante UTC) descoberta e corrigida nesta mesma onda, e a suíte passou a ser verificada nos três fusos.
+
+**Por que a retratação vive aqui e não no histórico.** A frase foi para uma `main` pública. Reescrever histórico publicado para consertar prosa de commit é um dano maior que o defeito, e o registro fica onde alguém procuraria. As notas das releases `v2.5.1` e `v2.5.2` já foram corrigidas no lugar delas, e a da `v2.5.2` carrega a tabela acima, para o leitor não precisar acreditar em ninguém.
+
+#### Régua da casa — a descrição chega antes da medição, e a medição a corrige
+
+Aconteceu **cinco vezes nesta onda**, sempre na mesma direção, e em nenhuma delas a descrição foi desonesta: foi **confiante**.
+
+| # | O que se descreveu | O que a medição mostrou |
+|:---:|:---|:---|
+| 1 | a suíte tinha 609 testes em 67 suítes | **608/66** — a diferença era um arquivo de andaime criado e apagado no meio da medição |
+| 2 | havia um *"escape de segurança"* a commitar | o escape já existia; o que era novo é o **teste de regressão** que o prova |
+| 3 | a terceira cópia deslocava o eixo dos gráficos | **armadilha latente**, não defeito embarcado: o ramo que a alcançaria não é exercido |
+| 4 | os bytes deixaram de ser reprodutíveis entre fusos | **idênticos nos três** (esta seção) |
+| 5 | `strings \| grep` provaria a correção no binário | probe cego: procura literal onde há **chamada de método**; `nm` provou, e ainda revelou a terceira cópia |
+
+Duas dessas chegaram a ficar **publicadas** por alguns minutos, nas notas de release. Nenhuma sobreviveu como afirmação permanente, e isso não foi sorte: foi medir o que se mandou descrever.
+
+O parentesco com o **instrumento mentiroso** (§11.10) é direto, e é o que torna a régua útil. Ali, o gate responde com precisão a uma pergunta que não é a pergunta. Aqui, a prosa faz o mesmo, uma camada acima: descreve com precisão um sistema que não é o sistema. Um comentário sobre determinismo que nunca foi executado é um palpite com a autoridade de documentação — e é por isso que o cabeçalho de `ExportSampleWorkbook` passou a carregar a saída do comando em vez de um argumento.
