@@ -10,11 +10,27 @@ import Foundation
 ///
 /// All values are fixed constants and all dates are UTC midnights, so the bytes are reproducible.
 enum ExportSampleWorkbook {
-    /// 2026-08-01T00:00:00Z. Excel serial 46235.
-    static let firstDay = Date(timeIntervalSince1970: 1_785_542_400)
+    /// 2026-08-01, **local** midnight.
+    ///
+    /// Local rather than UTC, and the distinction is not pedantry: every date this export handles is a
+    /// `Calendar.current.startOfDay` instant, because that is how the dashboard buckets a day. A UTC
+    /// midnight is not a day boundary anywhere except Greenwich, so a fixture built from one describes
+    /// data the app never produces — and it hid a real defect (see
+    /// ``CSVWriter/isoDay(_:timeZone:)``): dates were formatted in UTC, which shifts every row one day
+    /// back for any owner east of Greenwich. The same choice, for the same reason, is already recorded
+    /// in `PainelSampleData`.
+    /// Built from calendar components, not from an epoch offset: the fixture names a **date**, and the
+    /// instant it resolves to is whatever local midnight is on the machine running the test.
+    static let firstDay: Date = {
+        var partes = DateComponents()
+        partes.year = 2026; partes.month = 8; partes.day = 1
+        return Calendar.current.date(from: partes) ?? Date(timeIntervalSince1970: 1_785_542_400)
+    }()
 
+    /// Adds calendar days, not 86 400 seconds. Across a DST change the two differ by an hour, which is
+    /// enough to move a local midnight onto the neighbouring date.
     static func day(_ offset: Int) -> Date {
-        firstDay.addingTimeInterval(TimeInterval(offset) * 86_400)
+        Calendar.current.date(byAdding: .day, value: offset, to: firstDay) ?? firstDay
     }
 
     static func make() -> XLSXWorkbook {

@@ -114,10 +114,21 @@ public enum CSVWriter {
         return dangerous.contains(first) ? "'" + value : value
     }
 
-    /// `yyyy-MM-dd` in UTC, computed rather than formatted — no locale, no calendar setting, no
-    /// mutable global under strict concurrency.
-    static func isoDay(_ date: Date) -> String {
-        var days = Int(floor(date.timeIntervalSince1970 / 86_400))
+    /// `yyyy-MM-dd` for the day **as the owner's clock sees it**, computed rather than formatted — no
+    /// locale, no calendar setting, no mutable global under strict concurrency.
+    ///
+    /// **The time zone is the whole point, and it used to be wrong.** Every date in this export is a
+    /// local start-of-day: the dashboard buckets days with `Calendar.current.startOfDay`, so
+    /// `2026-08-24` on screen is the instant `2026-08-24T00:00` *local*. Formatting that instant in
+    /// UTC works only west of Greenwich by accident. East of it — Berlin, Tóquio, Sydney — local
+    /// midnight is still the **previous day** in UTC, so every row of `diario.csv` came out shifted one
+    /// day back. No error, no warning, in a file whose entire purpose is to be read by another tool.
+    ///
+    /// The zone is a parameter so the two directions can be tested without changing the process's own
+    /// zone — a test that only runs where the author sits is blind to exactly this defect.
+    static func isoDay(_ date: Date, timeZone: TimeZone = .current) -> String {
+        let local = date.timeIntervalSince1970 + Double(timeZone.secondsFromGMT(for: date))
+        var days = Int(floor(local / 86_400))
         days += 719_468
         let era = (days >= 0 ? days : days - 146_096) / 146_097
         let dayOfEra = days - era * 146_097

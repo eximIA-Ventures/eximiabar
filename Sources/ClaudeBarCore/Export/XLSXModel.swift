@@ -339,8 +339,15 @@ enum XLSXDateSerial {
     /// 29 February 1900 and the offset absorbs it.
     private static let epoch = Date(timeIntervalSince1970: -2_209_161_600)
 
-    /// Days (with fraction) between Excel's epoch and `date`.
-    static func serial(for date: Date) -> Double {
-        date.timeIntervalSince(epoch) / 86_400
+    /// Days (with fraction) between Excel's epoch and `date`, **in the owner's own time zone**.
+    ///
+    /// Excel has no notion of zone: a serial is a wall-clock day. So the conversion has to happen here,
+    /// against the same clock that produced the date — the dashboard's days are
+    /// `Calendar.current.startOfDay` instants. Without the shift, a local midnight east of Greenwich
+    /// lands on the previous day's serial and the whole sheet reads one day early; west of Greenwich it
+    /// lands mid-morning of the right day, which the `yyyy-mm-dd` format hides on screen and a BI tool
+    /// does not. Same defect as ``CSVWriter/isoDay(_:timeZone:)``, in the neighbouring artifact.
+    static func serial(for date: Date, timeZone: TimeZone = .current) -> Double {
+        (date.timeIntervalSince(epoch) + Double(timeZone.secondsFromGMT(for: date))) / 86_400
     }
 }

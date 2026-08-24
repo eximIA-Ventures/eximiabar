@@ -72,9 +72,15 @@ struct XLSXWriterTests {
     ///
     /// 2000-01-01 is serial 36526 — a published value, so this fails if the epoch is off by the Lotus
     /// 1-2-3 leap-year quirk (the classic one-day error).
+    ///
+    /// The instant is the **local** midnight of that date, which is what the app hands the writer
+    /// (`Calendar.current.startOfDay`). A UTC midnight would carry the running machine's offset into
+    /// the serial and land at 36525,92 here — a fixture describing data the app never produces.
     @Test
     func datesAreWrittenAsSerialNumbers() {
-        let millennium = Date(timeIntervalSince1970: 946_684_800) // 2000-01-01T00:00:00Z
+        var partes = DateComponents()
+        partes.year = 2000; partes.month = 1; partes.day = 1
+        let millennium = try! #require(Calendar.current.date(from: partes)) // 2000-01-01, local midnight
         #expect(XLSXDateSerial.serial(for: millennium) == 36_526)
 
         let xml = try! #require(XLSXWriter.cellXML(.date(millennium), row: 1, column: 0))
