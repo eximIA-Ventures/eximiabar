@@ -10,9 +10,12 @@ import Testing
 /// filter bug. These tests pin the data-layer contract so a future regression of the filter itself
 /// would fail here.
 ///
-/// BUG 2 (multi-second freeze): proves the modification-date floor used by the analytics file
-/// pre-filter is computed correctly so files written before the window are skipped without being
-/// read.
+/// BUG 2 (multi-second freeze) was originally fixed by a modification-date floor that skipped files
+/// written before the window, and this suite pinned that floor's arithmetic. EXB-5.7 removed the
+/// floor — with the persisted archive it would have made old logs permanently un-ingestable — so the
+/// freeze is now prevented by not *re*-reading unchanged files instead. That contract lives in
+/// `CostScannerIncrementalAnalyticsTests.wideningThePeriodAfterANarrowScanReadsNoBytes`; what remains
+/// here of BUG 2 is the end-to-end check that entry timestamps, not file mtimes, decide what counts.
 struct DashboardPeriodFilterTests {
     // MARK: - Helpers
 
@@ -115,34 +118,27 @@ struct DashboardPeriodFilterTests {
         #expect(totalTokens(week) != totalTokens(month))
     }
 
-    // MARK: - BUG 2: modification-date floor (AC4 — fast path)
+    // MARK: - BUG 2: what decides whether an entry counts
 
-    /// The file floor is one day before the window's earliest day. A file modified before it cannot
-    /// hold an in-window entry, so the analytics scan skips it unread.
+    /// End-to-end: what a file's *entries* say is what counts, regardless of the file's mtime.
+    ///
+    /// **This assertion was inverted by EXB-5.7 and the inversion is deliberate.** It used to prove
+    /// that a file whose mtime fell below the window floor was skipped unread — the pre-filter that
+    /// made BUG 2's multi-second freeze survivable. The scan no longer has that floor: with the
+    /// persisted archive, a log older than the floor could never be ingested *at all*, and on a
+    /// fresh install that is exactly the history Claude Code's retention is busy deleting. Skipping
+    /// is now decided by `(size, mtime)` against the cache, so an already-ingested old file still
+    /// costs a `stat` and nothing more — the freeze is fixed by not re-reading, not by not reading.
+    ///
+    /// The perf contract BUG 2 cared about is pinned instead by
+    /// `CostScannerIncrementalAnalyticsTests.wideningThePeriodAfterANarrowScanReadsNoBytes`, which
+    /// proves an unchanged file is never opened.
+    ///
+    /// Note the fixture is a deliberate impossibility — the original called it that too. A file with
+    /// a 200-day-old mtime cannot contain entries dated today; mtime is always at least the newest
+    /// entry. Given the contradiction, trusting the entry timestamps is the defensible reading.
     @Test
-    func windowFileFloorIsOneDayBeforeEarliestDay() {
-        let cal = Calendar.current
-        let now = cal.date(from: DateComponents(year: 2026, month: 6, day: 12, hour: 15))!
-        let todayStart = cal.startOfDay(for: now)
-
-        // 7-day window: earliest day is day −6; floor is day −7.
-        let floor7 = CostScanner.windowFileFloor(window: 7, now: now)
-        #expect(floor7 == cal.date(byAdding: .day, value: -7, to: todayStart))
-
-        // 30-day window: floor is day −30.
-        let floor30 = CostScanner.windowFileFloor(window: 30, now: now)
-        #expect(floor30 == cal.date(byAdding: .day, value: -30, to: todayStart))
-
-        // 90-day window: floor is day −90.
-        let floor90 = CostScanner.windowFileFloor(window: 90, now: now)
-        #expect(floor90 == cal.date(byAdding: .day, value: -90, to: todayStart))
-    }
-
-    /// End-to-end: a file whose mtime is well before the window contributes nothing, even though its
-    /// (impossible) in-file timestamps are recent — proving the pre-filter drops it. A separate
-    /// recent file still contributes. (Verifies the skip path doesn't lose real data.)
-    @Test
-    func staleFileIsSkippedRecentFileIsScanned() async throws {
+    func entryTimestampsDecideRegardlessOfFileModificationDate() async throws {
         let dir = try Self.makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let defaults = Self.makeDefaults()
@@ -154,8 +150,8 @@ struct DashboardPeriodFilterTests {
         let recentLine = Self.line(messageId: "r", requestId: "1", input: 50, output: 50, timestamp: Self.iso(now))
         try (recentLine + "\n").data(using: .utf8)!.write(to: recentURL)
 
-        // Stale file: even if it claimed a recent timestamp, an mtime 200 days old places it below the
-        // 7-day floor → skipped unread. We back-date its mtime explicitly.
+        // Back-dated file: mtime 200 days old, but its entries claim today. Under the archive the
+        // entries decide, so its 19 998 tokens count.
         let staleURL = dir.appendingPathComponent("stale.jsonl")
         let staleLine = Self.line(messageId: "s", requestId: "2", input: 9999, output: 9999, timestamp: Self.iso(now))
         try (staleLine + "\n").data(using: .utf8)!.write(to: staleURL)
@@ -165,9 +161,17 @@ struct DashboardPeriodFilterTests {
         let scanner = CostScanner(pricing: Self.fallbackPricing(defaults), defaults: defaults)
         let a = await scanner.scanAnalytics(directories: [dir], windowDays: 7, now: now)
 
-        // Only the recent file's 100 tokens survive; the stale file (mtime −200d) was never read.
         let total = a.byDayModel.reduce(0) { $0 + $1.inputTokens + $1.outputTokens }
-        #expect(total == 100)
-        #expect(a.byProject.first?.totalTokens == 100)
+        #expect(total == 20_098)
+        #expect(a.byProject.first?.totalTokens == 20_098)
+
+        // The window still filters on the *entry* timestamp: an entry genuinely dated 200 days ago
+        // is excluded from a 7-day window even though its file was written moments ago.
+        let backdatedEntry = dir.appendingPathComponent("backdated-entry.jsonl")
+        let oldLine = Self.line(
+            messageId: "o", requestId: "3", input: 7, output: 7, timestamp: Self.iso(oldDate))
+        try (oldLine + "\n").data(using: .utf8)!.write(to: backdatedEntry)
+        let b = await scanner.scanAnalytics(directories: [dir], windowDays: 7, now: now)
+        #expect(b.byDayModel.reduce(0) { $0 + $1.inputTokens + $1.outputTokens } == 20_098)
     }
 }

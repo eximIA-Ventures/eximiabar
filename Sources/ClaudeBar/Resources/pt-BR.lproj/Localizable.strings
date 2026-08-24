@@ -74,6 +74,7 @@
 "dashboard.chart.cost.y_label"     = "USD";
 "dashboard.chart.tokens.title"     = "Tokens por dia";
 "dashboard.chart.tokens.y_label"   = "Tokens";
+"dashboard.chart.tokens.cache_footer" = "%1$@ dos %2$@ tokens de entrada vieram do cache (%3$@)";
 "dashboard.chart.axis.date"        = "Data";
 "dashboard.models.title"           = "Detalhamento por modelo";
 "dashboard.models.col.model"       = "Modelo";
@@ -87,18 +88,27 @@
 /* MARK: - Painel de Análise v2 (EXB-3.2) */
 "dashboard.period.7d"              = "7d";
 "dashboard.period.30d"             = "30d";
-"dashboard.period.90d"             = "90d";
+"dashboard.period.all"             = "Tudo";
 "dashboard.export.csv"             = "Exportar CSV";
 "dashboard.summary.avg_daily"      = "Média diária";
+"dashboard.summary.avg_daily_covered" = "Média diária (%d d com dado)";
 "dashboard.summary.projection"     = "Projeção do mês";
 
 // EXB-4.5 — insights de eficiência
 "dashboard.insights.cache_hit.title"      = "Cache hit";
-"dashboard.insights.cache_hit.savings"    = "~%@ economizados";
+"dashboard.insights.cache_hit.counts"     = "%1$@ de %2$@ de entrada";
 "dashboard.insights.delta.above"          = "+%d%% acima da média";
 "dashboard.insights.delta.below"          = "-%d%% abaixo da média";
 "dashboard.insights.delta.on_average"     = "Na média do período";
 "dashboard.insights.delta.no_usage"       = "Sem uso hoje";
+"dashboard.insights.delta.too_early"      = "Cedo demais para comparar";
+"dashboard.insights.delta.no_baseline"    = "Ainda sem base de comparação";
+"dashboard.insights.month.title"          = "vs. mês anterior";
+"dashboard.insights.month.up"             = "+%d%% em tokens";
+"dashboard.insights.month.down"           = "-%d%% em tokens";
+"dashboard.insights.month.flat"           = "Mesmo ritmo";
+"dashboard.insights.month.range"          = "dias 1-%d de cada mês";
+"dashboard.insights.month.range_truncated" = "dias 1-%d (cortado no mês menor)";
 "dashboard.insights.weekly.title"         = "Esta semana";
 "dashboard.insights.weekly.busiest_day"   = "Dia mais intenso";
 "dashboard.insights.weekly.top_model"     = "Modelo mais usado";

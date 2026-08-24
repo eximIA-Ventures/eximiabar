@@ -76,6 +76,7 @@
 "dashboard.chart.cost.y_label"     = "USD";
 "dashboard.chart.tokens.title"     = "Tokens per day";
 "dashboard.chart.tokens.y_label"   = "Tokens";
+"dashboard.chart.tokens.cache_footer" = "%1$@ of the %2$@ input tokens came from cache (%3$@)";
 "dashboard.chart.axis.date"        = "Date";
 "dashboard.models.title"           = "Model breakdown";
 "dashboard.models.col.model"       = "Model";
@@ -89,18 +90,27 @@
 /* MARK: - Dashboard Analytics v2 (EXB-3.2) */
 "dashboard.period.7d"              = "7d";
 "dashboard.period.30d"             = "30d";
-"dashboard.period.90d"             = "90d";
+"dashboard.period.all"             = "All";
 "dashboard.export.csv"             = "Export CSV";
 "dashboard.summary.avg_daily"      = "Daily average";
+"dashboard.summary.avg_daily_covered" = "Daily average (%d d with data)";
 "dashboard.summary.projection"     = "Month projection";
 
 // EXB-4.5 — efficiency insights
 "dashboard.insights.cache_hit.title"      = "Cache hit";
-"dashboard.insights.cache_hit.savings"    = "~%@ saved";
+"dashboard.insights.cache_hit.counts"     = "%1$@ of %2$@ input";
 "dashboard.insights.delta.above"          = "+%d%% above average";
 "dashboard.insights.delta.below"          = "-%d%% below average";
 "dashboard.insights.delta.on_average"     = "On the period average";
 "dashboard.insights.delta.no_usage"       = "No usage today";
+"dashboard.insights.delta.too_early"      = "Too early to compare";
+"dashboard.insights.delta.no_baseline"    = "No baseline yet";
+"dashboard.insights.month.title"          = "vs. last month";
+"dashboard.insights.month.up"             = "+%d%% in tokens";
+"dashboard.insights.month.down"           = "-%d%% in tokens";
+"dashboard.insights.month.flat"           = "Same pace";
+"dashboard.insights.month.range"          = "days 1-%d of each month";
+"dashboard.insights.month.range_truncated" = "days 1-%d (cut to the shorter month)";
 "dashboard.insights.weekly.title"         = "This week";
 "dashboard.insights.weekly.busiest_day"   = "Busiest day";
 "dashboard.insights.weekly.top_model"     = "Most used model";

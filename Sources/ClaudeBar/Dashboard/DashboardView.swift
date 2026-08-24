@@ -17,11 +17,15 @@ enum DashboardState: Equatable {
 /// this view never does I/O. Charts use Swift Charts, which ships with the macOS SDK.
 struct DashboardView: View {
     let state: DashboardState
-    var period: DashboardPeriod = .thirtyDays
+    /// The shortcut currently lit, or `nil` after the Senhor dragged his own range (EXB-5.8 §8).
+    var atalho: DashboardPeriod? = .thirtyDays
     /// `true` while a background scan is in flight with content already on screen (EXB-3.6 AC3) — the
     /// view keeps the existing charts and floats a non-blocking refresh indicator over them.
     var isRefreshing: Bool = false
     var selectPeriod: (DashboardPeriod) -> Void = { _ in }
+    /// A range dragged over the timeline. Writes into the same span the shortcuts write into — that
+    /// is what keeps a button and a drag from being two different questions (EXB-5.8 §8).
+    var selectRange: (ClosedRange<Date>) -> Void = { _ in }
     var exportCSV: () -> Void = {}
     var openSettings: () -> Void = {}
 
@@ -35,7 +39,7 @@ struct DashboardView: View {
         VStack(spacing: 0) {
             // AC1: the period filter + export button stay pinned at the top for every state.
             DashboardToolbar(
-                period: period,
+                atalho: atalho,
                 selectPeriod: selectPeriod,
                 exportCSV: exportCSV,
                 canExport: canExport)
@@ -74,7 +78,7 @@ struct DashboardView: View {
             if data.isEmpty {
                 CenteredMessageView(systemImage: "tray", message: L("dashboard.empty.message"))
             } else {
-                LoadedDashboard(data: data)
+                LoadedDashboard(data: data, selectRange: selectRange)
             }
         }
     }
@@ -104,16 +108,22 @@ private struct RefreshBanner: View {
 // MARK: - Toolbar (AC1/AC9)
 
 private struct DashboardToolbar: View {
-    let period: DashboardPeriod
+    /// `nil` means no shortcut is lit because the range on screen was dragged (EXB-5.8 §8). The
+    /// segmented control then shows nothing selected, which is honest: none of the three buttons
+    /// describes what is being displayed.
+    let atalho: DashboardPeriod?
     let selectPeriod: (DashboardPeriod) -> Void
     let exportCSV: () -> Void
     let canExport: Bool
 
     var body: some View {
         HStack(spacing: 12) {
-            Picker("", selection: Binding(get: { period }, set: { selectPeriod($0) })) {
+            Picker("", selection: Binding<DashboardPeriod?>(
+                get: { atalho },
+                set: { if let novo = $0 { selectPeriod(novo) } }))
+            {
                 ForEach(DashboardPeriod.allCases) { option in
-                    Text(option.label).tag(option)
+                    Text(option.label).tag(Optional(option))
                 }
             }
             .pickerStyle(.segmented)
@@ -184,9 +194,15 @@ enum DashboardFormat {
     /// Cost with 4 decimal places for the hover annotation (AC11).
     static func preciseCurrency(_ value: Double) -> String { String(format: "$%.4f", value) }
 
-    /// A `0…1` ratio as a percentage with one decimal place (EXB-4.5 AC1): `0.634 → "63.4%"`.
-    static func percent1(_ ratio: Double) -> String {
-        String(format: "%.1f%%", ratio * 100)
+    /// A cache rate `0…1` as a one-decimal percentage that **truncates** (EXB-5.7 §3).
+    ///
+    /// Rounding is what let `0.9996` print as `100.0%` — an absolute the data never reached. One
+    /// uncached token in two and a half million is still one uncached token, and a panel that rounds
+    /// it away is asserting something it cannot back. `100.0%` now appears only at an exact 1.0.
+    static func taxaCache(_ ratio: Double) -> String {
+        let clamped = Swift.min(Swift.max(ratio, 0), 1)
+        guard clamped < 1 else { return "100.0%" }
+        return String(format: "%.1f%%", (clamped * 1_000).rounded(.down) / 10)
     }
 
     /// `"$1.6K"` / `"$3.20"` compact cost for chart-total headers + KPI cards (EXB-3.7 AC18/AC6).
@@ -201,21 +217,20 @@ enum DashboardFormat {
         L("dashboard.total.tokens_cost", tokenCount(tokens), compactCurrency(cost))
     }
 
-    /// Day-axis tick stride keeping labels readable (never truncated) across each period (EXB-3.7 AC8).
-    /// 7d → every day (7 ticks), 30d → every 4 days (≤8 ticks), 90d → every 14 days (≤7 ticks).
-    static func axisStride(for period: DashboardPeriod) -> Int {
-        switch period {
-        case .sevenDays: return 1
-        case .thirtyDays: return 4
-        case .ninetyDays: return 14
-        }
+    /// Day-axis tick stride keeping labels readable (never truncated) at any span (EXB-3.7 AC8).
+    ///
+    /// Derived from the day count rather than switched on three named periods (EXB-5.8 §8): a dragged
+    /// range can be any width, and a `switch` over buttons has no answer for 43 days. Caps the axis at
+    /// 8 labels — 7d → every day, 30d → every 4, 120d → every 15.
+    static func axisStride(forDays days: Int) -> Int {
+        Swift.max(1, Int((Double(Swift.max(1, days)) / 8.0).rounded(.up)))
     }
 }
 
 /// The window's stable per-model colour palette (AC12). A fixed ramp seeded on the brand colour so
 /// the *same* model index maps to the *same* swatch in the donut, the table and the stacked chart.
 enum DashboardPalette {
-    /// Ordered swatch ramp. Index *N* → model *N* (models pre-sorted by cost in `DashboardData`).
+    /// Ordered swatch ramp. Index *N* → model *N* (models pre-sorted by token volume, EXB-5.7 §6).
     static let ramp: [Color] = [
         PopoverStyle.brand,                                   // #CC7C5E brand
         Color(red: 0.35, green: 0.55, blue: 0.78),           // slate blue
@@ -305,17 +320,21 @@ private struct ChartEmptyState: View {
 
 private struct LoadedDashboard: View {
     let data: DashboardData
+    var selectRange: (ClosedRange<Date>) -> Void = { _ in }
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
                 SummaryCardsRow(data: data)                       // AC2
                 // EXB-4.5 AC3: the "This week" wrapped recap — only in the 7-day period.
-                if data.period == .sevenDays {
+                if data.atalho == .sevenDays {
                     WeeklySummarySection(data: data)
                 }
+                // EXB-5.7 §6: tokens lead. The Senhor pays a subscription, so token volume is the
+                // quantity he is actually spending; the dollar figure is an estimate of value
+                // consumed, and it now reads as the supporting chart rather than the headline.
+                StackedTokensChart(data: data, selectRange: selectRange)  // AC4/AC9/AC10 + §8 drag
                 CostPerDayChart(data: data)                       // AC3/AC10/AC11/AC13/AC14
-                StackedTokensChart(data: data)                    // AC4/AC9/AC10/AC13/AC14
                 ModelBreakdownSection(data: data)                 // AC5/AC12/AC13
                 ModelsByDayChart(data: data)                      // EXB-3.7 AC4 (models per day)
                 if !data.byProject.isEmpty {
@@ -338,40 +357,47 @@ private struct SummaryCardsRow: View {
 
     private let columns = [GridItem(.adaptive(minimum: 130), spacing: 12)]
 
-    /// Average daily tokens over the period — `period tokens ÷ span` (EXB-3.7 AC16, avg-daily card).
-    private var averageDailyTokens: Int {
-        let span = max(1, data.period.days)
-        return data.thirtyDayTokens / span
-    }
-
     var body: some View {
         LazyVGrid(columns: columns, spacing: 12) {
-            // EXB-3.7 AC6/AC16: tokens are the headline; cost is the secondary line on every card.
-            // EXB-4.5 AC2: the "Today" card carries the delta-vs-average badge.
+            // EXB-3.7 AC6/AC16 + EXB-5.7 §6: tokens are the headline; cost is the secondary line.
             SummaryCard(
                 title: L("dashboard.summary.today"),
                 tokens: data.todayTokens,
                 cost: data.todayCost,
-                badge: DeltaBadgeModel(delta: data.dailyDelta))
+                badge: DeltaBadgeModel(state: data.dailyDeltaState))
             SummaryCard(title: L("dashboard.summary.last_7_days"), tokens: data.sevenDayTokens, cost: data.sevenDayCost)
             SummaryCard(title: L("dashboard.summary.last_30_days"), tokens: data.thirtyDayTokens, cost: data.thirtyDayCost)
-            SummaryCard(title: L("dashboard.summary.avg_daily"), tokens: averageDailyTokens, cost: data.averageDailyCost)
+            // EXB-5.7 §1: the label names its own divisor. An average whose denominator is invisible
+            // is how the old one hid a ~40% error for so long.
+            SummaryCard(
+                title: L("dashboard.summary.avg_daily_covered", data.diasComDado),
+                tokens: data.averageDailyTokens,
+                cost: data.averageDailyCost)
             SummaryCard(title: L("dashboard.summary.projection"), tokens: data.projectedTokens, cost: data.monthProjection)
-            // EXB-4.5 AC1: cache hit rate as a dedicated KPI card — the efficiency headline. The
-            // secondary line shows the estimated dollars saved by serving those reads from cache.
-            CacheHitCard(hitRate: data.cacheHitRate, savings: data.estimatedCacheSavings)
+            // EXB-5.7 §7: only present when the previous month is covered in full. No card is a
+            // better answer than an invented one.
+            if let comparacao = data.comparacaoMensal {
+                MonthComparisonCard(comparacao: comparacao)
+            }
+            // Cache hit rate as a dedicated KPI card — the efficiency headline, with its two counts.
+            CacheHitCard(
+                hitRate: data.cacheHitRate,
+                cacheTokens: data.tokensDeCache,
+                inputTokens: data.tokensDeEntrada)
         }
     }
 }
 
-/// The delta-vs-average badge model (EXB-4.5 AC2). `nil` `delta` → "Sem uso hoje" (AC2-#7); a `0`
-/// delta → "Na média"; otherwise the signed percentage drives the colour (above-average = warm,
-/// below = green).
+/// The delta-vs-average badge model (EXB-5.7 §2). Carries the *reason* there is no number, so the
+/// badge never has to guess whether a missing delta means "sem uso hoje" or "cedo demais".
 private struct DeltaBadgeModel {
-    let delta: Double?
+    let state: DailyDeltaState
 
-    /// The percentage integer (rounded) shown in the label, or `nil` when there is no usage today.
-    var percent: Int? { delta.map { Int(($0 * 100).rounded()) } }
+    /// The percentage integer (rounded) shown in the label, or `nil` when there is nothing to compare.
+    var percent: Int? {
+        guard case let .comparado(delta) = state else { return nil }
+        return Int((delta * 100).rounded())
+    }
 }
 
 /// One summary card (EXB-3.7 AC6/AC16/AC17): title `.headline`, tokens as the large headline number,
@@ -416,10 +442,16 @@ private struct DeltaBadge: View {
     let model: DeltaBadgeModel
 
     private var text: String {
-        guard let percent = model.percent else { return L("dashboard.insights.delta.no_usage") }
-        if percent > 0 { return L("dashboard.insights.delta.above", percent) }
-        if percent < 0 { return L("dashboard.insights.delta.below", -percent) }
-        return L("dashboard.insights.delta.on_average")
+        switch model.state {
+        case .semUsoHoje: return L("dashboard.insights.delta.no_usage")
+        case .cedoDemais: return L("dashboard.insights.delta.too_early")
+        case .semBase: return L("dashboard.insights.delta.no_baseline")
+        case .comparado:
+            guard let percent = model.percent else { return L("dashboard.insights.delta.on_average") }
+            if percent > 0 { return L("dashboard.insights.delta.above", percent) }
+            if percent < 0 { return L("dashboard.insights.delta.below", -percent) }
+            return L("dashboard.insights.delta.on_average")
+        }
     }
 
     private var tint: Color {
@@ -442,12 +474,65 @@ private struct DeltaBadge: View {
     }
 }
 
-/// The cache-hit KPI card (EXB-4.5 AC1): hit-rate percentage as the headline, estimated savings as the
-/// secondary line. Matches the visual language of the other KPI cards (tokens-first headline slot).
+/// Month-vs-month KPI card (EXB-5.7 §7): the token variation as the headline, and — as the secondary
+/// line — the stretch that was actually compared.
+///
+/// Naming the stretch is not decoration. `1–24` against `1–24` is a fair comparison; `1–24` against a
+/// whole month is not, and looks identical on a card that only shows a percentage.
+private struct MonthComparisonCard: View {
+    let comparacao: ComparacaoMensal
+
+    private var percent: Int { Int((comparacao.variacao * 100).rounded()) }
+
+    private var tint: Color {
+        if percent > 0 { return Color(red: 0.82, green: 0.42, blue: 0.30) }
+        if percent < 0 { return Color(red: 0.30, green: 0.62, blue: 0.40) }
+        return .secondary
+    }
+
+    private var headline: String {
+        if percent > 0 { return L("dashboard.insights.month.up", percent) }
+        if percent < 0 { return L("dashboard.insights.month.down", -percent) }
+        return L("dashboard.insights.month.flat")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(L("dashboard.insights.month.title"))
+                .font(.headline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Text(headline)
+                .font(.system(.title2, design: .rounded).bold().monospacedDigit())
+                .foregroundStyle(tint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(comparacao.truncado
+                ? L("dashboard.insights.month.range_truncated", comparacao.diasComparados)
+                : L("dashboard.insights.month.range", comparacao.diasComparados))
+                .font(.system(.subheadline, design: .rounded).monospacedDigit())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor)))
+    }
+}
+
+/// The cache-hit KPI card: hit rate as the headline, the two absolute counts underneath.
+///
+/// EXB-5.7 §3: the secondary line used to be an estimated dollar saving computed at output prices —
+/// 5,44× the real figure. It is gone. What replaced it is the pair of numbers the percentage is made
+/// of, so the rate can be checked instead of believed.
 private struct CacheHitCard: View {
     @Environment(\.popoverTheme) private var popoverTheme
     let hitRate: Double
-    let savings: Double
+    let cacheTokens: Int
+    let inputTokens: Int
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -455,12 +540,14 @@ private struct CacheHitCard: View {
                 .font(.headline)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-            Text(DashboardFormat.percent1(hitRate))
+            Text(DashboardFormat.taxaCache(hitRate))
                 .font(.system(.title2, design: .rounded).bold().monospacedDigit())
                 .foregroundStyle(PopoverStyle.accent(for: self.popoverTheme))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-            Text(L("dashboard.insights.cache_hit.savings", DashboardFormat.compactCurrency(savings)))
+            Text(L("dashboard.insights.cache_hit.counts",
+                   DashboardFormat.tokenCount(cacheTokens),
+                   DashboardFormat.tokenCount(inputTokens)))
                 .font(.system(.subheadline, design: .rounded).monospacedDigit())
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -581,12 +668,15 @@ private struct WeeklyHighlightCard: View {
 private struct CostPerDayChart: View {
     @Environment(\.popoverTheme) private var popoverTheme
     let data: DashboardData
-    private var entries: [DashboardDailyEntry] { data.dailyCosts }
+    /// EXB-5.7 §5: only the days the archive vouches for get a mark. An uncovered day is a **gap** in
+    /// the series, and Swift Charts renders a gap by simply not being handed the point — which is what
+    /// makes "we never saw this" look different from "nothing happened here".
+    private var entries: [DashboardDailyEntry] { data.dailyCosts.filter(\.coberto) }
 
     /// The day the user is hovering, if any (AC11).
     @State private var selectedDate: Date?
 
-    /// Running cumulative cost over the window — the overlay line (AC3).
+    /// Running cumulative cost over the covered span — the overlay line (AC3).
     private var cumulative: [(date: Date, total: Double)] {
         var running = 0.0
         return entries.map { entry in
@@ -655,8 +745,10 @@ private struct CostPerDayChart: View {
         // EXB-3.7 AC5: bind the two series to brand (daily) / secondary (cumulative) so the colours in
         // the visible legend match the bars and line.
         .chartForegroundStyleScale(domain: [dailyLabel, cumulativeLabel], range: [PopoverStyle.accent(for: self.popoverTheme), Color.secondary])
+        // EXB-5.7 §5.2: the axis keeps the requested window even when the marks do not fill it.
+        .chartXScale(domain: data.windowDomain ?? Date()...Date().addingTimeInterval(86_400))
         .chartXAxis {
-            AxisMarks(values: .stride(by: .day, count: DashboardFormat.axisStride(for: data.period))) { value in
+            AxisMarks(values: .stride(by: .day, count: DashboardFormat.axisStride(forDays: data.spanDays))) { value in
                 AxisGridLine()
                 AxisValueLabel {
                     if let date = value.as(Date.self) {
@@ -768,7 +860,12 @@ private struct TokenBreakdownTooltip: View {
 
 private struct StackedTokensChart: View {
     let data: DashboardData
-    private var entries: [DashboardDailyEntry] { data.dailyTokens }
+    /// Called when the Senhor drags a stretch over this chart (EXB-5.8 §8). The primary chart carries
+    /// the gesture because tokens are the primary quantity — you select time where you read volume.
+    var selectRange: (ClosedRange<Date>) -> Void = { _ in }
+    /// EXB-5.7 §5: no bar for an uncovered day. An absent bar is not a bar of height zero, and that
+    /// difference is the whole point — a zero-height bar states "no usage", which the app cannot know.
+    private var entries: [DashboardDailyEntry] { data.dailyTokens.filter(\.coberto) }
 
     /// One stacked slice per (day, token type). Flattened so Swift Charts can colour by type.
     private struct Slice: Identifiable {
@@ -806,6 +903,10 @@ private struct StackedTokensChart: View {
 
     /// The day under the pointer (EXB-3.7 AC3) — drives the RuleMark + breakdown annotation.
     @State private var selectedDate: Date?
+    /// The stretch being dragged, held locally so the highlight is free while the gesture is live
+    /// (EXB-5.8 §8). Committing upward is what costs a re-fold, so it happens on change and the
+    /// controller cancels whatever fold was still in flight.
+    @State private var faixaArrastada: ClosedRange<Date>?
 
     /// The daily entry snapped to the hovered day.
     private var selectedEntry: DashboardDailyEntry? {
@@ -822,6 +923,14 @@ private struct StackedTokensChart: View {
                 total: DashboardFormat.totalTokensAndCost(data.totalTokens, data.totalCost))
             if hasData {
                 chart
+                // EXB-5.7 §3: the cache rate survives here as a *fact*, stated with its absolutes —
+                // the dollar estimate that used to carry it did not.
+                Text(L("dashboard.chart.tokens.cache_footer",
+                       DashboardFormat.tokenCount(data.tokensDeCache),
+                       DashboardFormat.tokenCount(data.tokensDeEntrada),
+                       DashboardFormat.taxaCache(data.cacheHitRate)))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             } else {
                 ChartEmptyState(systemImage: "square.stack.3d.up", message: L("dashboard.empty.period"))
             }
@@ -846,8 +955,17 @@ private struct StackedTokensChart: View {
                     }
             }
         }
+        // EXB-5.7 §5.2: the axis keeps the requested window even when the marks do not fill it.
+        .chartXScale(domain: data.windowDomain ?? Date()...Date().addingTimeInterval(86_400))
+        // EXB-5.8 §8: the native drag. `chartXSelection(range:)` was verified to compile on macOS 14,
+        // so the SDK's own highlight and accessibility come for free — no `DragGesture` needed.
+        .chartXSelection(range: $faixaArrastada)
+        .onChange(of: faixaArrastada) { _, nova in
+            guard let nova else { return }
+            selectRange(nova)
+        }
         .chartXAxis {
-            AxisMarks(values: .stride(by: .day, count: DashboardFormat.axisStride(for: data.period))) { value in
+            AxisMarks(values: .stride(by: .day, count: DashboardFormat.axisStride(forDays: data.spanDays))) { value in
                 AxisGridLine()
                 AxisValueLabel {
                     if let date = value.as(Date.self) {
@@ -1009,7 +1127,8 @@ private struct DonutTooltip: View {
     }
 }
 
-/// Per-model totals, sorted by cost desc. Columns: swatch · model · input · output · cost (AC5/AC12).
+/// Per-model totals, sorted by token volume desc (EXB-5.7 §6). Columns: swatch · model · input ·
+/// output · cost — the cost column stays, as the supporting figure it now is.
 ///
 /// EXB-3.7 AC7: a per-row `.onHover` drives the shared `hoveredModel`, and the bound value back-lights
 /// the matching row — so hovering the donut highlights here, and hovering here highlights the donut.
@@ -1145,7 +1264,7 @@ private struct ModelsByDayChart: View {
         }
         .chartForegroundStyleScale(domain: colorScale.domain, range: colorScale.range)
         .chartXAxis {
-            AxisMarks(values: .stride(by: .day, count: DashboardFormat.axisStride(for: data.period))) { value in
+            AxisMarks(values: .stride(by: .day, count: DashboardFormat.axisStride(forDays: data.spanDays))) { value in
                 AxisGridLine()
                 AxisValueLabel {
                     if let date = value.as(Date.self) {
