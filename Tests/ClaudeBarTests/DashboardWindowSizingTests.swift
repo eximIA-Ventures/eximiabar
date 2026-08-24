@@ -3,7 +3,7 @@ import Testing
 @testable import ClaudeBar
 
 /// Guards the dashboard window's minimum size (AC11) against the defect where the authored floor was
-/// silently discarded, letting the window shrink until `SummaryCardsRow` was clipped — the reported
+/// silently discarded, letting the window shrink until the KPI card grid was clipped — the reported
 /// "cards cut in half" bug.
 ///
 /// The mechanism: installing a `contentView` whose subtree uses auto layout makes AppKit re-derive

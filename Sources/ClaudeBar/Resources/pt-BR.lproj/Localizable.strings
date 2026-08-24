@@ -372,3 +372,40 @@
 "settings.accounts.badge.live" = "ao vivo";
 "settings.accounts.badge.archived" = "arquivada";
 "settings.accounts.badge.expired"  = "expirada";
+
+/* MARK: - Painel: hierarquia da informação (EXB-5.9) — a mesma ordem do painel.html exportado */
+
+// Cobertura real dos dados: o bloco que vem antes de qualquer número derivado dela.
+"dashboard.coverage.title"         = "Cobertura real dos dados";
+"dashboard.coverage.first_day"     = "Primeira data com dado";
+"dashboard.coverage.last_day"      = "Última data com dado";
+"dashboard.coverage.days_with"     = "Dias com dado";
+"dashboard.coverage.days_without"  = "Dias da janela sem dado";
+"dashboard.coverage.none"          = "A fonte não cobre nenhum dia desta janela. Nenhum gráfico abaixo desenha dado que não existe.";
+"dashboard.coverage.full"          = "A fonte cobre a janela inteira.";
+"dashboard.coverage.partial"       = "A fonte cobre %1$d dos %2$d dias pedidos. Os gráficos começam na primeira data com dado, e dia sem dado é lacuna, não zero.";
+
+// Seções nomeadas: qual grandeza é a principal, e qual é estimativa.
+"dashboard.section.volume"         = "Volume, a grandeza principal";
+"dashboard.section.cost"           = "Custo estimado, secundário";
+"dashboard.section.charts"         = "Gráficos";
+
+// Volume.
+"dashboard.volume.total"           = "Tokens totais do período";
+"dashboard.volume.avg_covered"     = "Média por dia com uso";
+"dashboard.volume.avg_window"      = "Média por dia da janela";
+"dashboard.avg.divisor_covered"    = "divide por %d dias com dado";
+"dashboard.avg.divisor_window"     = "divide por %d dias pedidos";
+
+// Custo: a ressalva viaja junto dos números, não num rodapé.
+"dashboard.cost.caveat"            = "Estimativa de valor consumido. O plano é por assinatura, isto não é fatura, e o custo não precifica tokens de cache.";
+"dashboard.cost.total"             = "Custo estimado do período";
+"dashboard.cost.today"             = "Custo estimado hoje";
+
+// Uma frase por gráfico, dizendo o que ele desenha e onde o eixo começa.
+"dashboard.chart.tokens.sub"       = "Entrada, saída e cache empilhados. O eixo começa na primeira data com dado.";
+"dashboard.chart.cost.sub"         = "Estimativa de valor consumido, não fatura. Não precifica tokens de cache.";
+"dashboard.models.sub"             = "Ordenado por volume de tokens. O custo acompanha como figura de apoio.";
+"dashboard.models_by_day.sub"      = "Uma série por modelo, com a mesma cor do detalhamento por modelo.";
+"dashboard.projects.sub"           = "Projeto é o último componente do caminho de trabalho; pastas de mesmo nome colapsam na mesma linha.";
+"dashboard.heatmap.sub"            = "Escala logarítmica, do fundo até o terracota da marca. O valor de cada célula está na dica.";

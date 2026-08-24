@@ -163,6 +163,23 @@ enum DashboardFormat {
         return f
     }()
 
+    /// `24/08/2026` — the form a person reads in the coverage block (EXB-5.9).
+    ///
+    /// **Built from `Calendar` components, not a `DateFormatter`, and that is deliberate.** A
+    /// formatter resolves its pattern against the machine's locale, so the same date prints
+    /// differently on a Mac set to another region and any test pinning the string passes here and
+    /// fails there — with no message saying why. The panel's `PainelDatas.longa` writes the digits by
+    /// hand for exactly this reason, and prints exactly this shape: the coverage block on screen and
+    /// the coverage block in the exported `painel.html` state the same date the same way, so the two
+    /// can be compared without translating between them.
+    ///
+    /// The calendar stays `.current` because that is what `DashboardData.build` bucketed days with —
+    /// a "day" has to mean the same thing here as it did there.
+    static func longDate(_ date: Date) -> String {
+        let parts = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%02d/%02d/%04d", parts.day ?? 0, parts.month ?? 0, parts.year ?? 0)
+    }
+
     /// `"01/06 – 12/06"` style date-range subtitle for a section header (AC13).
     static func rangeSubtitle(_ start: Date?, _ end: Date?) -> String {
         guard let start, let end else { return "" }
@@ -278,27 +295,58 @@ enum DashboardPalette {
 }
 
 /// A section header: bold title + a secondary date-range subtitle (AC13), with an optional trailing
-/// "Total: …" highlight number (AC14).
+/// "Total: …" highlight number (AC14) and an optional explanatory line underneath.
+///
+/// The `explanation` line is what `painel.html` calls `p.sub`: one sentence saying what the chart is
+/// actually plotting and where its axis starts. A chart that does not say "the axis begins at the
+/// first covered date" is silently asking to be read as if it began at the window's first date.
 private struct DashboardSectionHeader: View {
     let title: String
     var subtitle: String = ""
+    var explanation: String = ""
     var total: String? = nil
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.headline)
-                if !subtitle.isEmpty {
-                    Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.headline)
+                    if !subtitle.isEmpty {
+                        Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                if let total {
+                    Text(total)
+                        .font(.system(.title3, design: .rounded).bold().monospacedDigit())
+                        .foregroundStyle(.primary)
                 }
             }
-            Spacer()
-            if let total {
-                Text(total)
-                    .font(.system(.title3, design: .rounded).bold().monospacedDigit())
-                    .foregroundStyle(.primary)
+            if !explanation.isEmpty {
+                Text(explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+}
+
+/// A named section band — the screen's top-level hierarchy, mirroring `h2.secao` in `painel.html`.
+///
+/// The screen used to have none: tokens and dollars sat in one undifferentiated grid of cards, so
+/// nothing on it said which of the two was the quantity being consumed and which was an estimate.
+/// Naming the sections is the cheapest way to say it, and it says it even to someone who reads no
+/// further than the labels.
+private struct DashboardSectionLabel: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(DesignTokens.Label.section)
+            .tracking(DesignTokens.sectionTracking)
+            .textCase(.uppercase)
+            .foregroundStyle(.secondary)
     }
 }
 
@@ -323,6 +371,17 @@ private struct ChartEmptyState: View {
 
 // MARK: - Loaded content
 
+/// The screen, in the order `painel.html` established (EXB-5.9).
+///
+/// **The order is the decision; the layout only carries it.** Coverage first, because a window the
+/// source does not cover is the one thing that makes every number below it a lie. Then volume, because
+/// the plan is a subscription and tokens are the quantity actually consumed. Then cost, labelled as an
+/// estimate of value rather than a bill. The charts and tables follow.
+///
+/// Before this, the screen opened with a single grid that mixed tokens and dollars card by card and
+/// never stated what the source covered — so the reader had to already know which number was the
+/// headline and which was an estimate, and had no way at all to learn that a third of the window was
+/// never observed.
 private struct LoadedDashboard: View {
     let data: DashboardData
     var selectRange: (ClosedRange<Date>) -> Void = { _ in }
@@ -330,11 +389,14 @@ private struct LoadedDashboard: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
-                SummaryCardsRow(data: data)                       // AC2
+                CoverageBanner(data: data)                        // EXB-5.9: what the source covers
+                VolumeSection(data: data)                         // the principal quantity
+                CostSection(data: data)                           // the estimate, named as one
                 // EXB-4.5 AC3: the "This week" wrapped recap — only in the 7-day period.
                 if data.atalho == .sevenDays {
                     WeeklySummarySection(data: data)
                 }
+                DashboardSectionLabel(text: L("dashboard.section.charts"))
                 // EXB-5.7 §6: tokens lead. The Senhor pays a subscription, so token volume is the
                 // quantity he is actually spending; the dollar figure is an estimate of value
                 // consumed, and it now reads as the supporting chart rather than the headline.
@@ -355,43 +417,207 @@ private struct LoadedDashboard: View {
     }
 }
 
-// MARK: - Summary cards (AC2)
+// MARK: - Coverage banner (EXB-5.9) — the block that has to come first
 
-private struct SummaryCardsRow: View {
+/// What the source actually covers, stated before any number derived from it.
+///
+/// **Why this is at the top and not in a footnote.** The day axis is zero-filled across the whole
+/// window, so a 30-day window over an archive reaching back 21 days carries 9 days of `0`. The charts
+/// already refuse to draw those days (`DashboardDailyEntry.coberto`), but a reader who does not know
+/// *why* the bars start late will read the gap as idleness. This block is the sentence that makes the
+/// gap legible — and it names the same span the charts below it drew, because it reads the same flag.
+private struct CoverageBanner: View {
+    @Environment(\.popoverTheme) private var popoverTheme
     let data: DashboardData
 
-    private let columns = [GridItem(.adaptive(minimum: 130), spacing: 12)]
+    private let columns = [GridItem(.adaptive(minimum: 150), spacing: 16)]
+
+    private static func dayLabel(_ date: Date?) -> String {
+        guard let date else { return "—" }
+        return DashboardFormat.longDate(date)
+    }
+
+    /// The one sentence that changes with the state of coverage — and the only place on the screen
+    /// where "gap, not zero" is said in words.
+    private var caveat: (text: String, tint: Color) {
+        if data.primeiroDiaComDado == nil {
+            return (L("dashboard.coverage.none"), DesignTokens.zoneCriticalText)
+        }
+        if data.cobreJanelaInteira {
+            return (L("dashboard.coverage.full"), DesignTokens.roiPositive)
+        }
+        return (
+            L("dashboard.coverage.partial", data.diasComDado, data.spanDays),
+            DesignTokens.zoneAttentionText)
+    }
 
     var body: some View {
-        LazyVGrid(columns: columns, spacing: 12) {
-            // EXB-3.7 AC6/AC16 + EXB-5.7 §6: tokens are the headline; cost is the secondary line.
-            SummaryCard(
-                title: L("dashboard.summary.today"),
-                tokens: data.todayTokens,
-                cost: data.todayCost,
-                badge: DeltaBadgeModel(state: data.dailyDeltaState))
-            SummaryCard(title: L("dashboard.summary.last_7_days"), tokens: data.sevenDayTokens, cost: data.sevenDayCost)
-            SummaryCard(title: L("dashboard.summary.last_30_days"), tokens: data.thirtyDayTokens, cost: data.thirtyDayCost)
-            // EXB-5.7 §1: the label names its own divisor. An average whose denominator is invisible
-            // is how the old one hid a ~40% error for so long.
-            SummaryCard(
-                title: L("dashboard.summary.avg_daily_covered", data.diasComDado),
-                tokens: data.averageDailyTokens,
-                cost: data.averageDailyCost)
-            SummaryCard(title: L("dashboard.summary.projection"), tokens: data.projectedTokens, cost: data.monthProjection)
-            // EXB-5.7 §7: only present when the previous month is covered in full. No card is a
-            // better answer than an invented one.
-            if let comparacao = data.comparacaoMensal {
-                MonthComparisonCard(comparacao: comparacao)
+        VStack(alignment: .leading, spacing: 10) {
+            DashboardSectionLabel(text: L("dashboard.coverage.title"))
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+                CoverageFact(
+                    title: L("dashboard.coverage.first_day"),
+                    value: Self.dayLabel(data.primeiroDiaComDado))
+                CoverageFact(
+                    title: L("dashboard.coverage.last_day"),
+                    value: Self.dayLabel(data.ultimoDiaComDado))
+                CoverageFact(
+                    title: L("dashboard.coverage.days_with"),
+                    value: "\(data.diasComDado)")
+                CoverageFact(
+                    title: L("dashboard.coverage.days_without"),
+                    value: "\(data.diasSemDado)")
             }
-            // Cache hit rate as a dedicated KPI card — the efficiency headline, with its two counts.
-            CacheHitCard(
-                hitRate: data.cacheHitRate,
-                cacheTokens: data.tokensDeCache,
-                inputTokens: data.tokensDeEntrada)
+            Text(caveat.text)
+                .font(.caption)
+                .foregroundStyle(caveat.tint)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor)))
+        // The accent edge is the panel's `border-left: 3px solid var(--destaque)`. Clipping the whole
+        // card is what keeps the bar inside the corner radius without an `UnevenRoundedRectangle`.
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(PopoverStyle.accent(for: self.popoverTheme))
+                .frame(width: 3)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+/// One `dt`/`dd` pair of the coverage block: a small caption over a tabular value.
+private struct CoverageFact: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text(value)
+                .font(.system(.callout, design: .rounded).bold().monospacedDigit())
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Volume: the principal quantity (EXB-5.9)
+
+/// Token volume, named as the screen's principal quantity.
+///
+/// The two averages are the point of this section. They differ **only** in their divisor, share one
+/// numerator (``DashboardData/totalTokens``), and each writes its divisor on its own label — so the
+/// reader can check `média × dias = total` instead of trusting it. The screen used to show one average
+/// with an invisible denominator, which is how a ~40% error survived on it for months.
+private struct VolumeSection: View {
+    let data: DashboardData
+
+    private let columns = [GridItem(.adaptive(minimum: 168), spacing: 12)]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            DashboardSectionLabel(text: L("dashboard.section.volume"))
+            LazyVGrid(columns: columns, spacing: 12) {
+                MetricCard(
+                    title: L("dashboard.volume.total"),
+                    value: L("dashboard.summary.tokens", DashboardFormat.tokenCount(data.totalTokens)))
+                MetricCard(
+                    title: L("dashboard.volume.avg_covered"),
+                    value: L("dashboard.summary.tokens",
+                             DashboardFormat.tokenCount(Int(data.tokensPorDiaComUso.rounded()))),
+                    note: L("dashboard.avg.divisor_covered", data.diasComDado))
+                MetricCard(
+                    title: L("dashboard.volume.avg_window"),
+                    value: L("dashboard.summary.tokens",
+                             DashboardFormat.tokenCount(Int(data.tokensPorDiaDaJanela.rounded()))),
+                    note: L("dashboard.avg.divisor_window", data.spanDays))
+                // EXB-3.7 AC6/AC16 + EXB-5.7 §2: today, with the prorated delta badge.
+                MetricCard(
+                    title: L("dashboard.summary.today"),
+                    value: L("dashboard.summary.tokens", DashboardFormat.tokenCount(data.todayTokens)),
+                    badge: DeltaBadgeModel(state: data.dailyDeltaState))
+                MetricCard(
+                    title: L("dashboard.summary.last_7_days"),
+                    value: L("dashboard.summary.tokens", DashboardFormat.tokenCount(data.sevenDayTokens)))
+                MetricCard(
+                    title: L("dashboard.summary.projection"),
+                    value: L("dashboard.summary.tokens", DashboardFormat.tokenCount(data.projectedTokens)))
+                // EXB-5.7 §3: the rate travels with the two counts it is made of, so it can be checked
+                // instead of believed. The dollar "saving" that used to sit here priced a scenario
+                // that never ran, and was removed by the owner's decision.
+                CacheHitCard(
+                    hitRate: data.cacheHitRate,
+                    cacheTokens: data.tokensDeCache,
+                    inputTokens: data.tokensDeEntrada)
+                // EXB-5.7 §7: only present when the previous month is covered in full. No card is a
+                // better answer than an invented one.
+                if let comparacao = data.comparacaoMensal {
+                    MonthComparisonCard(comparacao: comparacao)
+                }
+            }
         }
     }
 }
+
+// MARK: - Cost: the estimate, named as one (EXB-5.9)
+
+/// Estimated cost, under a caveat that travels with the numbers rather than living in a footnote.
+///
+/// The caveat is not decoration. The Senhor pays a subscription: none of these dollars is a bill, and
+/// none of them prices a cache token. A figure that leaves this screen without that sentence becomes a
+/// wrong fact in somebody else's spreadsheet.
+private struct CostSection: View {
+    @Environment(\.popoverTheme) private var popoverTheme
+    let data: DashboardData
+
+    private let columns = [GridItem(.adaptive(minimum: 168), spacing: 12)]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            DashboardSectionLabel(text: L("dashboard.section.cost"))
+            Text(L("dashboard.cost.caveat"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            LazyVGrid(columns: columns, spacing: 12) {
+                let tint = PopoverStyle.accent(for: self.popoverTheme)
+                MetricCard(
+                    title: L("dashboard.cost.total"),
+                    value: PopoverFormatter.currency(data.totalCost),
+                    valueTint: tint)
+                MetricCard(
+                    title: L("dashboard.cost.today"),
+                    value: PopoverFormatter.currency(data.todayCost),
+                    valueTint: tint)
+                MetricCard(
+                    title: L("dashboard.volume.avg_covered"),
+                    value: PopoverFormatter.currency(data.custoPorDiaComUso),
+                    note: L("dashboard.avg.divisor_covered", data.diasComDado),
+                    valueTint: tint)
+                MetricCard(
+                    title: L("dashboard.volume.avg_window"),
+                    value: PopoverFormatter.currency(data.custoPorDiaDaJanela),
+                    note: L("dashboard.avg.divisor_window", data.spanDays),
+                    valueTint: tint)
+                MetricCard(
+                    title: L("dashboard.summary.projection"),
+                    value: PopoverFormatter.currency(data.monthProjection),
+                    valueTint: tint)
+            }
+        }
+    }
+}
+
+// MARK: - KPI cards (AC2)
 
 /// The delta-vs-average badge model (EXB-5.7 §2). Carries the *reason* there is no number, so the
 /// badge never has to guess whether a missing delta means "sem uso hoje" or "cedo demais".
@@ -405,14 +631,22 @@ private struct DeltaBadgeModel {
     }
 }
 
-/// One summary card (EXB-3.7 AC6/AC16/AC17): title `.headline`, tokens as the large headline number,
-/// cost as a smaller secondary line. All numerics use `.monospacedDigit()` to avoid layout jitter.
+/// One KPI card: title, one number, and — where the number is a quotient — the divisor that produced
+/// it (EXB-5.9). `painel.html` calls these `rotulo` / `numero` / `nota`.
 ///
-/// EXB-4.5 AC2: an optional `badge` renders the today-vs-average comparison under the cost line.
-private struct SummaryCard: View {
+/// **One number per card, not two.** The card this replaces stacked tokens over cost, which is how the
+/// screen ended up with no way to say which of the two was the principal quantity: every card asserted
+/// they were equally important. Splitting them into a volume section and a cost section is only
+/// possible once a card carries a single measure.
+///
+/// The `note` is where an average writes its own denominator. All numerics use `.monospacedDigit()` to
+/// avoid layout jitter.
+private struct MetricCard: View {
     let title: String
-    let tokens: Int
-    let cost: Double
+    let value: String
+    var note: String? = nil
+    var valueTint: Color? = nil
+    /// EXB-4.5 AC2: the today-vs-average comparison, on the one card it applies to.
     var badge: DeltaBadgeModel? = nil
 
     var body: some View {
@@ -421,20 +655,24 @@ private struct SummaryCard: View {
                 .font(.headline)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-            Text(L("dashboard.summary.tokens", DashboardFormat.tokenCount(tokens)))
+                .minimumScaleFactor(0.75)
+            Text(value)
                 .font(.system(.title2, design: .rounded).bold().monospacedDigit())
+                .foregroundStyle(valueTint ?? .primary)
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            Text(PopoverFormatter.currency(cost))
-                .font(.system(.subheadline, design: .rounded).monospacedDigit())
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            if let note {
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let badge {
                 DeltaBadge(model: badge)
             }
         }
         .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 84, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color(nsColor: .controlBackgroundColor)))
@@ -709,6 +947,7 @@ private struct CostPerDayChart: View {
             DashboardSectionHeader(
                 title: L("dashboard.chart.cost.title"),
                 subtitle: DashboardFormat.rangeSubtitle(data.rangeStart, data.rangeEnd),
+                explanation: L("dashboard.chart.cost.sub"),
                 total: DashboardFormat.totalTokensAndCost(data.totalTokens, data.totalCost))
             if hasData {
                 chart
@@ -925,6 +1164,7 @@ private struct StackedTokensChart: View {
             DashboardSectionHeader(
                 title: L("dashboard.chart.tokens.title"),
                 subtitle: DashboardFormat.rangeSubtitle(data.rangeStart, data.rangeEnd),
+                explanation: L("dashboard.chart.tokens.sub"),
                 total: DashboardFormat.totalTokensAndCost(data.totalTokens, data.totalCost))
             if hasData {
                 chart
@@ -1033,7 +1273,8 @@ private struct ModelBreakdownSection: View {
         VStack(alignment: .leading, spacing: 12) {
             DashboardSectionHeader(
                 title: L("dashboard.models.title"),
-                subtitle: DashboardFormat.rangeSubtitle(data.rangeStart, data.rangeEnd))
+                subtitle: DashboardFormat.rangeSubtitle(data.rangeStart, data.rangeEnd),
+                explanation: L("dashboard.models.sub"))
             HStack(alignment: .top, spacing: 16) {
                 ModelCostDonut(rows: rows, scale: colorScale, totalCost: totalCost, hoveredModel: $hoveredModel)
                     .frame(width: 160, height: 160)
@@ -1241,6 +1482,7 @@ private struct ModelsByDayChart: View {
             DashboardSectionHeader(
                 title: L("dashboard.models_by_day.title"),
                 subtitle: DashboardFormat.rangeSubtitle(data.rangeStart, data.rangeEnd),
+                explanation: L("dashboard.models_by_day.sub"),
                 total: DashboardFormat.totalTokensAndCost(totalTokens, data.totalCost))
             if hasData {
                 chart
@@ -1352,8 +1594,9 @@ private struct ProjectBreakdownTable: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(L("dashboard.projects.title"))
-                .font(.headline)
+            DashboardSectionHeader(
+                title: L("dashboard.projects.title"),
+                explanation: L("dashboard.projects.sub"))
 
             HStack(spacing: 8) {
                 Text(L("dashboard.projects.col.project"))
@@ -1422,6 +1665,7 @@ private struct ActivityHeatmapChart: View {
             DashboardSectionHeader(
                 title: L("dashboard.heatmap.title"),
                 subtitle: DashboardFormat.rangeSubtitle(data.rangeStart, data.rangeEnd),
+                explanation: L("dashboard.heatmap.sub"),
                 total: L("dashboard.total.tokens", DashboardFormat.tokenCount(data.totalHeatmapTokens)))
             if hasData {
                 chart

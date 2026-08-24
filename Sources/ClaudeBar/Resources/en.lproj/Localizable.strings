@@ -374,3 +374,40 @@
 "settings.accounts.badge.live" = "live";
 "settings.accounts.badge.archived" = "archived";
 "settings.accounts.badge.expired"  = "expired";
+
+/* MARK: - Dashboard: information hierarchy (EXB-5.9) — the order the exported painel.html established */
+
+// Coverage: the block that comes before any number derived from it.
+"dashboard.coverage.title"         = "What the data actually covers";
+"dashboard.coverage.first_day"     = "First day with data";
+"dashboard.coverage.last_day"      = "Last day with data";
+"dashboard.coverage.days_with"     = "Days with data";
+"dashboard.coverage.days_without"  = "Days of the window with none";
+"dashboard.coverage.none"          = "The source covers no day of this window. No chart below draws data that does not exist.";
+"dashboard.coverage.full"          = "The source covers the whole window.";
+"dashboard.coverage.partial"       = "The source covers %1$d of the %2$d days requested. The charts start at the first day with data, and a day without data is a gap, not a zero.";
+
+// Named sections: which quantity is the principal one, and which is an estimate.
+"dashboard.section.volume"         = "Volume, the principal quantity";
+"dashboard.section.cost"           = "Estimated cost, secondary";
+"dashboard.section.charts"         = "Charts";
+
+// Volume.
+"dashboard.volume.total"           = "Total tokens for the period";
+"dashboard.volume.avg_covered"     = "Average per day with data";
+"dashboard.volume.avg_window"      = "Average per day of the window";
+"dashboard.avg.divisor_covered"    = "divides by %d days with data";
+"dashboard.avg.divisor_window"     = "divides by %d days requested";
+
+// Cost: the caveat travels with the numbers, not in a footnote.
+"dashboard.cost.caveat"            = "An estimate of value consumed. The plan is a subscription, this is not a bill, and the cost does not price cache tokens.";
+"dashboard.cost.total"             = "Estimated cost for the period";
+"dashboard.cost.today"             = "Estimated cost today";
+
+// One sentence per chart, saying what it draws and where its axis starts.
+"dashboard.chart.tokens.sub"       = "Input, output and cache stacked. The axis starts at the first day with data.";
+"dashboard.chart.cost.sub"         = "An estimate of value consumed, not a bill. Does not price cache tokens.";
+"dashboard.models.sub"             = "Ordered by token volume. Cost rides along as the supporting figure.";
+"dashboard.models_by_day.sub"      = "One series per model, in the same colour as the model breakdown.";
+"dashboard.projects.sub"           = "A project is the last component of the working path; folders of the same name collapse into one row.";
+"dashboard.heatmap.sub"            = "Logarithmic scale, from the background to the brand terracotta. Each cell's value is in its tooltip.";
