@@ -13,20 +13,21 @@ import UniformTypeIdentifiers
 @Observable
 final class DashboardModel {
     var state: DashboardState = .loading
-    /// The currently-selected period filter (AC1). Mutating it requests a (cached) reload.
-    var period: DashboardPeriod = .thirtyDays
-    /// `true` while a background scan is in flight *and* prior content is still on screen (EXB-3.6
-    /// BUG 2 AC3). Drives a non-blocking overlay so switching period never leaves stale charts looking
-    /// frozen — the `.loading` full-screen state is reserved for the first open with nothing to show.
+    /// The shortcut lit in the toolbar, or `nil` when the range on screen was dragged (EXB-5.8 §8).
+    var atalho: DashboardPeriod? = .thirtyDays
+    /// `true` while a background fold is in flight *and* prior content is still on screen (EXB-3.6
+    /// BUG 2 AC3). Drives a non-blocking overlay so changing the range never leaves stale charts
+    /// looking frozen — the `.loading` full-screen state is reserved for the first open.
     var isRefreshing = false
-    /// Invoked when the segmented control changes the period (wired by the controller, AC1).
+    /// Invoked when the segmented control picks a shortcut (wired by the controller, AC1).
     var onPeriodChange: (@MainActor (DashboardPeriod) -> Void)?
+    /// Invoked when a range is dragged over the timeline (EXB-5.8 §8).
+    var onRangeChange: (@MainActor (ClosedRange<Date>) -> Void)?
     /// Invoked by the "Export CSV" button (wired by the controller, AC9).
     var onExportCSV: (@MainActor () -> Void)?
 
     func selectPeriod(_ period: DashboardPeriod) {
-        guard period != self.period else { return }
-        self.period = period
+        guard period != self.atalho else { return }
         self.onPeriodChange?(period)
     }
 }
@@ -62,12 +63,23 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
     /// (charts, highlight numbers, the model ramp's accent swatch) matches the popover skin.
     private let themeProvider: @MainActor () -> PopoverTheme
 
-    /// In-memory cache: one built `DashboardData` per period (AC12). Cleared when the source
-    /// directories change (fingerprint mismatch) or on each fresh `open()`-with-stale-data.
-    private var cache: [DashboardPeriod: DashboardData] = [:]
-    /// Fingerprint of the source directories at the time the cache was populated; a mismatch on a
-    /// later scan request invalidates the cache so new usage is picked up (AC12).
-    private var cacheFingerprint: String?
+    /// Owns what is on screen (EXB-5.8 §8). The per-period `DashboardData` cache that used to live
+    /// here existed only to dodge a re-scan; with the history loaded once and every range change a
+    /// pure fold, there is nothing left to memoize that is cheaper than recomputing.
+    private var rangeModel: DashboardRangeModel?
+    private var observacao: Task<Void, Never>?
+
+    /// AC11's floor, expressed in **content** points (the frame minimum is this plus the titlebar,
+    /// which is how the authored 760×560 frame minimum was originally written).
+    ///
+    /// 760 wide is not decorative: `SummaryCardsRow` lays its cards out with
+    /// `GridItem(.adaptive(minimum: 130))` inside 20pt padding, so below this width the grid reflows
+    /// and the row is clipped — the "cards cut in half" defect. It must be re-asserted after **every**
+    /// `contentView` swap: installing a content view whose subtree uses auto layout makes AppKit
+    /// re-derive the window's size limits from that subtree's constraints and silently discard
+    /// whatever was set before. `NSGlassEffectView` pins its `contentView` with constraints, so the
+    /// glass paths (`.frosted` — the default — and `.standard`) used to end up with a 241×32 floor.
+    private static let minimumContentSize = NSSize(width: 760, height: 528)
 
     init(
         costSettingsProvider: @escaping @Sendable () -> LiveUsageProvider.CostSettings,
@@ -92,23 +104,43 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
         if window == nil {
             setupWindow()
         }
-        // Drop the cache on a fresh open so re-opening reflects new usage since last time.
-        cache.removeAll()
-        cacheFingerprint = nil
+        // Note on scroll position: `open()` always routes through `.loading`, which unmounts the
+        // loaded content and with it the `NSScrollView` backing SwiftUI's `ScrollView`. The dashboard
+        // therefore always reopens at the top of the content on its own — measured, not assumed — so
+        // no explicit scroll reset is needed here. Content that *looks* scrolled past is the window
+        // being smaller than `minimumContentSize`, which is what that floor exists to prevent.
         model.state = .loading
         window?.makeKeyAndOrderFront(nil)
 
-        loadData(for: model.period)
+        // A fresh open re-reads the disk once, so re-opening reflects new usage. Every range change
+        // after this is arithmetic.
+        recarregar()
+    }
+
+    /// Re-assert `minimumContentSize` on the window. Must run after **every** `contentView`
+    /// assignment — see the doc on `minimumContentSize` for why the value does not survive one.
+    private func enforceMinimumContentSize() {
+        guard let window else { return }
+        window.contentMinSize = Self.minimumContentSize
     }
 
     private func setupWindow() {
-        model.onPeriodChange = { [weak self] period in self?.loadData(for: period) }
+        model.onPeriodChange = { [weak self] period in
+            self?.aguardarDobra(self?.rangeModel?.aplicarAtalho(period))
+        }
+        model.onRangeChange = { [weak self] intervalo in
+            self?.aguardarDobra(self?.rangeModel?.aplicar(intervalo))
+        }
         model.onExportCSV = { [weak self] in self?.exportCSV() }
 
         let hostingView = NSHostingView(
             rootView: DashboardRoot(model: model, openSettings: openSettings)
                 .environment(\.popoverTheme, themeProvider()))
-        hostingView.translatesAutoresizingMaskIntoConstraints = false
+        // Size with the window, not with the SwiftUI ideal size. `NSWindow.setContentView(_:)` forces
+        // this anyway, but spelling it out keeps the first setup identical to the re-parent paths in
+        // `applyTransparency` instead of relying on an AppKit side effect.
+        hostingView.translatesAutoresizingMaskIntoConstraints = true
+        hostingView.autoresizingMask = [.width, .height]
 
         // AC11: standard NSWindow, 760×560 minimum, resizable, titled.
         let contentSize = NSSize(width: 760, height: 600)
@@ -119,7 +151,6 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
             defer: false)
         window.title = L("dashboard.window.title")
         window.setContentSize(contentSize)
-        window.minSize = NSSize(width: 760, height: 560)
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.center()
@@ -127,6 +158,8 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
         window.contentView = hostingView
         self.hostingView = hostingView
         self.window = window
+        // AFTER the content view is installed: setting it re-derives the window's size limits.
+        self.enforceMinimumContentSize()
 
         // EXB-3.5 AC3: on macOS 26 wrap the dashboard content in native Liquid Glass; on macOS < 26
         // the plain hosting-view content view (the EXB-2.3/3.2 behaviour) stays in place.
@@ -143,6 +176,9 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
     func applyTransparency(_ level: TransparencyLevel) {
         guard let window, let hostingView else { return }
         guard #available(macOS 26.0, *) else { return }
+        // Every exit below either swaps the content view or leaves one already installed; re-assert
+        // the floor on all of them rather than at each `return`.
+        defer { self.enforceMinimumContentSize() }
         guard let style = level.glassStyle else {
             // `.opaque` (AC4): plain content view, no glass — the EXB-3.2 baseline.
             if window.contentView !== hostingView {
@@ -178,28 +214,20 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
         window.backgroundColor = .clear
     }
 
-    // MARK: - Off-main data load (AC12)
+    // MARK: - Off-main load + pure range folds (EXB-5.8 §8)
 
-    /// Load (or apply cached) data for `period`. When cost tracking is off, show the disabled state.
-    /// AC12: if the period is already cached and the source fingerprint is unchanged, apply instantly
-    /// with no re-scan; otherwise scan off-main and cache the result.
-    private func loadData(for period: DashboardPeriod) {
-        let settings = costSettingsProvider()
-        guard settings.enabled else {
+    /// Read the disk once and show the current range. When cost tracking is off, show the disabled
+    /// state instead.
+    private func recarregar() {
+        guard costSettingsProvider().enabled else {
             model.state = .disabled
             return
         }
+        let modelo = rangeModel ?? DashboardRangeModel(
+            source: CostScannerSource(scanner: costScanner),
+            atalhoInicial: model.atalho ?? .thirtyDays)
+        rangeModel = modelo
 
-        // Cache hit (AC12): apply without a scan. Clear any in-flight refresh indicator.
-        if let cached = cache[period] {
-            model.isRefreshing = false
-            model.state = cached.isEmpty ? .empty : .loaded(cached)
-            return
-        }
-
-        // AC3: never leave the UI looking frozen while the (multi-second) scan runs. If content is
-        // already on screen, keep it and flip the non-blocking refresh overlay; otherwise show the
-        // full-screen loading state.
         if case .loaded = model.state {
             model.isRefreshing = true
         } else {
@@ -208,51 +236,37 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
         }
 
         scanTask?.cancel()
-        let scanner = costScanner
-        scanTask = Task.detached(priority: .utility) { [weak self] in
-            let analytics = await scanner.scanAnalytics(windowDays: period.days)
-            let fingerprint = CostScanner.sourceFingerprint()
-            // EXB-4.5 AC1/AC4: resolve the dominant model's prices off-main so the pure builder can
-            // estimate cache savings without ever touching `Pricing` from the MainActor.
-            let cachePricing = await Self.cachePricing(for: analytics, scanner: scanner)
-            let data = DashboardData.build(from: analytics, period: period, cachePricing: cachePricing)
+        scanTask = Task { [weak self] in
+            await modelo.carregarUmaVez()
             guard !Task.isCancelled else { return }
-            await self?.apply(data, fingerprint: fingerprint)
+            self?.sincronizar()
         }
     }
 
-    /// Build the `CachePricing` for the savings estimate (EXB-4.5 AC1) from the **dominant** model
-    /// (highest-cost in the window). Returns a zeroed `CachePricing` when the window is empty so the
-    /// estimate is a clean `$0.00`. Runs off-main (called inside the detached scan task).
-    private static func cachePricing(for analytics: UsageAnalytics, scanner: CostScanner) async -> CachePricing {
-        var costByModel: [String: Double] = [:]
-        for entry in analytics.byDayModel {
-            costByModel[entry.model, default: 0] += entry.cost
+    /// Raise the refresh overlay now, then mirror the result when the fold actually lands.
+    ///
+    /// Awaiting the fold's own handle, not a timer. The first version of this polled every 30 ms and
+    /// re-read the model hoping the work had finished — the same "guess about timing" that, in the
+    /// test helper, let a stale range be read as the new one. A handle on the work is checkable.
+    private func aguardarDobra(_ dobra: Task<Void, Never>??) {
+        sincronizar()
+        guard let dobra = dobra ?? nil else { return }
+        observacao?.cancel()
+        observacao = Task { [weak self] in
+            await dobra.value
+            guard !Task.isCancelled else { return }
+            self?.sincronizar()
         }
-        guard let dominant = costByModel.max(by: { $0.value < $1.value })?.key else {
-            return CachePricing()
-        }
-        let price = await scanner.modelPrice(for: dominant)
-        return CachePricing.claude(inputPerToken: price.input, outputPerToken: price.output)
     }
 
-    /// Post the scanned data into the observable model on `@MainActor`, updating the cache (AC12).
-    @MainActor
-    private func apply(_ data: DashboardData, fingerprint: String) {
-        let signposter = CostScanner.perfSignposter
-        let applyState = signposter.beginInterval("applyOnMain", "period=\(data.period.days)d")
-        defer { signposter.endInterval("applyOnMain", applyState) }
-
-        // Invalidate the cache if the source directories changed since it was populated.
-        if let existing = cacheFingerprint, existing != fingerprint {
-            cache.removeAll()
+    /// Mirror the range model into the observable the view binds to.
+    private func sincronizar() {
+        guard let modelo = rangeModel else { return }
+        model.atalho = modelo.atalho
+        model.isRefreshing = modelo.isRefreshing
+        if let dados = modelo.dados {
+            model.state = dados.isEmpty ? .empty : .loaded(dados)
         }
-        cacheFingerprint = fingerprint
-        cache[data.period] = data
-        // Only apply if the result is still for the period the user is looking at.
-        guard data.period == model.period else { return }
-        model.isRefreshing = false
-        model.state = data.isEmpty ? .empty : .loaded(data)
     }
 
     // MARK: - CSV export (AC9)
@@ -262,7 +276,7 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
         guard case let .loaded(data) = model.state, let window else { return }
         let panel = NSSavePanel()
         let dateTag = Self.fileDateTag()
-        panel.nameFieldStringValue = "claude-usage-\(data.period.fileTag)-\(dateTag).csv"
+        panel.nameFieldStringValue = "claude-usage-\(data.fileTag)-\(dateTag).csv"
         panel.allowedContentTypes = [.commaSeparatedText]
         panel.canCreateDirectories = true
         panel.beginSheetModal(for: window) { response in
@@ -287,6 +301,8 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         scanTask?.cancel()
         scanTask = nil
+        observacao?.cancel()
+        observacao = nil
         NSApp.setActivationPolicy(.accessory)
     }
 }
@@ -299,9 +315,10 @@ private struct DashboardRoot: View {
     var body: some View {
         DashboardView(
             state: model.state,
-            period: model.period,
+            atalho: model.atalho,
             isRefreshing: model.isRefreshing,
             selectPeriod: { model.selectPeriod($0) },
+            selectRange: { model.onRangeChange?($0) },
             exportCSV: { model.onExportCSV?() },
             openSettings: openSettings)
     }
