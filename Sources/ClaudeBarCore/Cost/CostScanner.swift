@@ -28,11 +28,18 @@ public actor CostScanner {
     /// same injected `Pricing` — keeps analytics pricing deterministic in tests (`networkEnabled:
     /// false`) and consistent with the popover scan (EXB-3.2).
     let pricing: Pricing
-    private let defaults: CostDefaults
+    /// Internal (not `private`) so the analytics extension can persist its own incremental cache
+    /// through the same injected store — tests get an isolated suite for both scans.
+    let defaults: CostDefaults
     /// Internal (not `private`) so the analytics extension can reuse the injected `FileManager` for
     /// its file enumeration (EXB-3.2).
     let fileManager: FileManager
     private let log = Logger(subsystem: CoreLog.subsystem, category: "cost.scanner")
+
+    /// In-memory mirror of the analytics bucket cache (`CostScanner+Analytics.swift`). Held on the
+    /// actor so a period switch within one session never even decodes the persisted blob; `nil`
+    /// until the first analytics scan loads it.
+    var analyticsCache: AnalyticsCacheState?
 
     public init(
         pricing: Pricing = Pricing(),
@@ -352,9 +359,32 @@ public actor CostScanner {
     }
 
     /// Reset the incremental caches — used by tests and a future "rescan" action.
+    ///
+    /// Deliberately **does not** wipe the analytics archive. Since EXB-5.7 that store holds days
+    /// whose Claude Code transcripts may already have been deleted; erasing it would destroy the
+    /// only surviving copy, which is exactly the loss the archive exists to prevent. A rescan drops
+    /// the per-file offsets, ledgers and attributions (forcing every present file to be read again)
+    /// and keeps the contributions of files that are already gone. Use `eraseAnalyticsArchive()` for
+    /// the destructive variant.
     public func resetCaches() {
         self.defaults.removeObject(forKey: Self.offsetsDefaultsKey)
         self.defaults.removeObject(forKey: Self.aggregateDefaultsKey)
+
+        var state = self.analyticsCache ?? Self.decodeAnalyticsCache(self.defaults)
+        state.files.removeAll()
+        self.analyticsCache = state
+        if let data = AnalyticsCacheCodec.encode(state) {
+            self.defaults.set(data, forKey: Self.analyticsCacheDefaultsKey)
+        }
+    }
+
+    /// Destroy the analytics archive, including days whose source transcripts no longer exist.
+    ///
+    /// Separate from `resetCaches()` on purpose: this one is not recoverable by rescanning, so it
+    /// must be an explicit act rather than a side effect of "refresh".
+    public func eraseAnalyticsArchive() {
+        self.defaults.removeObject(forKey: Self.analyticsCacheDefaultsKey)
+        self.analyticsCache = nil
     }
 
     // MARK: - Constants

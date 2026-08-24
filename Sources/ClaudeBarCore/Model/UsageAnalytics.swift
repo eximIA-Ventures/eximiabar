@@ -21,19 +21,38 @@ public struct UsageAnalytics: Sendable, Equatable {
     public let topSessions: [SessionUsageEntry]
     /// Spend in the current calendar month, USD — the run-rate projection numerator (AC2).
     public let monthToDateCost: Double
+    /// Total token volume (input + output + cache read + cache write) in the current calendar month
+    /// (EXB-5.7).
+    ///
+    /// Exists because tokens are the dashboard's primary quantity — the plan is a subscription, not
+    /// a per-token invoice — and the monthly projection is therefore a projection of *tokens*.
+    /// Deriving it from `monthToDateCost` via the window's tokens÷cost ratio was wrong whenever the
+    /// month's model mix differed from the window's, which is most months.
+    public let monthToDateTokens: Int
+    /// Days the archive can vouch for having watched (EXB-5.7).
+    ///
+    /// A day inside this set with no entry in `byDayModel` really had no usage. A day *outside* it is
+    /// unknown — most likely its transcript was deleted before exímIABar ever read it. The dashboard
+    /// draws the two differently instead of painting both as zero, which is the whole reason the
+    /// aggregate stopped expiring.
+    public let coveredDays: Set<Date>
 
     public init(
         byDayModel: [ModelCostEntry],
         byProject: [ProjectUsageEntry],
         heatmap: [[HeatmapBucket]],
         topSessions: [SessionUsageEntry],
-        monthToDateCost: Double)
+        monthToDateCost: Double,
+        monthToDateTokens: Int = 0,
+        coveredDays: Set<Date> = [])
     {
         self.byDayModel = byDayModel
         self.byProject = byProject
         self.heatmap = heatmap
         self.topSessions = topSessions
         self.monthToDateCost = monthToDateCost
+        self.monthToDateTokens = monthToDateTokens
+        self.coveredDays = coveredDays
     }
 
     /// An empty 7 × 24 heatmap grid (weekday 0 = Sunday … 6 = Saturday).

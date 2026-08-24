@@ -51,6 +51,18 @@ let package = Package(
                 ]),
             ]
         ),
+        // Wall-clock benchmark for the dashboard's analytics scan (see Sources/AnalyticsBench).
+        // Not shipped in the app bundle — a developer tool, and the verifier for the scan's
+        // performance work. Kept out of `products` so `swift build` builds it but nothing links it.
+        .executableTarget(
+            name: "AnalyticsBench",
+            dependencies: ["ClaudeBarCore"],
+            path: "Sources/AnalyticsBench",
+            swiftSettings: [
+                .enableUpcomingFeature("StrictConcurrency"),
+                .unsafeFlags(["-strict-concurrency=complete"]),
+            ]
+        ),
         .executableTarget(
             name: "ClaudeBarWatchdog",
             path: "Sources/ClaudeBarWatchdog",
