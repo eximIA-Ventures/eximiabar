@@ -208,29 +208,22 @@ enum XLSXChartXML {
         switch cell {
         case let .text(value, _): value
         case let .number(value, _): XLSXWriter.numberLiteral(value) ?? ""
-        case let .date(value): Self.isoDay(value)
+        // The **one** day formatter of this module (`CSVWriter.isoDay`), not a copy of it.
+        //
+        // This line used to be a private twin: the same twelve lines of civil-from-days arithmetic,
+        // pasted here, formatting in UTC. When the two public writers were moved to the owner's own
+        // zone, the twin stayed behind — and a duplicate that is only half-corrected is worse than the
+        // original defect: east of Greenwich the cells of a sheet would carry the right local day while
+        // the chart beside them, reading the very same range, labelled the day before. A file that is
+        // uniformly wrong can be recognised; a file that disagrees with itself reads as "the data is
+        // strange".
+        //
+        // Delegating rather than adding the offset here is the actual fix. The duplicate is what let
+        // the defect survive one correction, so the duplicate is what had to go — there is now a single
+        // implementation, and it is the one already proven in two time zones.
+        case let .date(value): CSVWriter.isoDay(value)
         case .blank: ""
         }
-    }
-
-    /// `yyyy-MM-dd` in UTC, computed rather than formatted.
-    ///
-    /// A cached `ISO8601DateFormatter` would be a mutable global under Swift 6 strict concurrency, and
-    /// a fresh one per call would be wasteful for something this small. The civil-from-days arithmetic
-    /// is also immune to the locale and calendar settings of whoever runs the export.
-    private static func isoDay(_ date: Date) -> String {
-        var days = Int(floor(date.timeIntervalSince1970 / 86_400))
-        days += 719_468 // shift the epoch to 0000-03-01, which makes leap years periodic
-        let era = (days >= 0 ? days : days - 146_096) / 146_097
-        let dayOfEra = days - era * 146_097
-        let yearOfEra = (dayOfEra - dayOfEra / 1_460 + dayOfEra / 36_524 - dayOfEra / 146_096) / 365
-        let year = yearOfEra + era * 400
-        let dayOfYear = dayOfEra - (365 * yearOfEra + yearOfEra / 4 - yearOfEra / 100)
-        let shiftedMonth = (5 * dayOfYear + 2) / 153
-        let day = dayOfYear - (153 * shiftedMonth + 2) / 5 + 1
-        let month = shiftedMonth < 10 ? shiftedMonth + 3 : shiftedMonth - 9
-        let calendarYear = month <= 2 ? year + 1 : year
-        return String(format: "%04d-%02d-%02d", calendarYear, month, day)
     }
 
     // MARK: - drawingN.xml

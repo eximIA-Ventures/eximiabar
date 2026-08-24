@@ -12,12 +12,25 @@ import Foundation
 /// - names with accents, and one long enough to be truncated on the axis.
 ///
 /// Every value is a fixed constant or comes from a seeded generator, so two renders produce the same
-/// bytes — which is what the determinism gate asserts.
+/// bytes — which is what the determinism gate asserts. Since the window start is a **named** date
+/// (see ``inicioJanela``) rather than a day derived from a UTC instant, those bytes are also the same
+/// under any `TZ`: verified at `fa7f3db8…` under `America/Sao_Paulo`, `Asia/Tokyo` and `UTC`.
 enum PainelSampleData {
     /// 2026-08-01, local midnight. Local rather than UTC because the dashboard buckets days with
     /// `Calendar.current`, and the panel formats them the same way.
-    static let inicioJanela: Date = Calendar.current
-        .startOfDay(for: Date(timeIntervalSince1970: 1_785_542_400))
+    ///
+    /// **Named as a date, not derived from an instant, and that was a real defect.** This used to be
+    /// `startOfDay(for: Date(timeIntervalSince1970: 1_785_542_400))` — the start of day *containing*
+    /// a fixed UTC instant, which is a different calendar day depending on where the machine is: 31 July
+    /// in São Paulo, 1 August in Tokyo. Measured, it made `painel.html` hash `fdba7a9d…` here and
+    /// `fa7f3db8…` under `TZ=Asia/Tokyo` — the one artifact of the package whose bytes moved with the
+    /// environment, which would have surfaced as a determinism gate that is green locally and red on a
+    /// CI configured in UTC. Naming the date makes the fixture describe the same day everywhere.
+    static let inicioJanela: Date = {
+        var partes = DateComponents()
+        partes.year = 2026; partes.month = 8; partes.day = 1
+        return Calendar.current.date(from: partes) ?? Date(timeIntervalSince1970: 1_785_542_400)
+    }()
 
     static func dia(_ deslocamento: Int) -> Date {
         Calendar.current.date(byAdding: .day, value: deslocamento, to: inicioJanela) ?? inicioJanela

@@ -8,7 +8,26 @@ import Foundation
 /// a named table, a colour scale, a sheet name with spaces, a hostile project name, and days that are
 /// **blank rather than zero** because they precede the data's coverage.
 ///
-/// All values are fixed constants and all dates are UTC midnights, so the bytes are reproducible.
+/// **Reproducibility, measured rather than argued.** Every value here is a fixed constant and every
+/// date is a **named** calendar date resolved to local midnight, so the emitted bytes are identical
+/// on the same machine *and across time zones*. Verified by running the suite under three `TZ`
+/// values — `America/Sao_Paulo`, `Asia/Tokyo` and `UTC` — and comparing hashes:
+///
+///     xlsx  9a5681a9…5247    identical in all three
+///     csv   85a86713…6787    identical in all three
+///
+/// The reason it holds is the naming: the fixture says "1 August 2026", both writers convert that
+/// instant back to the same local day, and the serial `46235` and the string `2026-08-01` come out
+/// the same everywhere. It would **not** hold for a fixture pinned to a UTC instant — that names a
+/// different calendar day in each zone, which is precisely the defect corrected in ``firstDay`` and in
+/// `PainelSampleData`, and the reason `painel.html` used to hash differently under `TZ=Asia/Tokyo`.
+///
+/// Two earlier versions of this paragraph were wrong in opposite directions, which is why it now
+/// carries the command's output instead of an argument. It first claimed the dates were UTC midnights
+/// and that this was what made the bytes reproducible; after the time-zone correction both halves were
+/// false. The replacement then claimed the bytes were *not* identical across zones — also false, and
+/// only measuring showed it. A comment about determinism that was never executed is a guess with the
+/// authority of documentation.
 enum ExportSampleWorkbook {
     /// 2026-08-01, **local** midnight.
     ///
@@ -19,6 +38,7 @@ enum ExportSampleWorkbook {
     /// ``CSVWriter/isoDay(_:timeZone:)``): dates were formatted in UTC, which shifts every row one day
     /// back for any owner east of Greenwich. The same choice, for the same reason, is already recorded
     /// in `PainelSampleData`.
+    ///
     /// Built from calendar components, not from an epoch offset: the fixture names a **date**, and the
     /// instant it resolves to is whatever local midnight is on the machine running the test.
     static let firstDay: Date = {
