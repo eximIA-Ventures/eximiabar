@@ -5,8 +5,8 @@ import Testing
 
 /// Tests the EXB-4.5 efficiency-insight fields on `DashboardData` — cache hit rate + estimated
 /// savings, the today-vs-average delta, the peak hour from the heatmap, the busiest weekday, and the
-/// top model by token volume. All deterministic via injected `now` and an explicit `CachePricing`, so
-/// no scan, network, or keychain is touched.
+/// top model by token volume. All deterministic via injected `now`, so no scan, network, or keychain
+/// is touched.
 struct DashboardInsightsTests {
     // MARK: - Fixtures
 
@@ -64,7 +64,6 @@ struct DashboardInsightsTests {
         ])
         let data = DashboardData.build(from: a, period: .thirtyDays, now: now)
         #expect(data.cacheHitRate == 0)
-        #expect(data.estimatedCacheSavings == 0)
     }
 
     @Test
@@ -79,61 +78,26 @@ struct DashboardInsightsTests {
         #expect(abs(data.cacheHitRate - 0.75) < 1e-9)
     }
 
-    @Test
-    func estimatedCacheSavingsUsesDominantModelPricing() {
-        let now = Date()
-        // 1000 cache-read tokens; output $0.000015/tok, cacheRead $0.0000003/tok (0.1×input where
-        // input = $0.000003). savings = 1000 × (0.000015 − 0.0000003) = 1000 × 0.0000147 = 0.0147.
-        let a = analytics(byDayModel: [
-            model("claude-sonnet-4", day(0, from: now), input: 10, output: 10, cacheRead: 1000, cost: 1.0),
-        ])
-        let pricing = CachePricing.claude(inputPerToken: 0.000003, outputPerToken: 0.000015)
-        let data = DashboardData.build(from: a, period: .thirtyDays, now: now, cachePricing: pricing)
-        #expect(abs(data.estimatedCacheSavings - 0.0147) < 1e-9)
-    }
-
     // MARK: - AC6 required: daily delta
 
-    @Test
-    func dailyDeltaPositive() {
-        let now = Date()
-        // 30-day window. today cost = 4.0; other day = 2.0 → periodCost 6.0, avg = 6/30 = 0.2.
-        // delta = (4.0 − 0.2) / 0.2 = 19.0 (i.e. +1900%).
-        let a = analytics(byDayModel: [
-            model("claude-sonnet-4", day(0, from: now), input: 10, output: 10, cost: 4.0),
-            model("claude-sonnet-4", day(3, from: now), input: 10, output: 10, cost: 2.0),
-        ])
-        let data = DashboardData.build(from: a, period: .thirtyDays, now: now)
-        let delta = try! #require(data.dailyDelta)
-        #expect(delta > 0)
-        #expect(abs(delta - 19.0) < 1e-9)
-    }
-
-    @Test
-    func dailyDeltaNegative() {
-        let now = Date()
-        // today cost = 1.0; another day = 9.0 → periodCost 10.0, avg = 10/30 ≈ 0.3333.
-        // delta = (1.0 − 0.3333) / 0.3333 > 0 would be positive — to force a *negative* delta we make
-        // today below the average: today 0.1, other days large.
-        let a = analytics(byDayModel: [
-            model("claude-sonnet-4", day(0, from: now), input: 5, output: 5, cost: 0.1),
-            model("claude-sonnet-4", day(1, from: now), input: 50, output: 50, cost: 5.0),
-            model("claude-sonnet-4", day(2, from: now), input: 50, output: 50, cost: 5.0),
-        ])
-        let data = DashboardData.build(from: a, period: .thirtyDays, now: now)
-        let delta = try! #require(data.dailyDelta)
-        #expect(delta < 0)
-    }
+    // EXB-5.7 §2: `dailyDeltaPositive` e `dailyDeltaNegative` viviam aqui comparando CUSTO contra
+    // uma média de dias inteiros, e usavam `Date()` real. Com o delta prorrateado pela fração do dia,
+    // ambos passariam a depender da hora em que a suíte roda. A cobertura determinística — inclusive
+    // a fixture que INVERTE o sinal do badge — está em `DashboardDeltaTests`.
 
     @Test
     func dailyDeltaNilWhenNoUsageToday() {
-        let now = Date()
-        // Only past days have usage; today is empty → delta is nil ("Sem uso hoje").
+        // Meio-dia fixo: fora da zona morta da primeira hora, para que a ausência de delta seja
+        // mesmo "sem uso hoje" e não "cedo demais" (EXB-5.7 §2).
+        let now = Calendar.current.date(
+            byAdding: .hour, value: 12,
+            to: Calendar.current.startOfDay(for: Date(timeIntervalSince1970: 1_787_000_000)))!
         let a = analytics(byDayModel: [
             model("claude-sonnet-4", day(2, from: now), input: 50, output: 50, cost: 5.0),
         ])
         let data = DashboardData.build(from: a, period: .thirtyDays, now: now)
         #expect(data.dailyDelta == nil)
+        #expect(data.dailyDeltaState == .semUsoHoje)
     }
 
     // MARK: - AC6 required: peak hour
@@ -196,19 +160,4 @@ struct DashboardInsightsTests {
         #expect(top.tokens == 1010)
     }
 
-    // MARK: - CachePricing helper
-
-    @Test
-    func cachePricingDerivesCacheReadFromInputRatio() {
-        let p = CachePricing.claude(inputPerToken: 0.00002, outputPerToken: 0.00010)
-        #expect(p.outputPerToken == 0.00010)
-        #expect(abs(p.cacheReadPerToken - 0.00002 * 0.1) < 1e-12)
-    }
-
-    @Test
-    func cachePricingDefaultIsZeroed() {
-        let p = CachePricing()
-        #expect(p.outputPerToken == 0)
-        #expect(p.cacheReadPerToken == 0)
-    }
 }

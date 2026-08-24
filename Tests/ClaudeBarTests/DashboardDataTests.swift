@@ -75,24 +75,26 @@ struct DashboardDataTests {
 
     // MARK: - Model breakdown
 
+    /// EXB-5.7 §6: o fold continua o mesmo; a ORDEM passou a ser por volume de tokens.
+    /// A fixture separa os critérios de propósito — o opus tem MAIS tokens e o sonnet, mais custo.
     @Test
-    func modelBreakdownFoldsAndSortsByCostDesc() {
+    func modelBreakdownFoldsAndSortsByTokensDesc() {
         let now = Date()
         let a = analytics(byDayModel: [
-            model("claude-sonnet-4", day(0, from: now), input: 50, output: 50, cost: 1.0),
-            model("claude-sonnet-4", day(1, from: now), input: 50, output: 50, cost: 1.0),
-            model("claude-opus-4", day(0, from: now), input: 100, output: 100, cost: 4.0),
+            model("claude-sonnet-4", day(0, from: now), input: 50, output: 50, cost: 9.0),
+            model("claude-sonnet-4", day(1, from: now), input: 50, output: 50, cost: 9.0),
+            model("claude-opus-4", day(0, from: now), input: 400, output: 400, cost: 1.0),
         ])
 
         let data = DashboardData.build(from: a, period: .thirtyDays, now: now)
 
         #expect(data.byModel.count == 2)
-        #expect(data.byModel[0].model == "claude-opus-4")
-        #expect(data.byModel[0].costUSD == 4.0)
-        #expect(data.byModel[1].model == "claude-sonnet-4")
+        #expect(data.byModel[0].model == "claude-opus-4")   // 800 tokens, $1 — o volume manda
+        #expect(data.byModel[0].costUSD == 1.0)
+        #expect(data.byModel[1].model == "claude-sonnet-4") // 200 tokens, $18
         #expect(data.byModel[1].inputTokens == 100)
         #expect(data.byModel[1].outputTokens == 100)
-        #expect(data.byModel[1].costUSD == 2.0)
+        #expect(data.byModel[1].costUSD == 18.0)
     }
 
     // MARK: - Summary windows
@@ -132,14 +134,24 @@ struct DashboardDataTests {
         #expect(data.dailyCosts.allSatisfy { $0.costUSD == 0 && $0.tokens == 0 })
     }
 
+    /// EXB-5.8 §8: a faixa deixou de ser um dos tres botoes e passou a ser um intervalo qualquer.
+    /// O eixo tem de seguir o intervalo pedido, seja ele 90 dias ou 43.
     @Test
-    func ninetyDayPeriodSpansNinetyDays() {
+    func oEixoSegueAFaixaPedidaQualquerQueSejaALargura() {
         let now = Date()
         let a = analytics(byDayModel: [model("claude-sonnet-4", day(0, from: now), input: 5, output: 5, cost: 1.0)])
-        let data = DashboardData.build(from: a, period: .ninetyDays, now: now)
-        #expect(data.dailyCosts.count == 90)
-        #expect(data.dailyCosts.first?.date == day(89, from: now))
-        #expect(data.dailyCosts.last?.date == day(0, from: now))
+
+        let noventa = DashboardData.build(
+            from: a, span: DashboardSpan(inicio: day(89, from: now), fim: day(0, from: now)), now: now)
+        #expect(noventa.dailyCosts.count == 90)
+        #expect(noventa.dailyCosts.first?.date == day(89, from: now))
+        #expect(noventa.dailyCosts.last?.date == day(0, from: now))
+
+        // Uma largura que nenhum botao produz — o caso que o enum de tres casos nao sabia exprimir.
+        let quarentaETres = DashboardData.build(
+            from: a, span: DashboardSpan(inicio: day(42, from: now), fim: day(0, from: now)), now: now)
+        #expect(quarentaETres.dailyCosts.count == 43)
+        #expect(quarentaETres.spanDays == 43)
     }
 
     // MARK: - Per-card totals (EXB-3.6 AC14)
@@ -175,14 +187,15 @@ struct DashboardDataTests {
     // MARK: - Consistent model order for colour mapping (EXB-3.6 AC12)
 
     @Test
-    func sortedModelNamesFollowCostDescending() {
+    func sortedModelNamesFollowTokenVolumeDescending() {
         let now = Date()
         let a = analytics(byDayModel: [
-            model("claude-sonnet-4", day(0, from: now), input: 50, output: 50, cost: 1.0),
-            model("claude-opus-4", day(0, from: now), input: 100, output: 100, cost: 4.0),
+            model("claude-sonnet-4", day(0, from: now), input: 50, output: 50, cost: 4.0),
+            model("claude-opus-4", day(0, from: now), input: 100, output: 100, cost: 1.0),
         ])
         let data = DashboardData.build(from: a, period: .thirtyDays, now: now)
-        // The stable order the donut + table + colour scale all share: opus (costlier) first.
+        // The stable order the donut + table + colour scale all share: opus (more tokens) first,
+        // even though it is now the cheaper of the two (EXB-5.7 §6).
         #expect(data.sortedModelNames == ["claude-opus-4", "claude-sonnet-4"])
     }
 }

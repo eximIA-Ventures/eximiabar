@@ -73,8 +73,10 @@ struct DashboardAnalyticsTests {
 
     // MARK: - Average daily (AC2)
 
+    /// EXB-5.7 §1: the divisor is the covered days, not the window's width. This test used to assert
+    /// `7.0 ÷ 7` and passed while the dashboard was understating every average it drew.
     @Test
-    func averageDailyIsPeriodCostOverSpan() {
+    func averageDailyIsPeriodCostOverCoveredDays() {
         let now = Date()
         let analytics = UsageAnalytics(
             byDayModel: [
@@ -87,8 +89,9 @@ struct DashboardAnalyticsTests {
             monthToDateCost: 0)
 
         let data = DashboardData.build(from: analytics, period: .sevenDays, now: now)
-        // total 7.0 over a 7-day span → 1.0 average.
-        #expect(abs(data.averageDailyCost - 1.0) < 0.0001)
+        // Coverage starts at the earliest observed day (yesterday) → 2 covered days, not 7.
+        #expect(data.diasComDado == 2)
+        #expect(abs(data.averageDailyCost - 3.5) < 0.0001)
     }
 
     // MARK: - Stacked tokens day axis (AC4)

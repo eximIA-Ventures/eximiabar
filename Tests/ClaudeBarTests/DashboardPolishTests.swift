@@ -142,29 +142,28 @@ struct DashboardPolishTests {
         #expect(data.todayCost == 1.0)
     }
 
-    @Test
-    func projectedTokensScalesCostProjectionByRatio() {
-        // 10_000 tokens cost $2 → ratio 5_000 tokens/$. A $4 projection ⇒ 20_000 projected tokens.
-        let projected = DashboardData.projectedTokens(periodTokens: 10_000, periodCost: 2.0, projectedCost: 4.0)
-        #expect(projected == 20_000)
-    }
-
-    @Test
-    func projectedTokensIsZeroWithoutCost() {
-        // No cost ⇒ no ratio ⇒ no projection (guards a divide-by-zero).
-        #expect(DashboardData.projectedTokens(periodTokens: 1_000, periodCost: 0, projectedCost: 5.0) == 0)
-    }
+    // EXB-5.7 §6.2: `projectedTokens(periodTokens:periodCost:projectedCost:)` derivava tokens do
+    // custo pela razão tokens÷custo da JANELA — errada sempre que o mix de modelos do mês diferia do
+    // da janela. A função e estes dois testes saíram juntos; a projeção agora mede o mês
+    // (`monthToDateTokens`) e é coberta por `DashboardTokensFirstTests`.
 
     // MARK: - X-axis tick stride per period (AC8)
 
+    /// EXB-5.8 §8: o stride passou a ser funcao do NUMERO DE DIAS, porque uma faixa arrastada pode
+    /// ter qualquer largura e um `switch` sobre tres botoes nao tem resposta para 43 dias.
     @Test
-    func axisStridePerPeriodKeepsLabelsReadable() {
-        // 7d → daily ticks; 30d → every 4 days; 90d → every 14 days.
-        #expect(DashboardFormat.axisStride(for: .sevenDays) == 1)
-        #expect(DashboardFormat.axisStride(for: .thirtyDays) == 4)
-        #expect(DashboardFormat.axisStride(for: .ninetyDays) == 14)
-        // 30d / stride-4 ⇒ ≤ 8 labels (never crowded enough to truncate).
-        #expect(30 / DashboardFormat.axisStride(for: .thirtyDays) <= 10)
-        #expect(90 / DashboardFormat.axisStride(for: .ninetyDays) <= 10)
+    func axisStrideCabeEmQualquerLarguraDeFaixa() {
+        #expect(DashboardFormat.axisStride(forDays: 7) == 1)
+        #expect(DashboardFormat.axisStride(forDays: 30) == 4)
+
+        // A propriedade que importa vale para TODA largura, nao so para as tres antigas: nunca mais
+        // de 8 rotulos, e o stride nunca degenera para zero.
+        for dias in 1...400 {
+            let stride = DashboardFormat.axisStride(forDays: dias)
+            #expect(stride >= 1)
+            #expect(dias / stride <= 8)
+        }
+        // Largura invalida nao trava a divisao.
+        #expect(DashboardFormat.axisStride(forDays: 0) == 1)
     }
 }
