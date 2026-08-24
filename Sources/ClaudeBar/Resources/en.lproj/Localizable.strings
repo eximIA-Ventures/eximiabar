@@ -92,6 +92,19 @@
 "dashboard.period.30d"             = "30d";
 "dashboard.period.all"             = "All";
 "dashboard.export.csv"             = "Export CSV";
+
+// EXB-6.8 — the export button offers three formats, chosen in the save panel's accessory
+"dashboard.export"                 = "Export…";
+"dashboard.export.format"          = "Format:";
+"dashboard.export.format.csv"      = "CSV";
+"dashboard.export.format.xlsx"     = "Spreadsheet";
+"dashboard.export.format.pack"     = "Package";
+"dashboard.export.hint.csv"        = "Raw daily data, one row per day.";
+"dashboard.export.hint.xlsx"       = "Excel workbook: sheets, charts and the caveats inside the file.";
+"dashboard.export.hint.pack"       = "Interactive panel + workbook + tidy CSVs + Power BI connection file.";
+"dashboard.export.period"          = "Exporting: %@";
+"dashboard.export.failed"          = "The export could not be written.";
+
 "dashboard.summary.avg_daily"      = "Daily average";
 "dashboard.summary.avg_daily_covered" = "Daily average (%d d with data)";
 "dashboard.summary.projection"     = "Month projection";

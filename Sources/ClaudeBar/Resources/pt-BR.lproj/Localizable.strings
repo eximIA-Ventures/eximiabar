@@ -90,6 +90,19 @@
 "dashboard.period.30d"             = "30d";
 "dashboard.period.all"             = "Tudo";
 "dashboard.export.csv"             = "Exportar CSV";
+
+// EXB-6.8 — o botão de exportar oferece três formatos, escolhidos no acessório do painel de salvar
+"dashboard.export"                 = "Exportar…";
+"dashboard.export.format"          = "Formato:";
+"dashboard.export.format.csv"      = "CSV";
+"dashboard.export.format.xlsx"     = "Planilha";
+"dashboard.export.format.pack"     = "Pacote";
+"dashboard.export.hint.csv"        = "Dados diários crus, uma linha por dia.";
+"dashboard.export.hint.xlsx"       = "Planilha do Excel: abas, gráficos e as ressalvas dentro do arquivo.";
+"dashboard.export.hint.pack"       = "Painel interativo + planilha + CSVs em grão fino + arquivo de conexão do Power BI.";
+"dashboard.export.period"          = "Exportando: %@";
+"dashboard.export.failed"          = "Não foi possível gravar a exportação.";
+
 "dashboard.summary.avg_daily"      = "Média diária";
 "dashboard.summary.avg_daily_covered" = "Média diária (%d d com dado)";
 "dashboard.summary.projection"     = "Projeção do mês";

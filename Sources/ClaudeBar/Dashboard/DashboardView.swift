@@ -26,7 +26,9 @@ struct DashboardView: View {
     /// A range dragged over the timeline. Writes into the same span the shortcuts write into — that
     /// is what keeps a button and a drag from being two different questions (EXB-5.8 §8).
     var selectRange: (ClosedRange<Date>) -> Void = { _ in }
-    var exportCSV: () -> Void = {}
+    /// Opens the export panel. Named for what it does, not for one of the three formats it offers —
+    /// `exportCSV` stopped being true the moment CSV became an option rather than the operation.
+    var exportar: () -> Void = {}
     var openSettings: () -> Void = {}
 
     /// `true` when an export button should be enabled (only when loaded with data).
@@ -41,7 +43,7 @@ struct DashboardView: View {
             DashboardToolbar(
                 atalho: atalho,
                 selectPeriod: selectPeriod,
-                exportCSV: exportCSV,
+                exportar: exportar,
                 canExport: canExport)
             Divider()
             content
@@ -113,7 +115,7 @@ private struct DashboardToolbar: View {
     /// describes what is being displayed.
     let atalho: DashboardPeriod?
     let selectPeriod: (DashboardPeriod) -> Void
-    let exportCSV: () -> Void
+    let exportar: () -> Void
     let canExport: Bool
 
     var body: some View {
@@ -133,9 +135,12 @@ private struct DashboardToolbar: View {
             Spacer()
 
             Button {
-                exportCSV()
+                exportar()
             } label: {
-                Label(L("dashboard.export.csv"), systemImage: "square.and.arrow.up")
+                // The button opens a picker of three formats. Saying "Exportar CSV" on it was a label
+                // that lied about its own click — the same class of defect as a number whose divisor
+                // is invisible, and it earns no more patience than one.
+                Label(L("dashboard.export"), systemImage: "square.and.arrow.up")
             }
             .disabled(!canExport)
         }
