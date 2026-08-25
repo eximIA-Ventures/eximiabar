@@ -49,6 +49,32 @@ enum AnalyticsBench {
             return
         }
 
+        // `--fold [--dir <path>]`: warm the archive once, then time the *pure fold* —
+        // `analytics(in:)`, which reads no bytes — over several window widths, and report how many
+        // rows each dimension emits. This is the measurement that decides whether a new dimension
+        // can be exposed whole or has to be cut: the question is the cost of the fold and the size
+        // of what it hands to the UI, not the cost of the scan that warmed it.
+        if arguments.contains("--synthetic") {
+            func value(_ flag: String, _ fallback: Int) -> Int {
+                guard let index = arguments.firstIndex(of: flag) else { return fallback }
+                return Int(arguments[safe: index + 1] ?? "") ?? fallback
+            }
+            await synthetic(
+                days: value("--days", 730),
+                sessionsPerDay: value("--sessions-per-day", 5),
+                projects: value("--projects", 120))
+            return
+        }
+
+        if arguments.contains("--fold") {
+            var directories: [URL]?
+            if let dirIndex = arguments.firstIndex(of: "--dir"), let path = arguments[safe: dirIndex + 1] {
+                directories = [URL(fileURLWithPath: path)]
+            }
+            await fold(directories: directories)
+            return
+        }
+
         print("=== AnalyticsBench — scanAnalytics wall-clock ===")
         print("host: \(ProcessInfo.processInfo.activeProcessorCount) cores")
 
@@ -96,6 +122,217 @@ enum AnalyticsBench {
             let analytics = await reopened.scanAnalytics(windowDays: window)
             report(window: window, seconds: elapsed(since: start), analytics: analytics)
         }
+    }
+
+    // MARK: - Synthetic scale (what this costs after the archive has grown)
+
+    /// Generate a corpus of a chosen size, scan it, and report what the fold costs over all of it.
+    ///
+    /// WHY SYNTHESISE: the archive is permanent and only grows, so the decision that matters is what
+    /// a dimension costs in two years, not what it costs today. Extrapolating from today's 41 active
+    /// days is a guess; generating 730 of them and folding is a measurement. The generator emits the
+    /// same JSONL shape the scanner parses, so the numbers come out of the real pipeline.
+    ///
+    ///   --synthetic --days N --sessions-per-day S --projects P
+    private static func synthetic(days: Int, sessionsPerDay: Int, projects: Int) async {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("analyticsbench-synth-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let calendar = Calendar.current
+        let now = Date()
+        let today = calendar.startOfDay(for: now)
+        let models = ["claude-sonnet-4", "claude-opus-4-1", "claude-haiku-4-5"]
+
+        let writeStart = DispatchTime.now().uptimeNanoseconds
+        var bytes = 0
+        for dayIndex in 0..<days {
+            guard let day = calendar.date(byAdding: .day, value: -dayIndex, to: today) else { continue }
+            var lines: [String] = []
+            lines.reserveCapacity(sessionsPerDay * 2)
+            for session in 0..<sessionsPerDay {
+                // Each day touches a rotating slice of the project set, so `(day, project)` pairs
+                // grow the way they do in life: many projects overall, a handful active per day.
+                let project = (dayIndex * sessionsPerDay + session) % projects
+                let model = models[session % models.count]
+                for entry in 0..<2 {
+                    guard let instant = calendar.date(
+                        bySettingHour: (session * 2 + entry) % 24, minute: 0, second: 0, of: day)
+                    else { continue }
+                    lines.append(syntheticLine(
+                        messageId: "m\(dayIndex)-\(session)-\(entry)",
+                        requestId: "r\(dayIndex)-\(session)-\(entry)",
+                        model: model,
+                        project: "project-\(project)",
+                        session: "sess-\(dayIndex)-\(session)",
+                        instant: instant))
+                }
+            }
+            let blob = (lines.joined(separator: "\n") + "\n").data(using: .utf8) ?? Data()
+            bytes += blob.count
+            try? blob.write(to: root.appendingPathComponent("day-\(dayIndex).jsonl"))
+        }
+        print(String(
+            format: "generated %ld days × %ld sessions × %ld projects — %.1f MB in %.2f s",
+            days, sessionsPerDay, projects, Double(bytes) / 1024 / 1024, elapsed(since: writeStart)))
+
+        let suiteName = "analyticsbench.synth.\(UUID().uuidString)"
+        guard let store = UserDefaults(suiteName: suiteName) else { exit(1) }
+        defer { store.removePersistentDomain(forName: suiteName) }
+        let defaults = CostDefaults(store)
+        let scanner = CostScanner(
+            pricing: Pricing(defaults: defaults, networkEnabled: false), defaults: defaults)
+
+        let scanStart = DispatchTime.now().uptimeNanoseconds
+        _ = await scanner.scanAnalytics(directories: [root], windowDays: 1, now: now)
+        print(String(format: "cold scan: %.2f s", elapsed(since: scanStart)))
+        if let blob = store.data(forKey: "costScanner.analyticsCache") {
+            print(String(format: "persisted archive: %.2f MB", Double(blob.count) / 1024 / 1024))
+        }
+
+        guard let from = calendar.date(byAdding: .day, value: -(days - 1), to: today) else { return }
+        var samples: [Double] = []
+        var last: UsageAnalytics?
+        for _ in 0..<7 {
+            let start = DispatchTime.now().uptimeNanoseconds
+            let analytics = await scanner.analytics(in: from...today, now: now)
+            samples.append(elapsed(since: start) * 1000)
+            last = analytics
+        }
+        guard let analytics = last else { return }
+        samples.sort()
+        print(String(
+            format: "fold over all %ld days: median %.2f ms   dayModel=%ld projects=%ld%@",
+            days, samples[samples.count / 2], analytics.byDayModel.count,
+            analytics.byProject.count, extraDimensions(analytics)))
+        print(footprint(analytics))
+    }
+
+    /// One assistant line in the shape `handleAnalyticsLine` parses.
+    private static func syntheticLine(
+        messageId: String,
+        requestId: String,
+        model: String,
+        project: String,
+        session: String,
+        instant: Date) -> String
+    {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime]
+        iso.timeZone = TimeZone(secondsFromGMT: 0)
+        let object: [String: Any] = [
+            "type": "assistant",
+            "requestId": requestId,
+            "timestamp": iso.string(from: instant),
+            "cwd": "/work/\(project)",
+            "sessionId": session,
+            "message": [
+                "id": messageId,
+                "model": model,
+                "usage": [
+                    "input_tokens": 1_000,
+                    "output_tokens": 500,
+                    "cache_read_input_tokens": 20_000,
+                    "cache_creation_input_tokens": 3_000,
+                ],
+            ],
+        ]
+        let data = (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    /// Bytes the new dimensions hand to the UI, counted rather than guessed.
+    ///
+    /// Struct stride plus the UTF-8 of every distinct string they reference. Distinct is the right
+    /// unit: the fold copies `String` values that already exist in the archive's dictionaries, so a
+    /// repeated project name costs a retain, not a second buffer.
+    private static func footprint(_ analytics: UsageAnalytics) -> String {
+        let dayProjectBytes = MemoryLayout<DayProjectEntry>.stride * analytics.byDayProject.count
+        let sessionBytes = MemoryLayout<SessionUsageEntry>.stride * analytics.sessions.count
+        let rankBytes = (MemoryLayout<String>.stride + MemoryLayout<Int>.stride)
+            * analytics.projectRankByTotal.count
+        // The histogram is the point of the redesign: it does not grow with the archive.
+        let histogramBytes = MemoryLayout<Int>.stride * analytics.sessionTokenBuckets.count
+        let monthBytes = MemoryLayout<MonthCoverage>.stride * analytics.monthCoverage.count
+        var strings = Set<String>()
+        for entry in analytics.byDayProject { strings.insert(entry.project) }
+        for name in analytics.projectRankByTotal.keys { strings.insert(name) }
+        for entry in analytics.sessions {
+            strings.insert(entry.sessionId)
+            strings.insert(entry.project)
+            strings.insert(entry.dominantModel)
+        }
+        let stringBytes = strings.reduce(0) { $0 + $1.utf8.count }
+        let total = dayProjectBytes + sessionBytes + rankBytes + histogramBytes + monthBytes + stringBytes
+        return String(
+            format: "new dimensions hold %.3f MB (byDayProject %.3f + sessions %.3f + rank %.3f MB; histogram %ld B, months %ld B, %ld strings %.3f MB)",
+            Double(total) / 1024 / 1024,
+            Double(dayProjectBytes) / 1024 / 1024,
+            Double(sessionBytes) / 1024 / 1024,
+            Double(rankBytes) / 1024 / 1024,
+            histogramBytes, monthBytes, strings.count,
+            Double(stringBytes) / 1024 / 1024)
+    }
+
+    // MARK: - Fold cost (the range API, which reads no bytes)
+
+    /// Warm the archive once, then time `analytics(in:)` across widening windows.
+    ///
+    /// The widest widths are deliberately far past what the history covers: they answer "what does
+    /// this cost when every day the archive will ever hold is inside the slice", which is the shape
+    /// the growth question is really about. Each width is timed several times and the **median** is
+    /// reported — a single sample would be reporting the scheduler, not the fold.
+    private static func fold(directories: [URL]?) async {
+        let suiteName = "analyticsbench.fold.\(UUID().uuidString)"
+        guard let store = UserDefaults(suiteName: suiteName) else { exit(1) }
+        defer { store.removePersistentDomain(forName: suiteName) }
+        let defaults = CostDefaults(store)
+        let scanner = CostScanner(
+            pricing: Pricing(defaults: defaults, networkEnabled: false), defaults: defaults)
+
+        let now = Date()
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: now)
+
+        print("=== AnalyticsBench — fold cost (analytics(in:), zero I/O) ===")
+        let warmStart = DispatchTime.now().uptimeNanoseconds
+        _ = await scanner.scanAnalytics(directories: directories, windowDays: 7, now: now)
+        print(String(format: "warm-up scan: %.3f s", elapsed(since: warmStart)))
+        if let blob = store.data(forKey: "costScanner.analyticsCache") {
+            print(String(format: "persisted archive: %.2f MB", Double(blob.count) / 1024 / 1024))
+        }
+
+        for width in [7, 30, 90, 365, 3650] {
+            guard let from = calendar.date(byAdding: .day, value: -(width - 1), to: today) else { continue }
+            var samples: [Double] = []
+            var last: UsageAnalytics?
+            for _ in 0..<7 {
+                let start = DispatchTime.now().uptimeNanoseconds
+                let analytics = await scanner.analytics(in: from...today, now: now)
+                samples.append(elapsed(since: start) * 1000)
+                last = analytics
+            }
+            guard let analytics = last else { continue }
+            samples.sort()
+            print(String(
+                format: "%5ldd  median %7.2f ms   dayModel=%-6ld projects=%-5ld topSessions=%-4ld%@",
+                width, samples[samples.count / 2], analytics.byDayModel.count,
+                analytics.byProject.count, analytics.topSessions.count,
+                extraDimensions(analytics)))
+        }
+    }
+
+    /// Rows emitted by dimensions added after this bench mode was written, or `""` on a build that
+    /// does not have them. Keeping the new counts behind one function is what lets the *same* bench
+    /// source be run against the before and after builds.
+    private static func extraDimensions(_ analytics: UsageAnalytics) -> String {
+        String(
+            format: " dayProject=%-6ld ranked=%-2ld/%-4ld others=%-4ld sessions=%-6ld/%-6ld cut=%@",
+            analytics.byDayProject.count, analytics.rankedProjects.count,
+            analytics.projectRankByTotal.count, analytics.otherProjectCount,
+            analytics.sessions.count, analytics.totalSessions,
+            analytics.sessionsTruncated ? "yes" : "no")
     }
 
     // MARK: - Canonical dump (cross-build equivalence check)

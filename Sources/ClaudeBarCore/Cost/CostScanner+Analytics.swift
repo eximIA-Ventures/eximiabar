@@ -57,7 +57,21 @@ extension CostScanner {
     /// Cost: the first call in a process may decode the persisted archive; after that it is pure
     /// arithmetic over the in-memory buckets. It never returns stale data relative to the last
     /// scan, and it never *causes* a scan — refreshing from disk stays `scanAnalytics`'s job.
-    public func analytics(in range: ClosedRange<Date>, now: Date = Date()) async -> UsageAnalytics {
+    ///
+    /// **This re-folds every bucket on every call.** It reads no bytes, but it is not free: measured
+    /// at 3.1 ms over this machine's archive and 22 ms over a synthesised two-year one. A caller
+    /// driving it from a continuous gesture must fold on settle, not per emission.
+    ///
+    /// `sessionLimit` caps `UsageAnalytics.sessions` at that many rows (dearest first). The default
+    /// is **no cap**, which is what the measurement supports: two years at this machine's observed
+    /// rate is ~3 650 sessions, 0.43 MB, and ~7 ms. A caller that decides its chart cannot draw that
+    /// many passes a limit — and `totalSessions` still reports the true total, so the cut is stated
+    /// rather than implied.
+    public func analytics(
+        in range: ClosedRange<Date>,
+        now: Date = Date(),
+        sessionLimit: Int? = nil) async -> UsageAnalytics
+    {
         let signposter = Self.perfSignposter
         let state = signposter.beginInterval("analyticsInRange")
         defer { signposter.endInterval("analyticsInRange", state) }
@@ -70,7 +84,8 @@ extension CostScanner {
         return await self.makeAnalytics(
             from: self.loadAnalyticsCache(),
             dayRange: Swift.min(lower, upper)...Swift.max(lower, upper),
-            now: now)
+            now: now,
+            sessionLimit: sessionLimit)
     }
 
     /// The inclusive start-of-day range a trailing `days`-day window covers, ending today.
@@ -99,9 +114,11 @@ extension CostScanner {
     public func scanAnalytics(
         directories: [URL]? = nil,
         windowDays: Int,
-        now: Date = Date()) async -> UsageAnalytics
+        now: Date = Date(),
+        sessionLimit: Int? = nil) async -> UsageAnalytics
     {
-        await self.scanAnalyticsResult(directories: directories, windowDays: windowDays, now: now)
+        await self.scanAnalyticsResult(
+            directories: directories, windowDays: windowDays, now: now, sessionLimit: sessionLimit)
             .analytics
     }
 
@@ -109,7 +126,8 @@ extension CostScanner {
     public func scanAnalyticsResult(
         directories: [URL]? = nil,
         windowDays: Int,
-        now: Date = Date()) async -> AnalyticsScanResult
+        now: Date = Date(),
+        sessionLimit: Int? = nil) async -> AnalyticsScanResult
     {
         let signposter = Self.perfSignposter
         let scanID = signposter.makeSignpostID()
@@ -189,7 +207,8 @@ extension CostScanner {
         let analytics = await self.makeAnalytics(
             from: state,
             dayRange: Self.windowDayRange(days: window, now: now),
-            now: now)
+            now: now,
+            sessionLimit: sessionLimit)
         signposter.endInterval("makeAnalytics", aggregateState)
 
         return AnalyticsScanResult(analytics: analytics, fingerprint: census.fingerprint)
@@ -605,19 +624,25 @@ extension CostScanner {
     private func makeAnalytics(
         from state: AnalyticsCacheState,
         dayRange: ClosedRange<Date>,
-        now: Date) async -> UsageAnalytics
+        now: Date,
+        sessionLimit: Int? = nil) async -> UsageAnalytics
     {
         let calendar = Calendar.current
         let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? now
 
         var dayModel: [DayModelKey: AnalyticsBucketTotals] = [:]
         var projectModel: [ProjectModelKey: AnalyticsBucketTotals] = [:]
+        var dayProjectModel: [DayProjectModelKey: AnalyticsBucketTotals] = [:]
         var sessionModel: [SessionModelKey: AnalyticsBucketTotals] = [:]
         var sessionProject: [String: String] = [:]
         var sessionFirst: [String: Date] = [:]
         var monthModel: [String: AnalyticsBucketTotals] = [:]
         var heat = Array(repeating: Array(repeating: 0, count: 24), count: 7)
         var models = Set<String>()
+        // Volume per project across the WHOLE archive, not the slice — the ranking that decides which
+        // projects keep a band of their own has to be range-independent, or dragging the handle would
+        // re-rank the stack mid-gesture. Accumulated before the range guard for exactly that reason.
+        var archiveProjectTokens: [String: Int] = [:]
 
         // Month-to-date spans the current calendar month, NOT the selected slice — see below.
         let todayStart = calendar.startOfDay(for: now)
@@ -627,6 +652,8 @@ extension CostScanner {
         for buckets in state.allBuckets() {
             for (key, totals) in buckets {
                 let inRange = dayRange.contains(key.day)
+                archiveProjectTokens[key.project, default: 0] += totals.inputTokens
+                    + totals.outputTokens + totals.cacheReadTokens + totals.cacheWriteTokens
                 // Month-to-date is deliberately computed outside the slice.
                 //
                 // It used to be folded inside the range guard, which made it "this month ∩ the
@@ -653,6 +680,10 @@ extension CostScanner {
                     .add(totals)
                 projectModel[ProjectModelKey(project: key.project, model: key.model), default: AnalyticsBucketTotals()]
                     .add(totals)
+                // `key.day` is carried through untouched — the same start-of-day the archive booked.
+                dayProjectModel[
+                    DayProjectModelKey(day: key.day, project: key.project, model: key.model),
+                    default: AnalyticsBucketTotals()].add(totals)
                 sessionModel[SessionModelKey(session: key.session, model: key.model), default: AnalyticsBucketTotals()]
                     .add(totals)
 
@@ -725,7 +756,69 @@ extension CostScanner {
             }
             .sorted { $0.costUSD != $1.costUSD ? $0.costUSD > $1.costUSD : $0.project < $1.project }
 
-        // --- Top sessions ---
+        // --- Per-(day, project) totals, capped at the globally-ranked projects (EXB-6.1) ---
+        //
+        // The ranking comes from `archiveProjectTokens`, which was accumulated over every bucket in
+        // the archive rather than over the slice. Ranking inside the slice would re-order the stack
+        // during a drag: band three would become a different project halfway through the gesture and
+        // appear to grow when it had only changed owner.
+        //
+        // Ties break on the name so the ranking is deterministic when two projects have identical
+        // volume — otherwise dictionary order would decide who gets a band, and it would decide
+        // differently on the next launch.
+        let rankOrder = archiveProjectTokens
+            .sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+            .map(\.key)
+        // The map is the ordering; `rankedProjects` is its head. Built this way round so a consumer
+        // cutting at some other N cannot end up with a different notion of "first" from the one the
+        // aggregate row was computed against.
+        var projectRankByTotal: [String: Int] = [:]
+        projectRankByTotal.reserveCapacity(rankOrder.count)
+        for (rank, project) in rankOrder.enumerated() { projectRankByTotal[project] = rank }
+        let rankedProjects = Array(rankOrder.prefix(UsageAnalytics.maxRankedProjects))
+        let rankedSet = Set(rankedProjects)
+        // Counted over the slice, not the archive: the number labels the rows actually on screen.
+        let otherProjectCount = Set(projectModel.keys.map(\.project)).subtracting(rankedSet).count
+
+        // Same shape as the per-project fold one level finer: models are summed in a sorted key
+        // order so the money is order-independent, exactly as above. Everything outside the ranking
+        // lands on the day's aggregate key — **summed, never dropped**, so the rows of a day still
+        // add up to that day's real total.
+        var dayProjectCost: [DayProjectKey: Double] = [:]
+        var dayProjectTokens: [DayProjectKey: Int] = [:]
+        for key in dayProjectModel.keys.sorted(by: Self.isOrderedBefore) {
+            guard let totals = dayProjectModel[key] else { continue }
+            // The aggregate row is keyed on the empty name, which `projectName(fromCWD:)` can never
+            // produce (it yields "Unknown" for an empty `cwd`), so a real directory cannot collide
+            // with it however it is named.
+            let pair = DayProjectKey(
+                day: key.day,
+                project: rankedSet.contains(key.project) ? key.project : "")
+            dayProjectCost[pair, default: 0] += cost(totals, key.model)
+            dayProjectTokens[pair, default: 0] += totals.inputTokens + totals.outputTokens
+                + totals.cacheReadTokens + totals.cacheWriteTokens
+        }
+        let byDayProject = dayProjectCost
+            .map { pair, total in
+                DayProjectEntry(
+                    day: pair.day,
+                    project: pair.project,
+                    totalTokens: dayProjectTokens[pair] ?? 0,
+                    costUSD: total,
+                    isOthers: pair.project.isEmpty)
+            }
+            // Day ascending first: the consumers are timelines, and a caller that has to re-sort a
+            // series before drawing it is a caller that will eventually sort it differently. The
+            // aggregate row is pinned last within its day regardless of size, so it draws as one
+            // stable band at the end of the stack instead of migrating through it day by day.
+            .sorted {
+                if $0.day != $1.day { return $0.day < $1.day }
+                if $0.isOthers != $1.isOthers { return !$0.isOthers }
+                if $0.costUSD != $1.costUSD { return $0.costUSD > $1.costUSD }
+                return $0.project < $1.project
+            }
+
+        // --- Sessions ---
         var sessionCost: [String: Double] = [:]
         var sessionTokens: [String: Int] = [:]
         var sessionDominant: [String: (model: String, cost: Double)] = [:]
@@ -743,7 +836,11 @@ extension CostScanner {
                 sessionDominant[key.session] = (key.model, modelCost)
             }
         }
-        let topSessions = sessionCost
+        // Built once, in one order. `topSessions` is the head of this list rather than a second
+        // roll-up sorted by the same rule elsewhere — two lists that are *supposed* to agree are two
+        // lists that can disagree, and the top ten disagreeing with the distribution behind it would
+        // be invisible on screen.
+        let allSessions = sessionCost
             .map { session, total in
                 SessionUsageEntry(
                     sessionId: session,
@@ -754,8 +851,37 @@ extension CostScanner {
                     costUSD: total)
             }
             .sorted { $0.costUSD != $1.costUSD ? $0.costUSD > $1.costUSD : $0.date > $1.date }
-            .prefix(10)
-            .map { $0 }
+        // The cut, when one is asked for, happens exactly once and everything downstream is the head
+        // of the result — so `topSessions` can never show a session the list behind it dropped.
+        let sessions = sessionLimit.map { Array(allSessions.prefix(Swift.max(0, $0))) } ?? allSessions
+        let topSessions = Array(sessions.prefix(10))
+
+        // --- Session size distribution (EXB-6.1) ---
+        //
+        // The fold already knows every session — `sessionModel` has always carried all of them and
+        // the old `.prefix(10)` threw the rest away on the last line. Counting them into 20 fixed
+        // buckets keeps the shape of the distribution at a constant 20 integers, whatever the archive
+        // grows to, and costs one array increment per session.
+        // Counted over `allSessions`, never over the cut list: a cap is a decision about payload,
+        // not a claim about the distribution, and a histogram that shrank with it would report a
+        // different shape depending on how much the caller asked to carry.
+        var sessionTokenBuckets = Array(repeating: 0, count: UsageAnalytics.sessionTokenBucketCount)
+        for session in allSessions {
+            sessionTokenBuckets[UsageAnalytics.sessionTokenBucketIndex(forTokens: session.totalTokens)] += 1
+        }
+        // From the exact totals, never from the buckets: the buckets are √10 apart, so a median read
+        // off them could be out by a factor of three. Sorted by token volume, not by the cost order
+        // above — a median of a list sorted by a different quantity is not a median of this one.
+        let sortedTokens = allSessions.map(\.totalTokens).sorted()
+        let medianSessionTokens: Int
+        if sortedTokens.isEmpty {
+            medianSessionTokens = 0
+        } else if sortedTokens.count.isMultiple(of: 2) {
+            let middle = sortedTokens.count / 2
+            medianSessionTokens = (sortedTokens[middle - 1] + sortedTokens[middle]) / 2
+        } else {
+            medianSessionTokens = sortedTokens[sortedTokens.count / 2]
+        }
 
         var heatmap = UsageAnalytics.emptyHeatmap()
         for weekday in 0..<7 {
@@ -776,6 +902,8 @@ extension CostScanner {
                 + totals.cacheReadTokens + totals.cacheWriteTokens
         }
 
+        let coveredInRange = state.coveredDays.filter { dayRange.contains($0) }
+
         return UsageAnalytics(
             byDayModel: byDayModel,
             byProject: byProject,
@@ -785,7 +913,97 @@ extension CostScanner {
             monthToDateTokens: monthToDateTokens,
             // Only the slice's own days: the caller is drawing this slice's axis, and a covered day
             // outside it would just be noise.
-            coveredDays: state.coveredDays.filter { dayRange.contains($0) })
+            coveredDays: coveredInRange,
+            byDayProject: byDayProject,
+            rankedProjects: rankedProjects,
+            otherProjectCount: otherProjectCount,
+            projectRankByTotal: projectRankByTotal,
+            sessionTokenBuckets: sessionTokenBuckets,
+            medianSessionTokens: medianSessionTokens,
+            sessions: sessions,
+            // The true total, always — it is what makes a cut legible instead of invisible.
+            totalSessions: allSessions.count,
+            monthCoverage: Self.monthCoverage(
+                dayRange: dayRange, coveredDays: coveredInRange, calendar: calendar))
+    }
+
+    /// Per-month completeness over the slice, so a month-over-month comparison can refuse to compare
+    /// a part-month with a whole one.
+    ///
+    /// Months are enumerated over the range **clamped to the span the archive was watching**, and
+    /// the loop steps a month at a time.
+    ///
+    /// Both halves of that are load-bearing. Outside the watched span the app has nothing to say —
+    /// those months are unknown, not empty, and `coveredDays` already models unknown as absence, so
+    /// inventing a `0 / 31` row for them would be asserting something the archive cannot support.
+    ///
+    /// And stepping by day does not scale: `DashboardRangeModel` scans with `windowDays: 100_000`,
+    /// which is a range of 273 years. A day-at-a-time walk over that is ~100 000 rounds of `Calendar`
+    /// arithmetic — measured at 15.5 ms for a mere 3 650-day range before this was changed, against
+    /// 2.9 ms for the same fold without it. The month step plus one pass over the covered set costs
+    /// what the real history costs, not what the caller happened to ask for.
+    ///
+    /// `daysInRange` is still measured against the **unclamped** selection, because that is what
+    /// separates "the user dragged past this month" from "this history is missing". Collapsing the
+    /// two would hand the cascade a fall it cannot attribute.
+    ///
+    /// No hand-rolled date arithmetic: `Calendar` supplies month starts, month lengths and day
+    /// differences, in the local zone, the same one the buckets were booked in.
+    static func monthCoverage(
+        dayRange: ClosedRange<Date>,
+        coveredDays: Set<Date>,
+        calendar: Calendar) -> [MonthCoverage]
+    {
+        // Canonicalised before anything else. Stepping a day at a time does not reliably stay on
+        // midnight: São Paulo used to enter daylight saving *at midnight*, so on those dates midnight
+        // did not exist, `date(byAdding: .day)` produced 01:00, and every later step inherited the
+        // hour. Measured: walking from 2016-08-27 to 2026-07-01 arrives at 01:00 local, and a `Set`
+        // of true midnights then reports zero matches for a decade of covered days. This build no
+        // longer records days that way, but an archive already on disk may hold them.
+        let covered = Set(coveredDays.map { calendar.startOfDay(for: $0) })
+        let selectionStart = calendar.startOfDay(for: dayRange.lowerBound)
+        let selectionEnd = calendar.startOfDay(for: dayRange.upperBound)
+        guard let watchedStart = covered.min(), let watchedEnd = covered.max() else { return [] }
+
+        let from = Swift.max(selectionStart, watchedStart)
+        let through = Swift.min(selectionEnd, watchedEnd)
+        guard from <= through else { return [] }
+
+        func startOfMonth(_ date: Date) -> Date? {
+            calendar.date(from: calendar.dateComponents([.year, .month], from: date))
+        }
+        /// Inclusive day count between two start-of-day instants.
+        func days(from start: Date, through end: Date) -> Int {
+            guard start <= end else { return 0 }
+            return (calendar.dateComponents([.day], from: start, to: end).day ?? 0) + 1
+        }
+
+        // One pass over the covered set rather than over the range: its size is the history that
+        // exists, which is the only thing that can actually be counted.
+        var coveredPerMonth: [Date: Int] = [:]
+        for day in covered where day >= from && day <= through {
+            guard let month = startOfMonth(day) else { continue }
+            coveredPerMonth[month, default: 0] += 1
+        }
+
+        var result: [MonthCoverage] = []
+        var month = startOfMonth(from)
+        while let current = month, current <= through {
+            let length = calendar.range(of: .day, in: .month, for: current)?.count ?? 30
+            guard let monthEnd = calendar.date(
+                byAdding: DateComponents(month: 1, day: -1), to: current)
+            else { break }
+            result.append(MonthCoverage(
+                month: current,
+                daysInMonth: length,
+                // Against the selection, deliberately unclamped — see the note above.
+                daysInRange: days(
+                    from: Swift.max(current, selectionStart),
+                    through: Swift.min(monthEnd, selectionEnd)),
+                daysCovered: coveredPerMonth[current] ?? 0))
+            month = calendar.date(byAdding: .month, value: 1, to: current)
+        }
+        return result
     }
 
     private static func isOrderedBefore(_ lhs: ProjectModelKey, _ rhs: ProjectModelKey) -> Bool {
@@ -794,6 +1012,12 @@ extension CostScanner {
 
     private static func isOrderedBefore(_ lhs: SessionModelKey, _ rhs: SessionModelKey) -> Bool {
         lhs.session != rhs.session ? lhs.session < rhs.session : lhs.model < rhs.model
+    }
+
+    private static func isOrderedBefore(_ lhs: DayProjectModelKey, _ rhs: DayProjectModelKey) -> Bool {
+        if lhs.day != rhs.day { return lhs.day < rhs.day }
+        if lhs.project != rhs.project { return lhs.project < rhs.project }
+        return lhs.model < rhs.model
     }
 
     // MARK: - Source fingerprint (dashboard cache invalidation)
@@ -1033,4 +1257,17 @@ struct ProjectModelKey: Hashable, Sendable {
 struct SessionModelKey: Hashable, Sendable {
     let session: String
     let model: String
+}
+
+/// Key for the per-`(day, project)` fold; model is carried for the same pricing reason as above.
+struct DayProjectModelKey: Hashable, Sendable {
+    let day: Date
+    let project: String
+    let model: String
+}
+
+/// The `(day, project)` pair the priced totals collapse onto once models have been summed.
+struct DayProjectKey: Hashable, Sendable {
+    let day: Date
+    let project: String
 }
