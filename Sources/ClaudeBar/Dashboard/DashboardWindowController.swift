@@ -131,8 +131,12 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
         model.onPeriodChange = { [weak self] period in
             self?.aguardarDobra(self?.rangeModel?.aplicarAtalho(period))
         }
+        // The drag goes through the debounced door (EXB-6.1). This callback is driven by
+        // `chartXSelection(range:)`, which fires continuously while the pointer is down, and the fold
+        // behind it re-folds every bucket — so per-emission folding is a freeze waiting to be
+        // rediscovered. The shortcut above deliberately does not debounce: it emits once.
         model.onRangeChange = { [weak self] intervalo in
-            self?.aguardarDobra(self?.rangeModel?.aplicar(intervalo))
+            self?.aguardarDobra(self?.rangeModel?.aplicarArrasto(intervalo))
         }
         model.onExport = { [weak self] in self?.exportar() }
 

@@ -83,9 +83,14 @@ struct DashboardRangeTests {
         }
     }
 
-    private func modelo(_ espiao: Espiao, atalho: DashboardPeriod = .thirtyDays) -> DashboardRangeModel {
+    private func modelo(
+        _ espiao: Espiao,
+        atalho: DashboardPeriod = .thirtyDays,
+        assentamento: Duration = DashboardRangeModel.assentamentoPadrao) -> DashboardRangeModel
+    {
         let instante = agora
-        return DashboardRangeModel(source: espiao, atalhoInicial: atalho, agora: { instante })
+        return DashboardRangeModel(
+            source: espiao, atalhoInicial: atalho, agora: { instante }, assentamento: assentamento)
     }
 
     // MARK: - O gate: zero I/O na troca de faixa
@@ -123,6 +128,96 @@ struct DashboardRangeTests {
         let cal = Calendar.current
         #expect(cal.startOfDay(for: ultimo.lowerBound) == day(9))
         #expect(cal.startOfDay(for: ultimo.upperBound) == day(0))
+    }
+
+    // MARK: - O segundo gate: o arrasto dobra no assentamento, não por emissão (EXB-6.1)
+
+    /// O gate acima prova que a troca de faixa **não lê disco**. Ele não diz nada sobre o custo que
+    /// sobrou: `analytics(in:)` re-dobra TODOS os baldes a cada chamada (3,1 ms neste acervo, 22 ms
+    /// num sintético de dois anos, pelo doc do próprio scanner). `chartXSelection(range:)` emite
+    /// continuamente enquanto o ponteiro está pressionado, então dobrar por emissão é o congelamento
+    /// que esta base já derrubou (22,26 s → 0,067 s) voltando por outra porta.
+    ///
+    /// **A régua:** N emissões contínuas produzem no máximo M dobras, com M ≪ N. O contador da porta
+    /// `fatiar` é o veredito, exatamente como o de `carregarHistoria` é o do gate de I/O.
+    ///
+    /// **As emissões chegam separadas, e isso é o teste.** A primeira versão deste gate disparava as
+    /// 40 numa rajada síncrona, sem `await` entre elas — e ficava **verde com o debounce removido**.
+    /// O motivo: numa única volta do ator principal nenhuma das tarefas pendentes chega a rodar, então
+    /// o `cancel()` sozinho já coalescia tudo e a espera não era medida por ninguém. Um arrasto real
+    /// não é assim: o SwiftUI entrega cada evento na sua própria volta, o ator cede entre eles, e cada
+    /// pendente teria a chance de dobrar. Por isso o laço abaixo cede o ator entre as emissões, com um
+    /// intervalo **menor que a janela de assentamento** — que é o que um gesto de verdade faz (8 a
+    /// 16 ms entre eventos, contra uma janela de 120 ms em produção).
+    ///
+    /// **A prova por mutação (feita, não prometida):** removida a espera de `aplicarArrasto`, `fatias`
+    /// sai de 1 para 40 e as duas asserções de contagem ficam vermelhas.
+    @Test
+    func quarentaEmissoesDeArrastoProduzemUmaDobra() async {
+        let espiao = Espiao(historia: (0...120).map { entry(day($0)) }, inicio: day(120))
+        let m = modelo(espiao, assentamento: .milliseconds(20))
+        await m.carregarUmaVez()
+        let dobrasDoCarregamento = espiao.fatias
+
+        var ultima: Task<Void, Never>?
+        for largura in stride(from: 40, through: 1, by: -1) {
+            ultima = m.aplicarArrasto(day(largura)...day(0))
+            try? await Task.sleep(for: .milliseconds(2))   // o ator cede, como cede num gesto real
+        }
+        await ultima?.value
+
+        let dobrasDoArrasto = espiao.fatias - dobrasDoCarregamento
+        #expect(dobrasDoArrasto == 1, "40 emissões dobraram \(dobrasDoArrasto) vezes")
+        #expect(dobrasDoArrasto <= 4)                       // o teto declarado: M ≪ N
+        // E a dobra que aconteceu é a da ÚLTIMA faixa, não a de alguma do meio: um debounce que
+        // entregasse a primeira emissão seria igualmente "uma dobra" e mostraria a faixa errada.
+        #expect(m.dados?.dailyCosts.count == 2)             // day(1)...day(0)
+        let ultimoIntervalo = try! #require(espiao.intervalos.last)
+        #expect(Calendar.current.startOfDay(for: ultimoIntervalo.lowerBound) == day(1))
+    }
+
+    /// O outro lado da mesma moeda: **gestos separados no tempo não são coalescidos**. Um debounce que
+    /// engolisse arrastos consecutivos economizaria dobras e mostraria a faixa de dois gestos atrás —
+    /// e passaria no teste acima com louvor.
+    @Test
+    func arrastosSeparadosNoTempoDobramCadaUm() async {
+        let espiao = Espiao(historia: (0...120).map { entry(day($0)) }, inicio: day(120))
+        let m = modelo(espiao, assentamento: .milliseconds(20))
+        await m.carregarUmaVez()
+        let base = espiao.fatias
+
+        await m.aplicarArrasto(day(10)...day(0)).value
+        #expect(m.dados?.dailyCosts.count == 11)
+        await m.aplicarArrasto(day(20)...day(0)).value
+        #expect(m.dados?.dailyCosts.count == 21)
+        await m.aplicarArrasto(day(30)...day(0)).value
+        #expect(m.dados?.dailyCosts.count == 31)
+
+        #expect(espiao.fatias - base == 3)
+        #expect(espiao.carregamentos == 1)                  // e nenhum deles leu disco
+    }
+
+    /// O atalho não espera o assentamento — um botão emite uma vez, e 120 ms de latência comprada aí
+    /// seria latência por nada. E ele cancela um arrasto ainda assentando, para que a última coisa que
+    /// o Senhor tocou seja a que fica na tela.
+    @Test
+    func oAtalhoNaoEsperaOAssentamentoECancelaOArrastoPendente() async {
+        let espiao = Espiao(historia: (0...120).map { entry(day($0)) }, inicio: day(120))
+        // Janela longa de propósito: se o atalho esperasse por ela, este teste levaria 5 s.
+        let m = modelo(espiao, assentamento: .seconds(5))
+        await m.carregarUmaVez()
+        let base = espiao.fatias
+
+        let arrasto = m.aplicarArrasto(day(42)...day(0))
+        await m.aplicarAtalhoEAguardar(.sevenDays)
+
+        #expect(m.dados?.dailyCosts.count == 7)
+        #expect(m.atalho == .sevenDays)
+        #expect(espiao.fatias - base == 1)                  // só a dobra do atalho
+        arrasto.cancel()
+        await arrasto.value
+        #expect(m.dados?.dailyCosts.count == 7)             // o arrasto cancelado não ressuscita
+        #expect(espiao.fatias - base == 1)
     }
 
     // MARK: - Atalho é valor, não modo
