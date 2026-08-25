@@ -97,6 +97,20 @@ struct CostScannerIncrementalAnalyticsTests {
             .scanAnalytics(directories: [dir], windowDays: windowDays, now: now)
     }
 
+    /// A **named** local instant, for fixtures that reach backwards by *hours*.
+    ///
+    /// `Date()` makes such a fixture answer a different question depending on when the suite runs: a
+    /// two-hour reach crosses local midnight between 00:00 and 02:00, and the fixture then spans two
+    /// days instead of one. Measured by pinning this whole file's clock hour by hour — the suite is
+    /// green at 02:30 and later, red at 00:00, 00:30 and 01:30.
+    ///
+    /// Whole-day offsets (`byAdding: .day`) do not need this: they preserve the hour, so they land on
+    /// the same side of midnight whenever the suite runs.
+    private static func pinned(hour: Int) -> Date {
+        Calendar.current.date(from: DateComponents(
+            year: 2026, month: 8, day: 25, hour: hour, minute: 0, second: 0))!
+    }
+
     // MARK: - Equivalence: incremental result == from-scratch result
 
     /// Two appends, three scans, against one virgin scan of the final file. This is the core
@@ -228,7 +242,10 @@ struct CostScannerIncrementalAnalyticsTests {
         let dir = try Self.makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("session.jsonl")
-        let now = Date()
+        // Noon, so "another hour" is another hour of the **same day** — which is what this test is
+        // about. With `Date()` here it silently became "another day" between 00:00 and 02:00, and
+        // then it was asserting something else entirely; see the sibling test below.
+        let now = Self.pinned(hour: 12)
         let earlier = now.addingTimeInterval(-7_200)
 
         let scanner = Self.makeScanner(Self.makeDefaults())
@@ -247,6 +264,71 @@ struct CostScannerIncrementalAnalyticsTests {
         #expect(populated.count == 1)
         #expect(populated.first?.tokens == 150)
         #expect(result == (await Self.freshScan(dir, windowDays: 30, now: now)))
+    }
+
+
+    /// The same supersede, but deliberately **across local midnight** — and the reason the sibling
+    /// above could not stay on a live clock.
+    ///
+    /// This is what the old test was accidentally asserting between 00:00 and 02:00, and it fails
+    /// there for a reason that is not a bug: **coverage is monotone**. The incremental scanner
+    /// vouched for the previous day when it first saw a bucket there; the supersede then moved that
+    /// usage to today and the bucket vanished, but `recordCoverage` unions and never retracts — "a
+    /// day the app once watched does not become unknowable". A fresh scanner reading only the final
+    /// file never saw that day at all.
+    ///
+    /// So across a day boundary the incremental and the from-scratch results **legitimately differ,
+    /// in coverage and nowhere else**. Asserting whole-struct equality there reports a defect that
+    /// does not exist — which is exactly what happened, at 00:56 in Tokyo.
+    ///
+    /// What must still hold, and does: no ghost bucket. That invariant is the point of the pair.
+    @Test
+    func supersededChunkAcrossLocalMidnightLeavesNoGhostBucketEither() async throws {
+        let dir = try Self.makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("session.jsonl")
+        // 01:00 minus two hours is 23:00 *yesterday*, in every time zone, by construction.
+        let now = Self.pinned(hour: 1)
+        let earlier = now.addingTimeInterval(-7_200)
+        let calendar = Calendar.current
+        // Control on the fixture itself: if these ever land on the same day the test is vacuous.
+        #expect(calendar.startOfDay(for: earlier) != calendar.startOfDay(for: now))
+
+        let scanner = Self.makeScanner(Self.makeDefaults())
+        try Self.write([
+            Self.line(messageId: "m1", requestId: "r1", input: 100, output: 50, timestamp: earlier),
+        ], to: url)
+        _ = await scanner.scanAnalytics(directories: [dir], windowDays: 30, now: now)
+
+        try Self.append([
+            Self.line(messageId: "m1", requestId: "r1", input: 100, output: 50, timestamp: now),
+        ], to: url)
+        let result = await scanner.scanAnalytics(directories: [dir], windowDays: 30, now: now)
+        let fresh = await Self.freshScan(dir, windowDays: 30, now: now)
+
+        // The invariant the pair exists for, unaffected by the boundary.
+        let populated = result.heatmap.flatMap { $0 }.filter { $0.tokens > 0 }
+        #expect(populated.count == 1)
+        #expect(populated.first?.tokens == 150)
+
+        // Everything a chart draws agrees with the from-scratch scan.
+        #expect(result.byDayModel == fresh.byDayModel)
+        #expect(result.byProject == fresh.byProject)
+        #expect(result.heatmap == fresh.heatmap)
+        #expect(result.topSessions == fresh.topSessions)
+        #expect(result.sessions == fresh.sessions)
+        #expect(result.byDayProject == fresh.byDayProject)
+        #expect(result.monthToDateTokens == fresh.monthToDateTokens)
+
+        // …and the one documented divergence, in the direction only monotone coverage can produce:
+        // the incremental scanner remembers watching yesterday, the fresh one never did.
+        #expect(result.coveredDays.isSuperset(of: fresh.coveredDays))
+        #expect(result.coveredDays.count == fresh.coveredDays.count + 1)
+        #expect(result.coveredDays.contains(calendar.startOfDay(for: earlier)))
+        #expect(fresh.coveredDays.contains(calendar.startOfDay(for: earlier)) == false)
+        // Which is why whole-struct equality is the wrong assertion at a boundary, and holds away
+        // from one — the sibling above proves the other half.
+        #expect(result != fresh)
     }
 
     /// Lines with no `messageId`/`requestId` (older logs) are deliberately *not* deduped — each is
