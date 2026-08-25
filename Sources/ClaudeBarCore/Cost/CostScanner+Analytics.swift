@@ -579,11 +579,16 @@ extension CostScanner {
         // for when they were live, and must not extend the claim now that they are gone.
         guard let earliest = state.files.values.flatMap({ $0.buckets.keys.map(\.day) }).min() else { return }
 
-        var day = earliest
+        // Normalised on insert for the reason spelled out in `monthCoverage`: a day-by-day walk can
+        // step off midnight for good when it crosses a daylight-saving change that happened *at*
+        // midnight, and every consumer that asks `coveredDays.contains(startOfDay)` would then get
+        // `false` for days the archive really did watch. Only reachable on an archive old enough to
+        // span such a change — which is exactly what a permanent archive becomes.
+        var day = calendar.startOfDay(for: earliest)
         while day <= today {
             state.coveredDays.insert(day)
             guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
-            day = next
+            day = calendar.startOfDay(for: next)
         }
     }
 
