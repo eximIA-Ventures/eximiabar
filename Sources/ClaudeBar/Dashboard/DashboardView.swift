@@ -651,11 +651,20 @@ private struct MetricCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
+            // **Two lines, not one.** `"Average per day of the window"` typesets at 198pt against a
+            // 180pt box and shipped as `"Average per day of the win…"`. Widening the card would fix
+            // that string and nothing else: the next translation is a different width, and pt-BR is
+            // not uniformly longer than English here — it is shorter on this label and longer on
+            // others. Wrapping is the only fix whose correctness does not depend on the text.
+            //
+            // The 0.8 floor matches the ruler in `DashboardCardLabelFitTests`, deliberately: a test
+            // that allowed more shrink than the view does would pass on a title the screen clips.
             Text(title)
                 .font(.headline)
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+                .fixedSize(horizontal: false, vertical: true)
             Text(value)
                 .font(.system(.title2, design: .rounded).bold().monospacedDigit())
                 .foregroundStyle(valueTint ?? .primary)
@@ -744,7 +753,8 @@ private struct MonthComparisonCard: View {
             Text(L("dashboard.insights.month.title"))
                 .font(.headline)
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
             Text(headline)
                 .font(.system(.title2, design: .rounded).bold().monospacedDigit())
                 .foregroundStyle(tint)
@@ -779,10 +789,13 @@ private struct CacheHitCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
+            // Same two-line rule as `MetricCard`: the ruler that measures these titles allows two
+            // lines, so a card that draws one would clip a string the gate had just approved.
             Text(L("dashboard.insights.cache_hit.title"))
                 .font(.headline)
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
             Text(DashboardFormat.taxaCache(hitRate))
                 .font(.system(.title2, design: .rounded).bold().monospacedDigit())
                 .foregroundStyle(PopoverStyle.accent(for: self.popoverTheme))
