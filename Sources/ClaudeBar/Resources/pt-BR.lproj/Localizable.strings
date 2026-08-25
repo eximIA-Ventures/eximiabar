@@ -409,3 +409,36 @@
 "dashboard.models_by_day.sub"      = "Uma série por modelo, com a mesma cor do detalhamento por modelo.";
 "dashboard.projects.sub"           = "Projeto é o último componente do caminho de trabalho; pastas de mesmo nome colapsam na mesma linha.";
 "dashboard.heatmap.sub"            = "Escala logarítmica, do fundo até o terracota da marca. O valor de cada célula está na dica.";
+
+/* MARK: - Painel: quatro representações sobre dado que já existia (EXB-5.10) */
+
+// G1 — curva de concentração de projetos (Pareto).
+"dashboard.pareto.title"           = "Concentração dos projetos";
+"dashboard.pareto.sub"             = "Projetos ordenados do maior para o menor, com o volume acumulado. A leitura é decisiva nos dois sentidos: poucos projetos significam que a atenção tem endereço, muitos significam que não há alavanca no nível de projeto.";
+"dashboard.pareto.crossing"        = "%1$d de %2$d projetos concentram %3$d%% do volume";
+"dashboard.pareto.threshold"       = "%d%%";
+"dashboard.pareto.axis.rank"       = "Projetos, do maior ao menor";
+"dashboard.pareto.axis.share"      = "Volume acumulado";
+"dashboard.pareto.empty"           = "Nenhum projeto com volume nesta janela.";
+
+// G2 — composição normalizada a 100%: alternância do mesmo gráfico, não seção nova.
+"dashboard.models_by_day.mode.absolute" = "Absoluto";
+"dashboard.models_by_day.mode.share"    = "Proporção";
+"dashboard.models_by_day.sub.share" = "Cada dia normalizado ao próprio total, para separar \"usei mais\" de \"usei diferente\". Dia sem dado ou de total zero não desenha.";
+"dashboard.models_by_day.y_share"  = "Fração do dia";
+
+// G3 — hoje entre os pares, dentro do cartão de hoje.
+"dashboard.today.distribution.with_today"    = "Mediana %1$@ · hoje está acima de %2$d%% dos %3$d dias medidos";
+"dashboard.today.distribution.without_today" = "Mediana %1$@ sobre %2$d dias medidos. Hoje está fora da janela.";
+"dashboard.today.distribution.axis"          = "Tokens no dia";
+
+// G4 — calendário de 12 meses, janela móvel.
+"dashboard.calendar.title"         = "Calendário de 12 meses";
+"dashboard.calendar.sub"           = "Janela móvel de 12 meses até o fim do período. Célula ausente é dia que a fonte não observou; célula no piso da rampa é dia observado sem uso. A cor segue quantis, não a escala linear.";
+"dashboard.calendar.painted"       = "%1$d de %2$d dias com célula";
+"dashboard.calendar.legend.less"   = "menos";
+"dashboard.calendar.legend.more"   = "mais";
+"dashboard.calendar.legend.zero"   = "observado, sem uso";
+"dashboard.calendar.legend.missing" = "sem dado";
+"dashboard.calendar.legend.scale"  = "Rampa por quantil sobre %d dias com uso.";
+"dashboard.calendar.empty"         = "Nenhum dia observado nos últimos 12 meses.";

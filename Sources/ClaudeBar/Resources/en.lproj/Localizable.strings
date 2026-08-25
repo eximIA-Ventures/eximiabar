@@ -411,3 +411,36 @@
 "dashboard.models_by_day.sub"      = "One series per model, in the same colour as the model breakdown.";
 "dashboard.projects.sub"           = "A project is the last component of the working path; folders of the same name collapse into one row.";
 "dashboard.heatmap.sub"            = "Logarithmic scale, from the background to the brand terracotta. Each cell's value is in its tooltip.";
+
+/* MARK: - Dashboard: four representations over data that already existed (EXB-5.10) */
+
+// G1 — project concentration curve (Pareto).
+"dashboard.pareto.title"           = "Project concentration";
+"dashboard.pareto.sub"             = "Projects ordered largest to smallest, with the running share of volume. The reading is decisive both ways: a few projects mean attention has an address, many mean there is no lever at the project level.";
+"dashboard.pareto.crossing"        = "%1$d of %2$d projects account for %3$d%% of the volume";
+"dashboard.pareto.threshold"       = "%d%%";
+"dashboard.pareto.axis.rank"       = "Projects, largest to smallest";
+"dashboard.pareto.axis.share"      = "Cumulative volume";
+"dashboard.pareto.empty"           = "No project has volume in this window.";
+
+// G2 — composition normalized to 100%: a toggle on the same chart, not a new section.
+"dashboard.models_by_day.mode.absolute" = "Absolute";
+"dashboard.models_by_day.mode.share"    = "Share";
+"dashboard.models_by_day.sub.share" = "Each day normalized to its own total, to separate \"I used more\" from \"I used it differently\". A day with no data or a zero total does not draw.";
+"dashboard.models_by_day.y_share"  = "Share of the day";
+
+// G3 — today among its peers, inside the today card.
+"dashboard.today.distribution.with_today"    = "Median %1$@ · today sits above %2$d%% of the %3$d days measured";
+"dashboard.today.distribution.without_today" = "Median %1$@ over %2$d days measured. Today is outside the window.";
+"dashboard.today.distribution.axis"          = "Tokens in the day";
+
+// G4 — 12-month calendar, rolling window.
+"dashboard.calendar.title"         = "12-month calendar";
+"dashboard.calendar.sub"           = "A rolling 12 months up to the end of the period. A missing cell is a day the source never watched; a cell at the floor of the ramp is a watched day with no usage. Colour follows quantiles, not a linear scale.";
+"dashboard.calendar.painted"       = "%1$d of %2$d days have a cell";
+"dashboard.calendar.legend.less"   = "less";
+"dashboard.calendar.legend.more"   = "more";
+"dashboard.calendar.legend.zero"   = "watched, no usage";
+"dashboard.calendar.legend.missing" = "no data";
+"dashboard.calendar.legend.scale"  = "Quantile ramp over %d days with usage.";
+"dashboard.calendar.empty"         = "No day watched in the last 12 months.";

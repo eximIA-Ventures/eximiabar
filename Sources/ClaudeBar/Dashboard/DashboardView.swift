@@ -406,8 +406,17 @@ private struct LoadedDashboard: View {
                 ModelsByDayChart(data: data)                      // EXB-3.7 AC4 (models per day)
                 if !data.byProject.isEmpty {
                     ProjectBreakdownTable(rows: data.byProject)   // AC6
+                    // EXB-5.10 G1: directly under the table it reads out of — the curve answers the
+                    // question the ordered list poses and cannot itself resolve.
+                    ProjectParetoChart(curva: ParetoCurva(projetos: data.byProject))
                 }
                 ActivityHeatmapChart(data: data)                  // AC7/AC9/AC13/AC14
+                // EXB-5.10 G4: beside the heatmap, the other grid on this screen — one folds the
+                // window into a week, this one unfolds it against a whole year.
+                if let fim = data.rangeEnd {
+                    AnnualCalendarChart(
+                        grade: CalendarioAnual(entradas: data.diasCobertos, fim: fim))
+                }
                 if !data.topSessions.isEmpty {
                     TopSessionsTable(rows: data.topSessions)      // AC8
                 }
@@ -518,10 +527,29 @@ private struct CoverageFact: View {
 /// numerator (``DashboardData/totalTokens``), and each writes its divisor on its own label — so the
 /// reader can check `média × dias = total` instead of trusting it. The screen used to show one average
 /// with an invisible denominator, which is how a ~40% error survived on it for months.
-private struct VolumeSection: View {
+struct VolumeSection: View {
     let data: DashboardData
+    /// Injected so the "today" strip is deterministic in tests. In the app it is the wall clock, the
+    /// same thing `DashboardData.build` bucketed `todayTokens` with.
+    var hoje: Date = Date()
 
-    private let columns = [GridItem(.adaptive(minimum: 168), spacing: 12)]
+    /// `alignment: .top` because the cards in a row are **not** the same height and never were.
+    ///
+    /// A `LazyVGrid` row is as tall as its tallest member and centres the rest, which was invisible
+    /// while every card was a title over a number. The today card now carries the peer strip and runs
+    /// to roughly 330pt, so its three neighbours floated in the middle of an empty band — a layout
+    /// that reads as a rendering fault rather than as a decision. Pinning them to the top makes the
+    /// row look intentional and costs nothing on the rows that were already uniform.
+    private let columns = [GridItem(.adaptive(minimum: 168), spacing: 12, alignment: .top)]
+
+    /// EXB-5.10 G3: today among the days the source watched.
+    ///
+    /// Built from ``DashboardData/diasCobertos`` and never from `dailyCosts`: an uncovered day carries
+    /// `tokens == 0` and would pile up at the left edge of the strip, re-introducing the exact
+    /// "never watched" / "nothing happened" confusion the coverage flag exists to keep apart.
+    private var distribuicao: DistribuicaoDiaria {
+        DistribuicaoDiaria(dias: data.diasCobertos, hoje: hoje)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -544,7 +572,8 @@ private struct VolumeSection: View {
                 MetricCard(
                     title: L("dashboard.summary.today"),
                     value: L("dashboard.summary.tokens", DashboardFormat.tokenCount(data.todayTokens)),
-                    badge: DeltaBadgeModel(state: data.dailyDeltaState))
+                    badge: DeltaBadgeModel(state: data.dailyDeltaState),
+                    distribuicao: distribuicao)
                 MetricCard(
                     title: L("dashboard.summary.last_7_days"),
                     value: L("dashboard.summary.tokens", DashboardFormat.tokenCount(data.sevenDayTokens)))
@@ -579,7 +608,10 @@ private struct CostSection: View {
     @Environment(\.popoverTheme) private var popoverTheme
     let data: DashboardData
 
-    private let columns = [GridItem(.adaptive(minimum: 168), spacing: 12)]
+    /// Top-aligned for the same reason as the volume grid: two of these five cards carry a divisor
+    /// note and three do not, so the row was already centring uneven cards — a milder version of the
+    /// same defect, visible here as a slight float rather than as a hole.
+    private let columns = [GridItem(.adaptive(minimum: 168), spacing: 12, alignment: .top)]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -648,6 +680,11 @@ private struct MetricCard: View {
     var valueTint: Color? = nil
     /// EXB-4.5 AC2: the today-vs-average comparison, on the one card it applies to.
     var badge: DeltaBadgeModel? = nil
+    /// EXB-5.10 G3: today's position among every day the source watched, on the one card it applies
+    /// to. A strip inside the card rather than a section of its own — a comparison of today belongs
+    /// beside today's number, and eight stacked charts in a menu-bar window would only trade one
+    /// illegible panel for another.
+    var distribuicao: DistribuicaoDiaria? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -679,12 +716,103 @@ private struct MetricCard: View {
             if let badge {
                 DeltaBadge(model: badge)
             }
+            // Drawn only when there is a spread to read — see `DistribuicaoDiaria.vaiDesenhar`.
+            if let distribuicao, distribuicao.vaiDesenhar {
+                DiaEntreParesStrip(distribuicao: distribuicao)
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, minHeight: 84, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color(nsColor: .controlBackgroundColor)))
+    }
+}
+
+/// Today against every day the source watched, as a one-dimensional strip (EXB-5.10 G3).
+///
+/// **Why a strip and not another percentage.** The badge above it compares today against the *mean*,
+/// and token consumption is right-skewed enough that the mean describes a day the Senhor rarely has:
+/// "+40 % acima da média" can be a perfectly ordinary Tuesday. A position among peers needs no
+/// interpretation — the highlighted dot is out at the edge or it is in the pile — and it is robust to
+/// exactly the skew that defeats the mean. It sits *beside* the badge because the badge can speak at
+/// 09:00, prorated, and a raw position cannot.
+///
+/// Every value on the axis is a `Double`. Swift Charts requires one plottable type per axis, and the
+/// median is a `Double` by construction (the mean of two middles on an even count), so plotting the
+/// dots as `Int` would put the rule on an axis of its own.
+struct DiaEntreParesStrip: View {
+    @Environment(\.popoverTheme) private var popoverTheme
+    let distribuicao: DistribuicaoDiaria
+
+    /// The strip's caption: the median, and — when today is on the axis — where today falls.
+    private var legenda: String {
+        let mediana = DashboardFormat.tokenCount(Int(distribuicao.mediana.rounded()))
+        guard let posicao = distribuicao.posicaoDeHoje else {
+            return L("dashboard.today.distribution.without_today", mediana, distribuicao.dias.count)
+        }
+        return L("dashboard.today.distribution.with_today",
+                 mediana, Int((posicao * 100).rounded()), distribuicao.dias.count)
+    }
+
+    private var eixo: String { L("dashboard.today.distribution.axis") }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Chart {
+                // The peers first, so today is drawn over them rather than under.
+                ForEach(distribuicao.dias.filter { !$0.ehHoje }) { dia in
+                    PointMark(
+                        x: .value(eixo, Double(dia.tokens)),
+                        y: .value("", 0))
+                        .symbolSize(24)
+                        .foregroundStyle(.secondary)
+                        .opacity(0.35)
+                }
+                RuleMark(x: .value(eixo, distribuicao.mediana))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                    .foregroundStyle(.secondary.opacity(0.7))
+                ForEach(distribuicao.dias.filter(\.ehHoje)) { dia in
+                    PointMark(
+                        x: .value(eixo, Double(dia.tokens)),
+                        y: .value("", 0))
+                        .symbolSize(90)
+                        .foregroundStyle(PopoverStyle.accent(for: self.popoverTheme))
+                }
+            }
+            // A single band: the y axis carries no meaning here, it only centres the row of dots.
+            .chartYScale(domain: -1 ... 1)
+            .chartYAxis(.hidden)
+            // **Log, and the reason is the whole point of this strip.**
+            //
+            // The first version plotted a linear axis and was unreadable at every window size: the
+            // handful of enormous days stretch the scale to their own width, so eighty ordinary days
+            // pile into one blob against the left edge and today's position among them — the only
+            // thing the strip is for — becomes invisible. Which is the same skew that made the mean
+            // useless one level up: rejecting the mean for the median and then plotting the result
+            // linearly fixes the statistic and keeps the picture that hid it.
+            //
+            // `symmetricLog` rather than `log` because a covered day of genuine zero is a real day
+            // and belongs on the axis; plain log has nothing to say about it.
+            .chartXScale(type: .symmetricLog)
+            .chartXAxis {
+                AxisMarks(values: .automatic(desiredCount: 3)) { value in
+                    AxisValueLabel {
+                        if let tokens = value.as(Double.self) {
+                            Text(DashboardFormat.tokenCount(Int(tokens)))
+                                .font(.system(size: 9, design: .rounded).monospacedDigit())
+                        }
+                    }
+                }
+            }
+            .chartLegend(.hidden)
+            .frame(height: 40)
+            Text(legenda)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 2)
     }
 }
 
@@ -1463,10 +1591,41 @@ private struct ModelBreakdownTable: View {
 /// Stacked bars of per-day token *volume*, stacked by model (EXB-3.7 AC4). Colours come from the same
 /// `DashboardPalette.scale(for: sortedModelNames)` the donut uses (AC11), so a model reads identically
 /// across the donut, the table and here. Hover surfaces a per-model breakdown for the day (AC13).
-private struct ModelsByDayChart: View {
+struct ModelsByDayChart: View {
     @Environment(\.popoverTheme) private var popoverTheme
     let data: DashboardData
-    private var entries: [DailyModelEntry] { data.byDayByModel }
+
+    /// EXB-5.10 G2: which question the chart is answering. A toggle on this chart rather than a chart
+    /// of its own — see ``ModoComposicao``.
+    @State private var modo: ModoComposicao
+
+    /// The mode the chart opens in. Defaults to `.absoluto`, which is what the screen has always
+    /// shown and what every call site gets without saying so.
+    ///
+    /// It exists because a snapshot renderer cannot press a segmented control: `ImageRenderer` draws
+    /// the tree once, with `@State` at its initial value, so the share view was unreachable to the eye
+    /// even though it is one click away for the Senhor. The alternative was to rebuild the chart
+    /// inside the render harness — which would have produced a picture of a copy and told us nothing
+    /// about the screen. A seam that preserves the default is the cheaper of the two errors.
+    init(data: DashboardData, modoInicial: ModoComposicao = .absoluto) {
+        self.data = data
+        self._modo = State(initialValue: modoInicial)
+    }
+
+    /// Per-`(day, model)` volume, clipped to the days the source watched.
+    ///
+    /// The clip is a guard, not a correction: an activity row can only exist on a day the scanner saw,
+    /// so on real input it removes nothing. It is here because the share mode divides by a per-day
+    /// total, and a chart that divides must be explicit about which days it is willing to divide.
+    private var entries: [DailyModelEntry] {
+        let cobertas = data.datasCobertas
+        return data.byDayByModel.filter { cobertas.contains($0.date) }
+    }
+
+    /// The same rows normalized to each day's own total (EXB-5.10 G2).
+    private var fracoes: [FracaoModeloDia] {
+        ComposicaoDiaria.fracoes(entradas: data.byDayByModel, datasCobertas: data.datasCobertas)
+    }
 
     private var hasData: Bool { entries.contains { $0.tokens > 0 } }
 
@@ -1495,14 +1654,71 @@ private struct ModelsByDayChart: View {
             DashboardSectionHeader(
                 title: L("dashboard.models_by_day.title"),
                 subtitle: DashboardFormat.rangeSubtitle(data.rangeStart, data.rangeEnd),
-                explanation: L("dashboard.models_by_day.sub"),
+                explanation: modo == .absoluto
+                    ? L("dashboard.models_by_day.sub")
+                    : L("dashboard.models_by_day.sub.share"),
                 total: DashboardFormat.totalTokensAndCost(totalTokens, data.totalCost))
+            // The toggle rides on its own row rather than beside the header's total: at the window's
+            // 760pt floor a title, a "Total: 4.9B tokens · $1.6K" and a segmented control on one line
+            // is the arrangement that truncates first.
+            Picker("", selection: $modo) {
+                ForEach(ModoComposicao.allCases) { opcao in
+                    Text(opcao.label).tag(opcao)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .controlSize(.small)
+            .fixedSize()
             if hasData {
-                chart
+                if modo == .absoluto { chart } else { chartProporcao }
             } else {
                 ChartEmptyState(systemImage: "chart.bar.doc.horizontal", message: L("dashboard.empty.period"))
             }
         }
+    }
+
+    /// The same days, each divided by its own total (EXB-5.10 G2).
+    ///
+    /// `AreaMark` rather than `BarMark`: at 90 days the bars are a pixel wide apiece and the mix reads
+    /// as noise, while a stacked area keeps the *bands* continuous, which is the thing the eye is
+    /// being asked to compare. The y domain is pinned to `0…1` so a day whose fractions round to
+    /// 0,999 does not rescale the whole plot.
+    private var chartProporcao: some View {
+        Chart {
+            ForEach(fracoes) { fracao in
+                AreaMark(
+                    x: .value(L("dashboard.chart.axis.date"), fracao.date, unit: .day),
+                    y: .value(L("dashboard.models_by_day.y_share"), fracao.fracao))
+                    .foregroundStyle(by: .value(L("dashboard.models.col.model"), fracao.modelName))
+                    .interpolationMethod(.monotone)
+            }
+        }
+        .chartForegroundStyleScale(domain: colorScale.domain, range: colorScale.range)
+        .chartYScale(domain: 0 ... 1)
+        .chartXAxis {
+            AxisMarks(values: .stride(by: .day, count: DashboardFormat.axisStride(forDays: data.spanDays))) { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let date = value.as(Date.self) {
+                        Text(DashboardFormat.dayMonth.string(from: date))
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(values: [0, 0.25, 0.5, 0.75, 1.0]) { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let fracao = value.as(Double.self) {
+                        Text("\(Int((fracao * 100).rounded()))%")
+                    }
+                }
+            }
+        }
+        .chartYAxisLabel(L("dashboard.models_by_day.y_share"))
+        .chartLegend(.visible)
+        .frame(height: 220)
     }
 
     private var chart: some View {
@@ -1645,6 +1861,112 @@ private struct ProjectBreakdownTable: View {
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color(nsColor: .controlBackgroundColor)))
+    }
+}
+
+// MARK: - Project concentration curve (EXB-5.10 G1)
+
+/// How much of the volume sits in how few projects.
+///
+/// **Why this is not the table above it.** The concentration is already inside the project table —
+/// the rows are ordered by volume — but reading it out means summing a hundred numbers by eye, and
+/// information per pixel of an ordered list falls towards zero as the list grows. The curve turns the
+/// same rows into one actionable count, and it is decisive in **both** directions: a crossing at rank
+/// 7 says attention has an address; a crossing at rank 45 says there is no lever at the project level
+/// at all and the answer lies somewhere else. The table asserts neither.
+struct ProjectParetoChart: View {
+    @Environment(\.popoverTheme) private var popoverTheme
+    let curva: ParetoCurva
+
+    private var eixoRank: String { L("dashboard.pareto.axis.rank") }
+    private var eixoShare: String { L("dashboard.pareto.axis.share") }
+
+    /// The sentence the whole chart exists to produce. `nil` when there is nothing to concentrate.
+    private var manchete: String? {
+        guard let rank = curva.rankNoLimiar else { return nil }
+        return L("dashboard.pareto.crossing",
+                 rank, curva.quantidadeDeProjetos, Int((curva.limiar * 100).rounded()))
+    }
+
+    /// Tick stride over the rank axis, capped at ~8 labels — the same rule the day axis uses, for the
+    /// same reason: a label per project is unreadable by rank 30 and illegible by rank 101.
+    private var passoDoRank: Int {
+        Swift.max(1, Int((Double(Swift.max(1, curva.quantidadeDeProjetos)) / 8.0).rounded(.up)))
+    }
+
+    private var valoresDoRank: [Int] {
+        stride(from: 1, through: Swift.max(1, curva.quantidadeDeProjetos), by: passoDoRank).map { $0 }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            DashboardSectionHeader(
+                title: L("dashboard.pareto.title"),
+                explanation: L("dashboard.pareto.sub"))
+            if curva.pontos.isEmpty {
+                ChartEmptyState(systemImage: "chart.line.uptrend.xyaxis", message: L("dashboard.pareto.empty"))
+            } else {
+                if let manchete {
+                    Text(manchete)
+                        .font(.system(.callout, design: .rounded).bold().monospacedDigit())
+                        .foregroundStyle(PopoverStyle.accent(for: self.popoverTheme))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                chart
+            }
+        }
+    }
+
+    private var chart: some View {
+        Chart {
+            ForEach(curva.pontos) { ponto in
+                LineMark(
+                    x: .value(eixoRank, ponto.rank),
+                    y: .value(eixoShare, ponto.acumulado))
+                    .foregroundStyle(PopoverStyle.accent(for: self.popoverTheme))
+                    .interpolationMethod(.monotone)
+            }
+            RuleMark(y: .value(eixoShare, curva.limiar))
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                .foregroundStyle(.secondary.opacity(0.8))
+                // Leading, not trailing: on the right the label lands among the y-axis percentages
+                // and reads as a fourth tick between "75%" and "100%".
+                .annotation(position: .top, alignment: .leading) {
+                    Text(L("dashboard.pareto.threshold", Int((curva.limiar * 100).rounded())))
+                        .font(.system(size: 9, design: .rounded).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            if let rank = curva.rankNoLimiar {
+                RuleMark(x: .value(eixoRank, rank))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    .foregroundStyle(.secondary.opacity(0.8))
+            }
+        }
+        .chartYScale(domain: 0 ... 1)
+        .chartXScale(domain: 1 ... Swift.max(1, curva.quantidadeDeProjetos))
+        .chartXAxis {
+            AxisMarks(values: valoresDoRank) { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let rank = value.as(Int.self) {
+                        Text("\(rank)")
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(values: [0, 0.25, 0.5, 0.75, 1.0]) { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let fracao = value.as(Double.self) {
+                        Text("\(Int((fracao * 100).rounded()))%")
+                    }
+                }
+            }
+        }
+        .chartXAxisLabel(eixoRank)
+        .chartLegend(.hidden)
+        .frame(height: 110)
     }
 }
 
@@ -1844,6 +2166,168 @@ private struct HeatmapLegend: View {
 extension ActivityHeatmapChart {
     /// Bridges the private static weekday helper to `HeatmapTooltip` in the same file.
     static func weekdayLabelPublic(_ weekday: Int) -> String { weekdayLabel(weekday) }
+}
+
+// MARK: - Rolling 12-month calendar (EXB-5.10 G4)
+
+/// A fixed year of days, with only the observed ones painted.
+///
+/// **The chart is the coverage statement, felt rather than read.** Every other chart on this screen
+/// reports on the selected window. This one draws twelve months regardless and paints only the days
+/// inside that window, so how much of a year the panel is actually talking about becomes a shape
+/// instead of a sentence at the top that a reader can skim past.
+///
+/// **Two things it must never blur, and how it keeps them apart.** A day with zero tokens is a day
+/// the source watched and on which nothing happened; a day with no data is a day the source never
+/// watched. Two tones of one ramp would collapse them, and a chart built to make absence visible
+/// would then be lying exactly where it is supposed to be honest. So they get different *channels*:
+/// zero is a **drawn cell at the floor of the ramp**, no-data is **no cell at all** — a hole in the
+/// grid, over a faint plot background that makes the hole read as a hole.
+struct AnnualCalendarChart: View {
+    let grade: CalendarioAnual
+
+    private var eixoSemana: String { L("dashboard.calendar.title") }
+    private var eixoDia: String { L("dashboard.heatmap.day") }
+
+    /// Column keys as zero-padded strings. The x axis MUST be categorical: with a numeric axis Swift
+    /// Charts gives `RectangleMark` no band width and draws nothing at all — the defect that cost this
+    /// repo the whole v1.4.1 release on the hour×weekday heatmap, where no colour could fix a cell
+    /// that was never rendered.
+    private static func chave(_ coluna: Int) -> String { String(format: "%03d", coluna) }
+
+    /// Every column, painted or not — pinned as the x domain so an unobserved stretch stays a gap of
+    /// the right width instead of collapsing and compressing the year.
+    private var dominioX: [String] { grade.colunas.map(Self.chave) }
+
+    /// Rows top-down: the calendar's own first weekday at the top.
+    ///
+    /// The domain is passed **in order**, not reversed. The first version reversed it on the belief
+    /// that Swift Charts stacks a categorical y domain bottom-up; the render showed Saturday on the
+    /// top row and Sunday on the bottom — a calendar that reads upwards. Charts lays this domain out
+    /// first-element-at-top, so the correction was the bug.
+    private var dominioY: [String] { grade.linhas }
+
+    /// Month labels keyed by the column they belong to.
+    private var rotulosPorColuna: [String: String] {
+        Dictionary(grade.rotulosDeMes.map { (Self.chave($0.coluna), $0.rotulo) },
+                   uniquingKeysWith: { primeiro, _ in primeiro })
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            DashboardSectionHeader(
+                title: L("dashboard.calendar.title"),
+                subtitle: "\(DashboardFormat.longDate(grade.inicio)) – \(DashboardFormat.longDate(grade.fim))",
+                explanation: L("dashboard.calendar.sub"),
+                total: L("dashboard.calendar.painted", grade.dias.count, grade.totalDeDias))
+            if grade.dias.isEmpty {
+                ChartEmptyState(systemImage: "calendar", message: L("dashboard.calendar.empty"))
+            } else {
+                chart
+                CalendarLegend(quantis: grade.quantis)
+            }
+        }
+    }
+
+    private var chart: some View {
+        Chart {
+            ForEach(grade.dias) { dia in
+                RectangleMark(
+                    x: .value(eixoSemana, Self.chave(dia.coluna)),
+                    y: .value(eixoDia, grade.linhas[dia.linha]),
+                    width: .ratio(0.82),
+                    height: .ratio(0.82))
+                    .cornerRadius(2)
+                    // Quantile levels, not a linear ramp: with this distribution a linear scale paints
+                    // ~90 % of the days the same pale tone and the year reads as a blank sheet.
+                    .foregroundStyle(HeatmapColorScale.solidColor(t: grade.quantis.intensidade(tokens: dia.tokens)))
+            }
+        }
+        .chartXScale(domain: dominioX)
+        .chartYScale(domain: dominioY)
+        // The faint field is what turns an absent cell into a visible hole rather than into
+        // background the eye reads as margin.
+        .chartPlotStyle { plot in
+            plot.background(Color.primary.opacity(0.05))
+        }
+        .chartXAxis {
+            AxisMarks(values: Array(rotulosPorColuna.keys).sorted()) { value in
+                AxisValueLabel {
+                    if let coluna = value.as(String.self), let rotulo = rotulosPorColuna[coluna] {
+                        Text(rotulo)
+                            .font(.system(size: 9))
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(preset: .aligned, position: .leading) { value in
+                AxisValueLabel {
+                    if let dia = value.as(String.self) {
+                        Text(dia)
+                            .font(.system(size: 9))
+                    }
+                }
+            }
+        }
+        .chartLegend(.hidden)
+        // Seven rows of roughly square cells: at the 760pt window floor the plot is ~690pt wide over
+        // 53 columns, so a column is ~13pt and the rows are matched to it.
+        .frame(height: 112)
+    }
+}
+
+/// The calendar's legend (EXB-5.10 G4) — and the only place the two silences are named side by side.
+///
+/// The ramp swatches alone would leave a reader to guess what the darkest cell means and what an
+/// empty slot means. Those are the two states the chart exists to keep apart, so they are spelled
+/// out rather than left to the ramp.
+struct CalendarLegend: View {
+    let quantis: CalendarioQuantis
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text(L("dashboard.calendar.legend.less"))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 2) {
+                    ForEach(0 ... CalendarioQuantis.niveis, id: \.self) { nivel in
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(HeatmapColorScale.solidColor(
+                                t: Double(nivel) / Double(CalendarioQuantis.niveis)))
+                            .frame(width: 11, height: 11)
+                    }
+                }
+                Text(L("dashboard.calendar.legend.more"))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                Spacer(minLength: 12)
+
+                // The two silences, in their two channels: a drawn cell at the floor, and no cell.
+                HStack(spacing: 4) {
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(HeatmapColorScale.solidColor(t: 0))
+                        .frame(width: 11, height: 11)
+                    Text(L("dashboard.calendar.legend.zero"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                HStack(spacing: 4) {
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(Color.primary.opacity(0.05))
+                        .frame(width: 11, height: 11)
+                    Text(L("dashboard.calendar.legend.missing"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Text(L("dashboard.calendar.legend.scale", quantis.amostra))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+    }
 }
 
 // MARK: - Top sessions (AC8)

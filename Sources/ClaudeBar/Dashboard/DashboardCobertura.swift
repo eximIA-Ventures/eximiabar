@@ -39,6 +39,21 @@ extension DashboardData {
     /// Whether the source reaches as far back as the window asked for.
     var cobreJanelaInteira: Bool { diasComDado >= spanDays }
 
+    /// The days a chart is allowed to draw — the axis minus the days the source never watched.
+    ///
+    /// **One filter, not one per chart.** `.filter(\.coberto)` was written independently inside each
+    /// chart that needed it, which is the shape a rule takes just before one of its copies is
+    /// forgotten: a new chart that omits the filter draws confident zeros over a stretch nobody
+    /// observed, and nothing about it looks wrong. Every chart on this screen now reads the same
+    /// property, so the rule has a single place to be right — or to be broken loudly.
+    ///
+    /// Ascending by date, like `dailyCosts`, and a contiguous suffix of it.
+    var diasCobertos: [DashboardDailyEntry] { dailyCosts.filter(\.coberto) }
+
+    /// The set of dates in ``diasCobertos`` — for the charts whose rows are keyed by day rather than
+    /// being the day axis itself (the per-model series, which carries one row per `(day, model)`).
+    var datasCobertas: Set<Date> { Set(diasCobertos.map(\.date)) }
+
     // MARK: - The two averages, one numerator
 
     /// Token average over the days the source covers — divides by ``diasComDado``.
