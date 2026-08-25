@@ -409,6 +409,14 @@ private struct LoadedDashboard: View {
                     // EXB-5.10 G1: directly under the table it reads out of — the curve answers the
                     // question the ordered list poses and cannot itself resolve.
                     ProjectParetoChart(curva: ParetoCurva(projetos: data.byProject))
+                    // EXB-6.1 V3/V2: the project family in the order the questions are asked — who is
+                    // big (table), how few carry it (curve), who *rose* (flow), and who made the month
+                    // change (cascade). The last two need the `(day, project)` grain the table folds
+                    // away, which is why they could not exist before it was carried through.
+                    ProjectFlowChart(fluxo: FluxoDeProjetos(
+                        data: data, rotuloDoAgregado: L("dashboard.flow.others")))
+                    MonthlyCascadeChart(cascata: CascataMensal(
+                        data: data, rotuloDeOutros: L("dashboard.cascade.others")))
                 }
                 ActivityHeatmapChart(data: data)                  // AC7/AC9/AC13/AC14
                 // EXB-5.10 G4: beside the heatmap, the other grid on this screen — one folds the
@@ -418,6 +426,10 @@ private struct LoadedDashboard: View {
                         grade: CalendarioAnual(entradas: data.diasCobertos, fim: fim))
                 }
                 if !data.topSessions.isEmpty {
+                    // EXB-6.1 V1: the distribution comes **before** the ten names, because the ten
+                    // names cannot say whether they are the spend or a fringe of it — and the reader
+                    // who sees the table first has already formed that conclusion.
+                    SessionSizeHistogramChart(histograma: HistogramaDeSessoes(data: data))
                     TopSessionsTable(rows: data.topSessions)      // AC8
                 }
             }
@@ -2327,6 +2339,718 @@ struct CalendarLegend: View {
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
         }
+    }
+}
+
+// MARK: - Project composition flow (EXB-6.1 V3)
+
+/// Which project **rose** — the question `byProject` folds the date away from and cannot answer.
+///
+/// The band identities come from `rankedProjects`, ranked over the whole archive, and are used
+/// exactly as given: a top-N recomputed over the slice would re-rank mid-drag and a colour would
+/// change owner while the Senhor was looking at it. The aggregate band is a **sum**, so the stack
+/// height is the day's real total and agrees with every other total on the screen.
+struct ProjectFlowChart: View {
+    @Environment(\.popoverTheme) private var popoverTheme
+    let fluxo: FluxoDeProjetos
+
+    private var eixoData: String { L("dashboard.chart.axis.date") }
+    private var eixoTokens: String { L("dashboard.flow.axis") }
+    private var eixoProjeto: String { L("dashboard.projects.col.project") }
+
+    /// The day under the pointer — drives the rule + the per-band trajectory tooltip.
+    @State private var diaSelecionado: Date?
+
+    /// Colours follow the **global** rank, never the position in `bandas`: a band absent from the
+    /// slice shortens that array, and a colour keyed on it would shift for every band after the gap.
+    private var escala: (domain: [String], range: [Color]) {
+        (fluxo.dominio, fluxo.bandas.map { banda in
+            banda.ehAgregado
+                ? Color.secondary.opacity(0.45)
+                : DashboardPalette.color(at: banda.ordemGlobal, theme: self.popoverTheme)
+        })
+    }
+
+    private var diaAlvo: Date? {
+        guard let diaSelecionado else { return nil }
+        let alvo = Calendar.current.startOfDay(for: diaSelecionado)
+        return fluxo.dias.contains(alvo) ? alvo : nil
+    }
+
+    private var passoDoEixo: Int {
+        DashboardFormat.axisStride(forDays: Swift.max(1, fluxo.dias.count))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            DashboardSectionHeader(
+                title: L("dashboard.flow.title"),
+                subtitle: DashboardFormat.rangeSubtitle(fluxo.dias.first, fluxo.dias.last),
+                explanation: L("dashboard.flow.sub"))
+            if fluxo.vaiDesenhar {
+                chart
+                // The cut states itself. A top-8 that does not say it is a top-8 is an instrument
+                // that lies, and the aggregate band's height is exactly the evidence of the cut.
+                if fluxo.truncado {
+                    Text(L("dashboard.flow.truncated", fluxo.projetosAgregados))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                ChartEmptyState(systemImage: "chart.line.uptrend.xyaxis", message: L("dashboard.flow.empty"))
+            }
+        }
+    }
+
+    private var chart: some View {
+        Chart {
+            ForEach(fluxo.pontos) { ponto in
+                AreaMark(
+                    x: .value(eixoData, ponto.dia, unit: .day),
+                    y: .value(eixoTokens, ponto.tokens))
+                    .foregroundStyle(by: .value(eixoProjeto, ponto.banda))
+                    // Monotone rather than a straight join: the daily series is spiky, and the corner
+                    // artefacts of a linear stack read as movement the data does not have.
+                    .interpolationMethod(.monotone)
+            }
+            if let diaAlvo {
+                RuleMark(x: .value(eixoData, diaAlvo, unit: .day))
+                    .foregroundStyle(.secondary.opacity(0.5))
+                    .annotation(position: .top, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
+                        ProjectFlowTooltip(
+                            dia: diaAlvo,
+                            total: fluxo.total(em: diaAlvo),
+                            linhas: fluxo.linhas(em: diaAlvo),
+                            primeiroDia: diaAlvo == fluxo.dias.first)
+                    }
+            }
+        }
+        .chartForegroundStyleScale(domain: escala.domain, range: escala.range)
+        .chartXAxis {
+            AxisMarks(values: .stride(by: .day, count: passoDoEixo)) { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let date = value.as(Date.self) {
+                        Text(DashboardFormat.dayMonth.string(from: date))
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let tokens = value.as(Int.self) {
+                        Text(DashboardFormat.axisTokens(tokens))
+                    }
+                }
+            }
+        }
+        .chartYAxisLabel(eixoTokens)
+        .chartLegend(.visible)
+        .chartOverlay { proxy in
+            GeometryReader { geo in
+                Rectangle().fill(.clear).contentShape(Rectangle())
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case let .active(location):
+                            guard let plotAnchor = proxy.plotFrame else { diaSelecionado = nil; return }
+                            let origin = geo[plotAnchor].origin
+                            diaSelecionado = proxy.value(atX: location.x - origin.x, as: Date.self)
+                        case .ended:
+                            diaSelecionado = nil
+                        }
+                    }
+            }
+        }
+        .frame(height: 220)
+    }
+}
+
+/// The flow's hover tooltip — and the mitigation for the one distortion a stacked area cannot design
+/// away: each band's **own** value and its **own** day-over-day change, free of the neighbour's
+/// movement that makes a flat band look like a rising one.
+private struct ProjectFlowTooltip: View {
+    let dia: Date
+    let total: Int
+    let linhas: [LinhaDoFluxo]
+    /// `true` on the first day of the axis, where there is no previous day — stated rather than shown
+    /// as a change of zero, which would assert a stability nobody measured.
+    let primeiroDia: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(DashboardFormat.dayMonth.string(from: dia))
+                .font(.caption.bold())
+            Text(L("dashboard.flow.tooltip.total", DashboardFormat.tokenCount(total)))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            ForEach(linhas.prefix(6)) { linha in
+                HStack(spacing: 8) {
+                    Text(linha.banda)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 8)
+                    Text(DashboardFormat.tokenCount(linha.tokens))
+                        .font(.system(.caption2, design: .rounded).monospacedDigit())
+                    if let variacao = linha.variacao {
+                        Text(Self.sinal(variacao))
+                            .font(.system(.caption2, design: .rounded).monospacedDigit())
+                            .foregroundStyle(variacao >= 0 ? Color.green : Color.orange)
+                            .frame(width: 54, alignment: .trailing)
+                    }
+                }
+            }
+            if primeiroDia {
+                Text(L("dashboard.flow.tooltip.first_day"))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(minWidth: 190, maxWidth: 260)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(.separator, lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.15), radius: 5, y: 2)
+    }
+
+    /// A signed token count. The sign is written even for zero-crossing values, because "0" and "+0"
+    /// answer different questions and the reader is here for the direction.
+    static func sinal(_ variacao: Int) -> String {
+        let corpo = DashboardFormat.tokenCount(abs(variacao))
+        return variacao >= 0 ? "+\(corpo)" : "−\(corpo)"
+    }
+}
+
+// MARK: - Month-over-month waterfall (EXB-6.1 V2)
+
+/// Who made the month change — with the guard that stops it from answering when it cannot.
+///
+/// Every figure is **tokens per day with data**, always, and each month's divisor is printed beneath
+/// the chart. Comparing 25 days of August against 31 of July in silence would report every project as
+/// having slowed down; the same class of defect as an average whose denominator is invisible, which
+/// this screen has already paid for once.
+struct MonthlyCascadeChart: View {
+    @Environment(\.popoverTheme) private var popoverTheme
+    let cascata: CascataMensal
+
+    private var eixo: String { L("dashboard.cascade.axis") }
+
+    /// Bars are placed on a **categorical** x axis, keyed by ordinal.
+    ///
+    /// Categorical because that is the axis kind `RectangleMark`/`BarMark` reliably gets a band width
+    /// on in this repo — a numeric axis cost the v1.4.1 release on the heatmap — and keyed by ordinal
+    /// rather than by label because the base and the total are both named after months and two bars
+    /// sharing a category silently collapse into one.
+    private static func chave(_ ordem: Int) -> String { String(format: "%02d", ordem) }
+
+    private static let mesFormatador: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = .autoupdatingCurrent
+        f.setLocalizedDateFormatFromTemplate("MMM yyyy")
+        return f
+    }()
+
+    /// The label under each bar: the month for the base and total, the project (or aggregate) for the
+    /// rest.
+    private func rotulo(_ passo: PassoDaCascata) -> String {
+        switch passo.tipo {
+        case .base: return cascata.anterior.map { Self.mesFormatador.string(from: $0.mes) } ?? ""
+        case .total: return cascata.atual.map { Self.mesFormatador.string(from: $0.mes) } ?? ""
+        case .contribuicao, .outros: return passo.rotulo
+        }
+    }
+
+    private var rotulosPorChave: [String: String] {
+        Dictionary(cascata.passos.map { (Self.chave($0.ordem), rotulo($0)) },
+                   uniquingKeysWith: { primeiro, _ in primeiro })
+    }
+
+    private func cor(_ passo: PassoDaCascata) -> Color {
+        switch passo.tipo {
+        case .base, .total: return Color.secondary.opacity(0.55)
+        case .contribuicao, .outros:
+            return passo.variacao >= 0
+                ? PopoverStyle.accent(for: self.popoverTheme)
+                : DashboardPalette.ramp[5]
+        }
+    }
+
+    /// The headline: how much the rate moved, per day with data.
+    private var manchete: String? {
+        guard cascata.vaiDesenhar else { return nil }
+        let delta = cascata.variacaoTotal
+        let corpo = DashboardFormat.tokenCount(Int(abs(delta).rounded()))
+        return delta >= 0
+            ? L("dashboard.cascade.delta.up", corpo)
+            : L("dashboard.cascade.delta.down", corpo)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            DashboardSectionHeader(
+                title: L("dashboard.cascade.title"),
+                explanation: L("dashboard.cascade.sub"),
+                total: manchete)
+            if let recusa = cascata.recusa {
+                ChartEmptyState(systemImage: "calendar.badge.exclamationmark", message: Self.texto(recusa))
+            } else {
+                chart
+                // The divisors travel with the chart, one line per month, naming which of the three
+                // coverage figures shrank them.
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach([cascata.anterior, cascata.atual].compactMap { $0 }, id: \.mes) { mes in
+                        Text(Self.linhaDoDivisor(mes))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if cascata.movimentadoresEmOutros > 0 {
+                        Text(L("dashboard.cascade.others.count", cascata.movimentadoresEmOutros))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                    if cascata.incluiAgregadoDoArquivo {
+                        Text(L("dashboard.cascade.others.aggregate"))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Only the moving bars are drawn. The two months are **reference lines**, not bars from zero.
+    ///
+    /// Rendered with all four kinds as bars, the picture was unreadable and the render said so: with a
+    /// base of 125M/day and moves of a few million, the zero anchor those two bars force onto the axis
+    /// squeezed every contribution into a 4pt sliver. A waterfall's contribution bars are *floating* —
+    /// both ends are data, so the bar's length is the contribution wherever zero happens to be — and
+    /// dropping the two anchored bars lets the axis fit the staircase instead of the mountain it
+    /// climbs. The magnitudes it costs are not lost: they are printed under the chart, per month, with
+    /// their divisors.
+    private var passosDesenhados: [PassoDaCascata] {
+        cascata.passos.filter { $0.tipo == .contribuicao || $0.tipo == .outros }
+    }
+
+    /// The y domain, pinned to the staircase rather than left to Swift Charts.
+    ///
+    /// **Dropping the anchored bars was not enough, and the render is what said so.** Swift Charts
+    /// infers a domain that includes zero for *any* `BarMark`, including one whose two ends are both
+    /// data — so the second picture was as crushed as the first, and the correction that "obviously"
+    /// worked had changed nothing at all.
+    ///
+    /// Pinning it here is honest for this chart and would not be for most: a truncated axis lies when
+    /// a bar's length is read against zero, and every bar here is a *difference* whose length is the
+    /// distance between two data values. The axis still prints absolute rates, so the level is on
+    /// screen; what it no longer does is spend 85 % of the plot height on the part of the quantity
+    /// that did not change.
+    private var dominioY: ClosedRange<Double> {
+        var valores = passosDesenhados.flatMap { [$0.inicio, $0.fim] }
+        if let anterior = cascata.anterior { valores.append(anterior.porDia) }
+        if let atual = cascata.atual { valores.append(atual.porDia) }
+        guard let menor = valores.min(), let maior = valores.max() else { return 0 ... 1 }
+        // A flat month would give a zero-width domain, which draws nothing; the floor keeps the two
+        // reference lines apart on screen when they are on top of each other in the data.
+        let margem = Swift.max((maior - menor) * 0.18, Swift.max(abs(maior), 1) * 0.02)
+        return (menor - margem) ... (maior + margem)
+    }
+
+    private var chart: some View {
+        Chart {
+            ForEach(passosDesenhados) { passo in
+                BarMark(
+                    x: .value("", Self.chave(passo.ordem)),
+                    yStart: .value(eixo, passo.inicio),
+                    yEnd: .value(eixo, passo.fim),
+                    width: .ratio(0.62))
+                    .foregroundStyle(cor(passo))
+                    .cornerRadius(2)
+            }
+            // Where the reading starts and where it ends. Without them a bar floating at mid-height
+            // says nothing about which side of the previous month it is on.
+            if let anterior = cascata.anterior {
+                RuleMark(y: .value(eixo, anterior.porDia))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    .foregroundStyle(.secondary.opacity(0.7))
+                    .annotation(position: .top, alignment: .leading) {
+                        Text(Self.mesFormatador.string(from: anterior.mes))
+                            .font(.system(size: 9, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    }
+            }
+            if let atual = cascata.atual {
+                RuleMark(y: .value(eixo, atual.porDia))
+                    .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [2, 2]))
+                    .foregroundStyle(PopoverStyle.accent(for: self.popoverTheme).opacity(0.9))
+                    .annotation(position: .top, alignment: .trailing) {
+                        Text(Self.mesFormatador.string(from: atual.mes))
+                            .font(.system(size: 9, design: .rounded))
+                            .foregroundStyle(PopoverStyle.accent(for: self.popoverTheme))
+                    }
+            }
+        }
+        .chartXScale(domain: passosDesenhados.map { Self.chave($0.ordem) })
+        .chartYScale(domain: dominioY)
+        .chartXAxis {
+            AxisMarks(values: passosDesenhados.map { Self.chave($0.ordem) }) { value in
+                AxisValueLabel {
+                    if let chave = value.as(String.self), let texto = rotulosPorChave[chave] {
+                        Text(texto)
+                            .font(.system(size: 9))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let tokens = value.as(Double.self) {
+                        Text(DashboardFormat.axisTokens(Int(tokens.rounded())))
+                    }
+                }
+            }
+        }
+        .chartYAxisLabel(eixo)
+        .chartLegend(.hidden)
+        .frame(height: 170)
+    }
+
+    /// One month's divisor, and why it is what it is.
+    static func linhaDoDivisor(_ mes: MesDaCascata) -> String {
+        let nome = mesFormatador.string(from: mes.mes)
+        let taxa = DashboardFormat.tokenCount(Int(mes.porDia.rounded()))
+        let base = L("dashboard.cascade.divisor", nome, taxa, mes.diasComDado)
+        return "\(base) · \(texto(mes.recorte))"
+    }
+
+    /// The reason the divisor is smaller than the calendar's, with the two causes kept apart.
+    static func texto(_ recorte: RecorteDoMes) -> String {
+        switch recorte {
+        case .completo:
+            return L("dashboard.cascade.clip.complete")
+        case let .selecao(dias, noMes):
+            return L("dashboard.cascade.clip.selection", dias, noMes)
+        case let .historico(dias, naSelecao):
+            return L("dashboard.cascade.clip.history", dias, naSelecao)
+        case let .ambos(cobertos, naSelecao, noMes):
+            return L("dashboard.cascade.clip.both", cobertos, naSelecao, noMes)
+        }
+    }
+
+    /// Why the chart is silent. Never an unexplained empty state: a guard nobody can read is
+    /// indistinguishable from "no usage".
+    static func texto(_ recusa: CascataMensal.Recusa) -> String {
+        switch recusa {
+        case .parInsuficiente:
+            return L("dashboard.cascade.refuse.pair")
+        case let .coberturaFina(mes, dias):
+            return L("dashboard.cascade.refuse.thin",
+                     mesFormatador.string(from: mes), dias, CascataMensal.minimoDeDiasComDado)
+        }
+    }
+}
+
+// MARK: - Session size distribution (EXB-6.1 V1)
+
+/// Where the spend lives: in a few monstrous sessions, or in the habit of every day.
+///
+/// The ten dearest sessions are ~5 % of the sample and are the same ten names in two worlds that call
+/// for opposite actions. The bars are the other 95 %; the dots are those ten, placed on the band they
+/// belong to by the fold's own binning function — never by a second one computed here.
+struct SessionSizeHistogramChart: View {
+    @Environment(\.popoverTheme) private var popoverTheme
+    let histograma: HistogramaDeSessoes
+
+    /// The band under the pointer — what turns 20 anonymous bars into named sessions.
+    @State private var faixaSelecionada: Int?
+
+    /// The band the chart opens with, `nil` on the shipping path.
+    ///
+    /// It exists for the same reason `ModelsByDayChart.modoInicial` does: `ImageRenderer` draws the
+    /// tree once, with `@State` at its initial value, so a hover is unreachable to the eye even though
+    /// it is one pointer-move away for the Senhor. Rebuilding the tooltip inside the render harness
+    /// would produce a picture of a copy — right while the screen was wrong. A seam that preserves the
+    /// default is the cheaper of the two errors, and the suite pins that the screen never passes it.
+    init(histograma: HistogramaDeSessoes, faixaInicial: Int? = nil) {
+        self.histograma = histograma
+        self._faixaSelecionada = State(initialValue: faixaInicial)
+    }
+
+    private var eixoTamanho: String { L("dashboard.sessions.hist.axis.size") }
+    private var eixoContagem: String { L("dashboard.sessions.hist.axis.count") }
+
+    /// Categorical x, for the reason the calendar states: a numeric axis has cost this repo a release
+    /// on marks that need a band width.
+    private static func chave(_ indice: Int) -> String { String(format: "%02d", indice) }
+
+    /// Every one of the 20 bands is a category, including the empty ones. Trimming the tails would
+    /// make the axis a function of the slice, and two periods would stop being comparable — which is
+    /// the whole reason the fold publishes fixed edges.
+    private var dominio: [String] { histograma.faixas.map { Self.chave($0.indice) } }
+
+    /// Axis labels every third band, so ~7 labels carry the ramp instead of 20 overlapping ones.
+    private var rotulados: [String] {
+        histograma.faixas.filter { $0.indice % 3 == 0 }.map { Self.chave($0.indice) }
+    }
+
+    private var rotulosPorChave: [String: String] {
+        Dictionary(histograma.faixas.map { (Self.chave($0.indice), DashboardFormat.tokenCount($0.minimo)) },
+                   uniquingKeysWith: { primeiro, _ in primeiro })
+    }
+
+    /// Vertical spacing between the marks stacked over one bar. Proportional to the tallest bar so ten
+    /// dots in one band never leave the plot, and floored so they separate when every bar is short.
+    private var passoDaMarca: Double {
+        Swift.max(0.6, Double(histograma.maiorFaixa) * 0.06)
+    }
+
+    private var tetoY: Double {
+        let empilhamentoMaximo = histograma.marcas.map(\.empilhamento).max() ?? 0
+        return Double(histograma.maiorFaixa) + passoDaMarca * Double(empilhamentoMaximo + 1)
+    }
+
+    private var faixaAlvo: FaixaDeSessoes? {
+        guard let faixaSelecionada,
+              faixaSelecionada >= 0, faixaSelecionada < histograma.faixas.count
+        else { return nil }
+        let faixa = histograma.faixas[faixaSelecionada]
+        // An empty band has nothing to say, and a tooltip that appears over a gap reads as if the gap
+        // held something.
+        return faixa.sessoes > 0 ? faixa : nil
+    }
+
+    /// Which corner the tooltip parks in: **always the half opposite the band it describes**.
+    ///
+    /// Anchored to the band itself — the obvious placement — the box sat on top of the bar and the
+    /// dots it was explaining, and on the neighbours beside them. That is the interactive form of a
+    /// truncated label: the reader loses the very thing he pointed at. Shrinking it did not fix it and
+    /// could not, because the defect is the position.
+    ///
+    /// A corner, and not a box that follows the pointer: a tooltip that chases the cursor keeps
+    /// crossing data, while a fixed corner is somewhere the eye learns in one hover. The side flips
+    /// with the band so the box is never over what it names.
+    var cantoDaDica: Alignment {
+        guard let faixaAlvo else { return .topTrailing }
+        return faixaAlvo.indice * 2 >= histograma.faixas.count ? .topLeading : .topTrailing
+    }
+
+    /// The sentence the chart exists to produce.
+    private var concentracao: String {
+        guard let share = histograma.concentracaoDoTopo else {
+            return L("dashboard.sessions.hist.concentration.unknown")
+        }
+        return L("dashboard.sessions.hist.concentration",
+                 histograma.tamanhoDoTopo, Int((share * 100).rounded()))
+    }
+
+    /// "1 sessions · median 139.6K" shipped in the first render of the thin case — the count is on
+    /// screen precisely when the chart refuses to draw, so the one number that cannot be pluralized by
+    /// the general form is the one the Senhor is most likely to read.
+    var manchete: String {
+        histograma.totalDeSessoes == 1
+            ? L("dashboard.sessions.hist.headline.one", DashboardFormat.tokenCount(histograma.mediana))
+            : L("dashboard.sessions.hist.headline",
+                histograma.totalDeSessoes, DashboardFormat.tokenCount(histograma.mediana))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            DashboardSectionHeader(
+                title: L("dashboard.sessions.hist.title"),
+                explanation: L("dashboard.sessions.hist.sub"),
+                total: manchete)
+            if histograma.vaiDesenhar {
+                Text(concentracao)
+                    .font(.system(.callout, design: .rounded).bold().monospacedDigit())
+                    .foregroundStyle(PopoverStyle.accent(for: self.popoverTheme))
+                    .fixedSize(horizontal: false, vertical: true)
+                chart
+            } else {
+                ChartEmptyState(
+                    systemImage: "chart.bar.xaxis", message: L("dashboard.sessions.hist.thin"))
+            }
+        }
+    }
+
+    private var chart: some View {
+        Chart {
+            ForEach(histograma.faixas) { faixa in
+                BarMark(
+                    x: .value(eixoTamanho, Self.chave(faixa.indice)),
+                    y: .value(eixoContagem, Double(faixa.sessoes)),
+                    width: .ratio(0.7))
+                    .foregroundStyle(PopoverStyle.accent(for: self.popoverTheme)
+                        .opacity(faixaAlvo == nil || faixaAlvo?.indice == faixa.indice ? 0.85 : 0.35))
+                    .cornerRadius(2)
+            }
+            if let faixaDaMediana = histograma.faixaDaMediana {
+                RuleMark(x: .value(eixoTamanho, Self.chave(faixaDaMediana)))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    .foregroundStyle(.secondary)
+                    .annotation(position: .top, alignment: .leading) {
+                        // The label steps aside while a band is open. Both annotations live on the
+                        // same strip above the plot, and the render showed them printed on top of one
+                        // another — "Med…31.6M to 100.0M tokens" — which is two true sentences
+                        // combining into an unreadable one. The rule itself stays; only its caption
+                        // yields, so nothing about the median is lost while the pointer is down.
+                        if faixaAlvo == nil {
+                            Text(L("dashboard.sessions.hist.median",
+                                   DashboardFormat.tokenCount(histograma.mediana)))
+                                .font(.system(size: 9, design: .rounded).monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+            }
+            // The ten dearest, above the bar that counts them. Stacked by a fixed step rather than
+            // jittered: two sessions of similar size land on the same band, and a random offset would
+            // move them between renders of the same data.
+            ForEach(histograma.marcas) { marca in
+                PointMark(
+                    x: .value(eixoTamanho, Self.chave(marca.faixa)),
+                    y: .value(eixoContagem,
+                              Double(histograma.faixas[marca.faixa].sessoes)
+                                  + passoDaMarca * Double(marca.empilhamento)))
+                    .symbolSize(28)
+                    .foregroundStyle(DashboardPalette.ramp[1])
+            }
+        }
+        .chartXScale(domain: dominio)
+        .chartYScale(domain: 0 ... Swift.max(1, tetoY))
+        .chartXAxis {
+            AxisMarks(values: rotulados) { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let chave = value.as(String.self), let texto = rotulosPorChave[chave] {
+                        Text(texto)
+                            .font(.system(size: 9))
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let contagem = value.as(Double.self) {
+                        Text("\(Int(contagem.rounded()))")
+                    }
+                }
+            }
+        }
+        .chartXAxisLabel(eixoTamanho)
+        .chartYAxisLabel(eixoContagem)
+        .chartLegend(.hidden)
+        // The tooltip rides on the chart's frame, not on a mark, so nothing inside the plot can push
+        // it back over the data (`overflowResolution` resolves the plot's edges — it knows nothing
+        // about what is drawn underneath).
+        .overlay(alignment: cantoDaDica) {
+            if let faixaAlvo {
+                SessionBandTooltip(
+                    faixa: faixaAlvo,
+                    sessoes: histograma.nomes(naFaixa: faixaAlvo.indice),
+                    incompleta: histograma.nomesIncompletos)
+                    .padding(4)
+                    .allowsHitTesting(false)   // the box must never eat the hover that summoned it
+            }
+        }
+        .chartOverlay { proxy in
+            GeometryReader { geo in
+                Rectangle().fill(.clear).contentShape(Rectangle())
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case let .active(location):
+                            guard let plotAnchor = proxy.plotFrame else { faixaSelecionada = nil; return }
+                            let origin = geo[plotAnchor].origin
+                            // The categorical scale hands back the band's own key, so the index comes
+                            // from the axis rather than from a width division that would drift the
+                            // moment the plot gains a pixel of padding.
+                            faixaSelecionada = proxy.value(atX: location.x - origin.x, as: String.self)
+                                .flatMap(Int.init)
+                        case .ended:
+                            faixaSelecionada = nil
+                        }
+                    }
+            }
+        }
+        .frame(height: 180)
+    }
+}
+
+/// What a band actually holds — the array's half of the contract.
+///
+/// The bars give the shape; without names a reader can see that one session in the archive is an
+/// order of magnitude above the rest and has no way to act on it. This says which project it was and
+/// which model carried it.
+///
+/// **It also says when it is showing less than the bar counts.** The bar is counted over *every*
+/// session the fold saw; the names come from the list the caller carried, which may have been cut.
+/// Listing four names under a bar of nine, silently, would be a tooltip quietly redefining the bar it
+/// is standing on.
+private struct SessionBandTooltip: View {
+    let faixa: FaixaDeSessoes
+    let sessoes: [SessionUsageEntry]
+    let incompleta: Bool
+
+    /// How many names fit before the tooltip becomes a table nobody reads at a hover.
+    ///
+    /// Four, not five: at five rows of two lines each the box was tall and wide enough to reach back
+    /// across a third of the plot, and what it covered was the chart it was explaining.
+    private static let limite = 4
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(L("dashboard.sessions.hist.tooltip.range",
+                   DashboardFormat.tokenCount(faixa.minimo),
+                   DashboardFormat.tokenCount(faixa.maximo)))
+                .font(.caption.bold())
+            Text(L("dashboard.sessions.hist.tooltip.count", faixa.sessoes))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            ForEach(sessoes.prefix(Self.limite)) { sessao in
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(sessao.project)
+                            .font(.caption2)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text(sessao.dominantModel)
+                            .font(.system(size: 9))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer(minLength: 8)
+                    Text(DashboardFormat.tokenCount(sessao.totalTokens))
+                        .font(.system(.caption2, design: .rounded).monospacedDigit())
+                }
+            }
+            if sessoes.count > Self.limite {
+                Text(L("dashboard.sessions.hist.tooltip.more", sessoes.count - Self.limite))
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+            }
+            if incompleta {
+                Text(L("dashboard.sessions.hist.tooltip.subset"))
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(minWidth: 176, maxWidth: 220)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(.separator, lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.15), radius: 5, y: 2)
     }
 }
 

@@ -442,3 +442,48 @@
 "dashboard.calendar.legend.missing" = "sem dado";
 "dashboard.calendar.legend.scale"  = "Rampa por quantil sobre %d dias com uso.";
 "dashboard.calendar.empty"         = "Nenhum dia observado nos últimos 12 meses.";
+
+/* MARK: - Painel: três representações sobre o grão que a dobra já tinha (EXB-6.1) */
+
+// V1 — distribuição do tamanho das sessões.
+"dashboard.sessions.hist.title"    = "Distribuição das sessões";
+"dashboard.sessions.hist.sub"      = "Cada barra é uma faixa fixa de tamanho, em tokens; as arestas não mudam com o período, então dois recortes são comparáveis. Os pontos acima das barras são as dez sessões mais caras, na faixa a que pertencem.";
+"dashboard.sessions.hist.median"   = "Mediana %@";
+"dashboard.sessions.hist.headline" = "%1$d sessões · mediana %2$@";
+"dashboard.sessions.hist.headline.one" = "1 sessão · mediana %@";
+"dashboard.sessions.hist.concentration" = "As %1$d mais caras carregam %2$d%% do volume.";
+"dashboard.sessions.hist.concentration.unknown" = "A lista de sessões veio cortada; a concentração não é calculável sem o denominador real.";
+"dashboard.sessions.hist.axis.size" = "Tamanho da sessão, em tokens";
+"dashboard.sessions.hist.axis.count" = "Sessões";
+"dashboard.sessions.hist.thin"     = "Menos de duas sessões nesta janela: não há distribuição a mostrar.";
+"dashboard.sessions.hist.tooltip.range" = "%1$@ a %2$@ tokens";
+"dashboard.sessions.hist.tooltip.count" = "%d sessões nesta faixa";
+"dashboard.sessions.hist.tooltip.more"  = "+%d nesta faixa";
+"dashboard.sessions.hist.tooltip.subset" = "A lista de sessões carregada veio cortada: os nomes acima são um subconjunto do que a barra conta.";
+
+// V2 — cascata de variação mês a mês.
+"dashboard.cascade.title"          = "O que fez o mês mudar";
+"dashboard.cascade.sub"            = "Contribuição de cada projeto para a variação entre os dois últimos meses, em tokens por dia com dado. A divisão por dia é sempre feita, mesmo com os dois meses inteiros: comparar um mês em curso com um mês fechado fabrica queda, e um mostrador que troca de definição conforme o calendário não pode ser comparado consigo mesmo.";
+"dashboard.cascade.axis"           = "Tokens por dia com dado";
+"dashboard.cascade.others"         = "Outros";
+"dashboard.cascade.delta.up"       = "+%@ por dia";
+"dashboard.cascade.delta.down"     = "−%@ por dia";
+"dashboard.cascade.divisor"        = "%1$@: %2$@ por dia sobre %3$d dias com dado";
+"dashboard.cascade.clip.complete"  = "mês inteiro";
+"dashboard.cascade.clip.selection" = "a seleção pegou %1$d de %2$d dias";
+"dashboard.cascade.clip.history"   = "o arquivo viu %1$d dos %2$d dias selecionados";
+"dashboard.cascade.clip.both"      = "a seleção pegou %2$d de %3$d dias, e o arquivo viu %1$d deles";
+"dashboard.cascade.refuse.pair"    = "Um único mês nesta janela: não há par a comparar.";
+"dashboard.cascade.refuse.thin"    = "%1$@ tem só %2$d dias com dado. Abaixo de %3$d, uma \"média por dia\" é um dia usando o nome de média, então a comparação não é desenhada.";
+"dashboard.cascade.others.count"   = "\"Outros\" soma %d movimentadores fora do corte.";
+"dashboard.cascade.others.aggregate" = "\"Outros\" inclui o agregado do próprio arquivo, que já reúne os projetos fora das oito faixas.";
+
+// V3 — fluxo de composição por projeto.
+"dashboard.flow.title"             = "Fluxo dos projetos";
+"dashboard.flow.sub"               = "Área empilhada com base fixa no zero, uma faixa por projeto. O ranking vem do acervo inteiro, então arrastar o período não troca o dono de uma cor. A base de cada faixa sobe com a de baixo: para o valor próprio de cada projeto e a variação dele, veja a dica ao passar o ponteiro.";
+"dashboard.flow.axis"              = "Tokens no dia";
+"dashboard.flow.others"            = "Outros";
+"dashboard.flow.truncated"         = "Oito faixas por projeto; os outros %d projetos desta janela estão somados em \"Outros\".";
+"dashboard.flow.tooltip.total"     = "Total %@";
+"dashboard.flow.tooltip.first_day" = "Primeiro dia do eixo: não há dia anterior para comparar.";
+"dashboard.flow.empty"             = "Nenhum projeto com volume nesta janela.";

@@ -167,6 +167,39 @@ struct DashboardData: Equatable, Sendable {
     /// Top 10 sessions by cost (AC8).
     let topSessions: [SessionUsageEntry]
 
+    // MARK: - The dimensions the fold already had and the view model used to discard (EXB-6.1)
+    //
+    // Every field below is carried through **verbatim** from `UsageAnalytics`, not recomputed. The
+    // three charts that read them are about `(day, project)` and `(session, size)` grain, which
+    // `byProject` and `topSessions` fold away — and a second derivation of a number the scan already
+    // produced is how a chart and the table above it end up disagreeing with nobody able to say which
+    // is lying.
+
+    /// Per-`(day, project)` totals, ranked bands plus one aggregate row per day (EXB-6.1).
+    let byDayProject: [DayProjectEntry]
+    /// The projects with a band of their own, ranked over the **whole archive** — never re-ranked
+    /// here. Re-ranking inside the slice is what makes a colour change owner mid-drag.
+    let rankedProjects: [String]
+    /// How many distinct projects in this slice were folded into the aggregate rows.
+    let otherProjectCount: Int
+    /// `true` when at least one project was folded away — the fact the flow chart has to state out
+    /// loud, since a top-N that does not say it is a top-N is an instrument that lies.
+    var projectsTruncated: Bool { otherProjectCount > 0 }
+    /// Per-month completeness over the slice — the guard the month-over-month cascade consults before
+    /// it draws a single bar.
+    let monthCoverage: [MonthCoverage]
+    /// Session-size distribution: counts over the 20 fixed buckets of
+    /// `UsageAnalytics.sessionTokenBucketEdges`.
+    let sessionTokenBuckets: [Int]
+    /// Median session size in tokens, from the exact totals rather than from the buckets.
+    let medianSessionTokens: Int
+    /// How many sessions the window holds — the histogram's sample size.
+    let totalSessions: Int
+    /// Every session in the window, dearest first. `topSessions` is the head of this same list.
+    let sessions: [SessionUsageEntry]
+    /// `true` when `sessions` holds fewer rows than the window really contains.
+    var sessionsTruncated: Bool { sessions.count < totalSessions }
+
     let todayCost: Double
     let todayTokens: Int
     let sevenDayCost: Double
@@ -468,6 +501,10 @@ extension DashboardData {
             tokensPorDia: Dictionary(daily.map { ($0.date, $0.tokens) }, uniquingKeysWith: +),
             coberturaInicio: coberturaInicio, now: now, calendar: calendar)
 
+        // The same set `DashboardData.datasCobertas` publishes, needed one step before the value
+        // exists so the per-`(day, project)` rows can be clipped on the way in.
+        let datasCobertas = Set(daily.lazy.filter(\.coberto).map(\.date))
+
         return DashboardData(
             span: span,
             atalho: atalho,
@@ -482,6 +519,18 @@ extension DashboardData {
             },
             heatmap: analytics.heatmap,
             topSessions: analytics.topSessions,
+            // Carried, not recomputed (EXB-6.1). The one transformation applied is the coverage clip
+            // on `byDayProject`, and it happens here rather than in each chart: two charts filtering
+            // the same rule independently is the shape a rule takes just before one copy is forgotten
+            // — the same reason `diasCobertos` exists instead of a `.filter(\.coberto)` per chart.
+            byDayProject: analytics.byDayProject.filter { datasCobertas.contains($0.day) },
+            rankedProjects: analytics.rankedProjects,
+            otherProjectCount: analytics.otherProjectCount,
+            monthCoverage: analytics.monthCoverage,
+            sessionTokenBuckets: analytics.sessionTokenBuckets,
+            medianSessionTokens: analytics.medianSessionTokens,
+            totalSessions: analytics.totalSessions,
+            sessions: analytics.sessions,
             todayCost: todayCost,
             todayTokens: todayTokens,
             sevenDayCost: sevenDayCost,

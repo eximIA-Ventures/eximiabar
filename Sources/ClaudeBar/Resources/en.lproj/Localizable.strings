@@ -444,3 +444,48 @@
 "dashboard.calendar.legend.missing" = "no data";
 "dashboard.calendar.legend.scale"  = "Quantile ramp over %d days with usage.";
 "dashboard.calendar.empty"         = "No day watched in the last 12 months.";
+
+/* MARK: - Dashboard: three representations over the grain the fold already had (EXB-6.1) */
+
+// V1 — session size distribution.
+"dashboard.sessions.hist.title"    = "Session distribution";
+"dashboard.sessions.hist.sub"      = "Each bar is a fixed size band, in tokens; the edges do not move with the period, so two slices stay comparable. The dots above the bars are the ten dearest sessions, on the band they belong to.";
+"dashboard.sessions.hist.median"   = "Median %@";
+"dashboard.sessions.hist.headline" = "%1$d sessions · median %2$@";
+"dashboard.sessions.hist.headline.one" = "1 session · median %@";
+"dashboard.sessions.hist.concentration" = "The %1$d dearest carry %2$d%% of the volume.";
+"dashboard.sessions.hist.concentration.unknown" = "The session list came cut; concentration is not computable without the real denominator.";
+"dashboard.sessions.hist.axis.size" = "Session size, in tokens";
+"dashboard.sessions.hist.axis.count" = "Sessions";
+"dashboard.sessions.hist.thin"     = "Fewer than two sessions in this window: there is no distribution to show.";
+"dashboard.sessions.hist.tooltip.range" = "%1$@ to %2$@ tokens";
+"dashboard.sessions.hist.tooltip.count" = "%d sessions in this band";
+"dashboard.sessions.hist.tooltip.more"  = "+%d in this band";
+"dashboard.sessions.hist.tooltip.subset" = "The carried session list came cut: the names above are a subset of what the bar counts.";
+
+// V2 — month-over-month waterfall.
+"dashboard.cascade.title"          = "What made the month change";
+"dashboard.cascade.sub"            = "Each project's contribution to the change between the last two months, in tokens per day with data. The division by day is always applied, even when both months are whole: comparing a month in progress with a closed one fabricates a fall, and a measure that changes definition with the calendar cannot be compared with itself.";
+"dashboard.cascade.axis"           = "Tokens per day with data";
+"dashboard.cascade.others"         = "Others";
+"dashboard.cascade.delta.up"       = "+%@ per day";
+"dashboard.cascade.delta.down"     = "−%@ per day";
+"dashboard.cascade.divisor"        = "%1$@: %2$@ per day over %3$d days with data";
+"dashboard.cascade.clip.complete"  = "whole month";
+"dashboard.cascade.clip.selection" = "the selection took %1$d of %2$d days";
+"dashboard.cascade.clip.history"   = "the archive watched %1$d of the %2$d days selected";
+"dashboard.cascade.clip.both"      = "the selection took %2$d of %3$d days, and the archive watched %1$d of those";
+"dashboard.cascade.refuse.pair"    = "A single month in this window: there is no pair to compare.";
+"dashboard.cascade.refuse.thin"    = "%1$@ has only %2$d days with data. Below %3$d, a \"per day average\" is one day wearing the word average, so the comparison is not drawn.";
+"dashboard.cascade.others.count"   = "\"Others\" sums %d movers past the cut.";
+"dashboard.cascade.others.aggregate" = "\"Others\" also carries the archive's own aggregate, which already holds the projects outside the eight bands.";
+
+// V3 — project composition flow.
+"dashboard.flow.title"             = "Project flow";
+"dashboard.flow.sub"               = "A stacked area with its baseline pinned at zero, one band per project. The ranking comes from the whole archive, so dragging the period never changes a colour's owner. Each band's base rides on the one below: for a project's own value and its own change, see the hover tooltip.";
+"dashboard.flow.axis"              = "Tokens in the day";
+"dashboard.flow.others"            = "Others";
+"dashboard.flow.truncated"         = "Eight bands by project; the other %d projects in this window are summed into \"Others\".";
+"dashboard.flow.tooltip.total"     = "Total %@";
+"dashboard.flow.tooltip.first_day" = "First day of the axis: there is no previous day to compare with.";
+"dashboard.flow.empty"             = "No project has volume in this window.";
