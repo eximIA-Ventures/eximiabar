@@ -90,6 +90,34 @@ struct ReadmeScreenshotRenderer {
             now: hoje)
     }
 
+    /// Two accounts, focus on the second one: its reading came from the CLI fallback and part of its
+    /// cost was priced by family, so every number carries `~` and the header names the bar's account.
+    static func multiAccountWorkspace() -> (WorkspaceSnapshot, DisplaySnapshot) {
+        let agora = Date()
+        let hora: TimeInterval = 3600
+        let live = AccountIdentity(key: AccountKey(provider: .claude, identifier: "alex@example.com"),
+                                   email: "alex@example.com", displayName: "Alex Example")
+        let work = AccountIdentity(key: AccountKey(provider: .claude, identifier: "team@example.com"),
+                                   email: "team@example.com", displayName: "Team Account")
+        let estimado = DisplaySnapshot(
+            session: RateWindow(utilization: 78, resetsAt: agora.addingTimeInterval(1.5 * hora), windowMinutes: 300),
+            weekly: RateWindow(utilization: 34, resetsAt: agora.addingTimeInterval(4 * 24 * hora), windowMinutes: 10080),
+            cost: ProviderCost(today: 4.10, last30Days: 96.40, todayTokens: 820_000, last30DaysTokens: 20_000_000,
+                               estimatedTokens: 2_400_000),
+            plan: .pro,
+            identity: .init(name: "Team Account", email: "team@example.com"),
+            updatedAt: agora,
+            source: .cli)
+        let workspace = WorkspaceSnapshot(
+            accounts: [
+                .init(identity: live, lifecycle: .live, display: popoverSnapshot(), status: .live),
+                .init(identity: work, lifecycle: .live, display: estimado, status: .live),
+            ],
+            menuBarKey: live.key,
+            updatedAt: agora).withFocus(work.key)
+        return (workspace, estimado)
+    }
+
     static func popoverSnapshot(ultra: Bool = false) -> DisplaySnapshot {
         let agora = Date()
         let hora: TimeInterval = 3600
@@ -115,6 +143,10 @@ struct ReadmeScreenshotRenderer {
         escritos["popover-ultra"] = try Self.escrever(
             UsageCardView(snapshot: Self.popoverSnapshot(ultra: true), actions: UsageCardActions()),
             largura: PopoverStyle.panelWidth, nome: "popover-ultra")
+        let (workspace, focado) = Self.multiAccountWorkspace()
+        escritos["popover-multi-account"] = try Self.escrever(
+            UsageCardView(snapshot: focado, actions: UsageCardActions(), workspace: workspace),
+            largura: PopoverStyle.panelWidth, nome: "popover-multi-account")
         let dados = Self.dados(dias: 30)
         escritos["models"] = try Self.escrever(
             ModelBreakdownSection(data: dados), largura: 720, nome: "dashboard-models")

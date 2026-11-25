@@ -80,6 +80,14 @@ struct MetricRow: View {
         return self.paceDetail?.primary
     }
 
+    /// EXB-6.2 AC2: one gravity for the whole row — number, bar, pace line and forecast agree.
+    private var severity: DesignTokens.Severity {
+        DesignTokens.severity(
+            utilization: self.window.utilization,
+            inDeficit: self.paceIsDeficit,
+            runsOutBeforeReset: self.paceDetail?.runsOutBeforeReset ?? false)
+    }
+
     /// `true` when the current pace is a deficit (over-pace) — drives the alert colour of the line.
     private var paceIsDeficit: Bool {
         guard let detail = self.paceDetail else { return false }
@@ -105,18 +113,20 @@ struct MetricRow: View {
                 Spacer(minLength: 8)
                 Text(verbatim: MetricRow.headlineText(value: self.headlineValue, approximate: self.isApproximate))
                     .font(self.prominence.numberFont)
-                    .foregroundStyle(PopoverStyle.zoneTextColor(utilization: self.window.utilization, theme: self.popoverTheme))
+                    .foregroundStyle(DesignTokens.StatePalette.text(self.severity))
                     .monospacedDigit()
                     .lineLimit(1)
             }
 
             UsageProgressBar(
                 percent: self.showUsed ? self.window.utilization : self.window.remaining,
-                tint: PopoverStyle.zoneBarColor(utilization: self.window.utilization, theme: self.popoverTheme),
+                tint: DesignTokens.StatePalette.bar(self.severity),
                 accessibilityLabel: L("popover.metric.usage_accessibility", self.title),
                 pacePercent: (self.showPace && self.paceMode == .bar) ? self.paceDetail?.pacePercent : nil,
                 paceReserve: self.paceDetail?.isReserve ?? true,
                 warningMarkerPercents: self.warningMarkerPercents)
+                // EXB-6.2 AC1.3: the "expected" number lives on the tick, not in the sentence.
+                .help(self.hasBarPace ? (self.paceDetail?.expectedTooltip ?? "") : "")
 
             VStack(alignment: .leading, spacing: 2) {
                 // Pace line (#bar mode): the pace number now lives here (the bar carries the marker,
@@ -126,7 +136,7 @@ struct MetricRow: View {
                     Text(paceText)
                         .font(.caption)
                         .foregroundStyle(self.paceIsDeficit
-                            ? PopoverStyle.zoneTextColor(utilization: self.window.utilization, theme: self.popoverTheme)
+                            ? DesignTokens.StatePalette.text(self.severity)
                             : Color.secondary)
                         .lineLimit(1)
                 }
@@ -145,7 +155,7 @@ struct MetricRow: View {
                 if let forecastText = self.forecastText {
                     Text(forecastText)
                         .font(.caption)
-                        .foregroundStyle(PopoverStyle.zoneTextColor(utilization: self.window.utilization, theme: self.popoverTheme))
+                        .foregroundStyle(DesignTokens.StatePalette.text(self.severity))
                         .lineLimit(1)
                 }
             }

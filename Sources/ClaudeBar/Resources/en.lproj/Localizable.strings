@@ -34,9 +34,6 @@
 "popover.forecast.hours_minutes" = "%1$dh %2$dm";
 
 /* MARK: - Pace lines (UsagePaceText). Stable keys — tests assert these EN values. */
-"popover.pace.on_pace"         = "On pace";
-"popover.pace.deficit"         = "%d%% in deficit";
-"popover.pace.reserve"         = "%d%% in reserve";
 "popover.pace.lasts_until_reset" = "Lasts until reset";
 "popover.pace.runs_out_now"    = "Runs out now";
 "popover.pace.runs_out_in"     = "Runs out in %@";
@@ -44,6 +41,17 @@
 "popover.pace.duration_days_hours" = "%1$dd %2$dh";
 "popover.pace.duration_hours_minutes" = "%1$dh %2$dm";
 "popover.pace.duration_minutes" = "%dm";
+"popover.pace.runs_out_at"     = "At this pace, runs out ~%@";
+"popover.pace.left_at_reset"   = "~%d%% left at reset";
+"popover.pace.day_hour"        = "%1$@ %2$dh";
+"popover.pace.expected_tooltip" = "Expected by now: %d%%";
+"popover.weekday.1" = "Sun";
+"popover.weekday.2" = "Mon";
+"popover.weekday.3" = "Tue";
+"popover.weekday.4" = "Wed";
+"popover.weekday.5" = "Thu";
+"popover.weekday.6" = "Fri";
+"popover.weekday.7" = "Sat";
 
 /* MARK: - Extra usage section */
 "popover.extra.title"          = "Extra usage";
@@ -56,6 +64,7 @@
 "popover.cost.roi"             = "%1$d× your %2$@ plan";
 "popover.cost.more_models"     = "+%1$d more models";
 "popover.cost.today"           = "Today: %1$@ · %2$@ tokens";
+"popover.action.tooltip" = "%1$@ (%2$@)";
 "popover.cost.estimated_share" = "%d%% estimated by model family";
 "popover.account.menu_bar_shows" = "Menu bar shows: %@";
 "popover.account.menu_bar_unknown" = "live account";

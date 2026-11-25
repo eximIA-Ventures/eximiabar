@@ -253,28 +253,15 @@ enum DashboardFormat {
 /// the *same* model index maps to the *same* swatch in the donut, the table and the stacked chart.
 enum DashboardPalette {
     /// Ordered swatch ramp. Index *N* → model *N* (models pre-sorted by token volume, EXB-5.7 §6).
-    static let ramp: [Color] = [
-        PopoverStyle.brand,                                   // #CC7C5E brand
-        Color(red: 0.35, green: 0.55, blue: 0.78),           // slate blue
-        Color(red: 0.45, green: 0.68, blue: 0.50),           // sage green
-        Color(red: 0.78, green: 0.58, blue: 0.30),           // amber
-        Color(red: 0.62, green: 0.45, blue: 0.72),           // muted purple
-        Color(red: 0.80, green: 0.45, blue: 0.50),           // dusty rose
-        Color(red: 0.40, green: 0.65, blue: 0.70),           // teal
-        Color(red: 0.60, green: 0.60, blue: 0.40),           // olive
-    ]
+    /// EXB-6.2 AC2.3: lives in `DesignTokens.ModelPalette`, clear of every state colour.
+    static let ramp: [Color] = DesignTokens.ModelPalette.ramp
 
     /// Colour for model at sorted position `index`, cycling the ramp for >8 models.
     static func color(at index: Int) -> Color { ramp[index % ramp.count] }
 
-    /// Theme-aware ramp (v2.3.0): only the accent swatch (index 0) follows the popover theme —
-    /// terracotta in classic, amber in meter. The rest are stable per-model identities, untouched.
-    static func ramp(for theme: PopoverTheme) -> [Color] {
-        guard theme == .meter else { return ramp }
-        var themed = ramp
-        themed[0] = DesignTokens.meterAccent
-        return themed
-    }
+    /// Identity colours do not follow the popover theme any more (EXB-6.2): the theme accent is a
+    /// brand/state colour, and a model swatch must never borrow one.
+    static func ramp(for theme: PopoverTheme) -> [Color] { ramp }
 
     static func color(at index: Int, theme: PopoverTheme) -> Color {
         let r = ramp(for: theme)

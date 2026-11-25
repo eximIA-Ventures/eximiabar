@@ -1,51 +1,60 @@
 import ClaudeBarCore
 import Foundation
 
-/// Maps a `UsagePace` to the two pace lines shown under the Weekly bar (AC13).
+/// Maps a `UsagePace` to the pace line shown under a usage bar.
 ///
-/// Strings are the EXACT wording required by AC13 — ported from
-/// `_reference_codexbar/Sources/CodexBar/UsagePaceText.swift:37-54`, NOT from the screenshot:
-///
-/// Left (primary):  `"On pace"` / `"N% in deficit"` / `"N% in reserve"`
-/// Right (secondary): `"Lasts until reset"` / `"Runs out in Xd Yh"` / `"Runs out now"`
+/// EXB-6.2 AC1 replaced the AC13 wording ("45% in reserve - 30%") with the decision it implies:
+/// primary `"At this pace, runs out ~Thu 11h"` / `"~10% left at reset"`; the expected-use number
+/// moved to the tooltip of the tick on the bar. Secondary keeps `"Lasts until reset"` /
+/// `"Runs out in Xd Yh"` / `"Runs out now"`.
 enum UsagePaceText {
     struct Detail {
-        /// Primary line: the pace status (`On pace` / deficit / reserve).
+        /// Primary line, in the language of a decision (EXB-6.2 AC1): "At this pace, runs out ~Thu
+        /// 11h" when the burn empties the window before the reset, otherwise "~10% left at reset".
         let primary: String
         /// Secondary line: the run-out projection, or `nil` when there is nothing to project.
         let secondary: String?
-        /// The expected used percent — drives the bar's pace punch-out position.
+        /// The expected used percent — drives the bar's pace tick position.
         let pacePercent: Double
         /// `true` when the stripe should be green (reserve), `false` when red (deficit).
         let isReserve: Bool
+        /// Tooltip of the pace tick: the "expected" number no longer lives in the text (AC1.3).
+        let expectedTooltip: String
+        /// `true` when the projection empties the window before the reset (drives the red state).
+        let runsOutBeforeReset: Bool
     }
 
-    /// Build the pace detail for a computed pace, or `nil` when there is no pace to show.
-    static func detail(for pace: UsagePace, now: Date = .init()) -> Detail {
+    /// Build the pace detail for a computed pace.
+    static func detail(for pace: UsagePace, now: Date = .init(), calendar: Calendar = .current) -> Detail {
         Detail(
-            primary: self.primaryLabel(for: pace),
+            primary: self.primaryLabel(for: pace, calendar: calendar),
             secondary: self.secondaryLabel(for: pace, now: now),
             pacePercent: pace.expectedUsedPercent,
-            isReserve: pace.reserve > 0)
+            isReserve: pace.reserve > 0,
+            expectedTooltip: L("popover.pace.expected_tooltip", Int(pace.expectedUsedPercent.rounded())),
+            runsOutBeforeReset: pace.projectedRunOut != nil)
     }
 
-    /// The pace status label, enriched with the pace point as a trailing percentage so the number
-    /// lives in the bottom line instead of a floating label over the bar (which does not fit the
-    /// tight popover). Composes `"<status> - <expectedUsedPercent>%"`, e.g. `"45% in reserve - 30%"`
-    /// / `"On pace - 50%"`. The status keeps its existing `L()` strings (both locales); only the
-    /// pace number is concatenated, so no new strings are required.
-    private static func primaryLabel(for pace: UsagePace) -> String {
-        let status: String
-        switch pace.status {
-        case .onPace:
-            status = L("popover.pace.on_pace")
-        case let .deficit(value):
-            status = L("popover.pace.deficit", Int(abs(value).rounded()))
-        case let .reserve(value):
-            status = L("popover.pace.reserve", Int(abs(value).rounded()))
+    /// Percent left at the reset if the observed burn rate holds (0–100). Linear: the use observed so
+    /// far, scaled by window length over elapsed time (`actual × 100 / expected`).
+    static func projectedLeftAtReset(for pace: UsagePace) -> Int {
+        guard pace.expectedUsedPercent > 0 else { return Int(pace.percentRemaining.rounded()) }
+        let projectedUse = pace.actualUsedPercent * 100 / pace.expectedUsedPercent
+        return Int(max(0, min(100, 100 - projectedUse)).rounded())
+    }
+
+    /// `"Thu 11h"` — localized short weekday plus the hour of `date`.
+    static func dayHour(_ date: Date, calendar: Calendar = .current) -> String {
+        let parts = calendar.dateComponents([.weekday, .hour], from: date)
+        let weekday = L("popover.weekday.\(parts.weekday ?? 1)")
+        return L("popover.pace.day_hour", weekday, parts.hour ?? 0)
+    }
+
+    private static func primaryLabel(for pace: UsagePace, calendar: Calendar) -> String {
+        if let runOut = pace.projectedRunOut {
+            return L("popover.pace.runs_out_at", self.dayHour(runOut, calendar: calendar))
         }
-        let pacePercent = Int(pace.expectedUsedPercent.rounded())
-        return "\(status) - \(pacePercent)%"
+        return L("popover.pace.left_at_reset", self.projectedLeftAtReset(for: pace))
     }
 
     private static func secondaryLabel(for pace: UsagePace, now: Date) -> String? {

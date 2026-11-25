@@ -429,11 +429,13 @@ private struct ModelRow: View {
                 .frame(width: 48, alignment: .leading)
             UsageProgressBar(
                 percent: self.window.utilization,
-                tint: PopoverStyle.zoneBarColor(utilization: self.window.utilization, theme: self.popoverTheme),
+                tint: DesignTokens.StatePalette.bar(DesignTokens.severity(utilization: self.window.utilization)),
                 accessibilityLabel: L("popover.metric.usage_accessibility", self.title))
             Text(verbatim: "\(Int(self.window.utilization.rounded()))%")
                 .font(.system(size: 12, weight: .medium, design: .rounded))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DesignTokens.severity(utilization: self.window.utilization) == .neutral
+                    ? Color.secondary
+                    : DesignTokens.StatePalette.text(DesignTokens.severity(utilization: self.window.utilization)))
                 .monospacedDigit()
                 .frame(width: 34, alignment: .trailing)
         }
@@ -528,7 +530,7 @@ struct PopoverCostSection: View {
             // multiplier, so the absolute value stands alone as the primary number instead.
             if let roi = self.roiMultiplier, let plan = self.plan {
                 Label(
-                    L("popover.cost.roi", roi, plan.compactLoginMethod),
+                    (self.cost.isEstimated ? "~" : "") + L("popover.cost.roi", roi, plan.compactLoginMethod),
                     systemImage: "arrow.up.right")
                     .font(DesignTokens.Numeral.compact)
                     .foregroundStyle(PopoverStyle.roiPositive)
@@ -684,17 +686,44 @@ private struct ProportionBar: View {
 
 // MARK: - Actions (AC17–AC19)
 
-private struct ActionSection: View {
+/// EXB-6.2 AC3: the six action rows became one icon bar. Every icon names itself and its shortcut in
+/// a tooltip; ⌘R/⌘D/⌘,/⌘Q are still handled by `UsagePanelController`. Re-login stays a full row —
+/// it is a fix the user has to notice, not a routine action.
+struct ActionSection: View {
     let showRelogin: Bool
     let actions: UsageCardActions
 
+    /// One icon of the bar. `muted` renders it discreet (no incident data exists to light it up).
+    struct Item: Identifiable {
+        let id: String
+        let symbol: String
+        let tooltip: String
+        var muted = false
+        let action: () -> Void
+    }
+
+    /// The bar's contents, in order — pure so a test can hold the shortcuts and the Quit entry.
+    static func items(_ actions: UsageCardActions) -> [Item] {
+        [
+            Item(id: "refresh", symbol: "arrow.clockwise",
+                 tooltip: L("popover.action.tooltip", L("popover.refresh_now"), "⌘R"), action: actions.refresh),
+            Item(id: "dashboard", symbol: "chart.bar.xaxis",
+                 tooltip: L("popover.action.tooltip", L("popover.dashboard"), "⌘D"), action: actions.openLocalDashboard),
+            Item(id: "web", symbol: "globe",
+                 tooltip: L("popover.claude_usage_web"), action: actions.openUsageDashboard),
+            // No incident feed exists in the app (only an icon stub), so the status page is offered
+            // discreetly instead of pretending to know whether something is wrong.
+            Item(id: "status", symbol: "dot.radiowaves.up.forward",
+                 tooltip: L("popover.status_page"), muted: true, action: actions.openStatusPage),
+            Item(id: "settings", symbol: "gearshape",
+                 tooltip: L("popover.action.tooltip", L("popover.settings"), "⌘,"), action: actions.openSettings),
+            Item(id: "quit", symbol: "power",
+                 tooltip: L("popover.action.tooltip", L("popover.quit"), "⌘Q"), action: actions.quit),
+        ]
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ActionRow(symbol: "arrow.clockwise", label: L("popover.refresh_now"), shortcut: "⌘R", action: self.actions.refresh)
-            // EXB-2.3 AC1: the local dashboard row sits above the web link with the ⌘D shortcut.
-            ActionRow(symbol: "chart.bar.xaxis", label: L("popover.dashboard"), shortcut: "⌘D", action: self.actions.openLocalDashboard)
-            ActionRow(symbol: "chart.bar", label: L("popover.claude_usage_web"), shortcut: nil, action: self.actions.openUsageDashboard)
-            ActionRow(symbol: "dot.radiowaves.up.forward", label: L("popover.status_page"), shortcut: nil, action: self.actions.openStatusPage)
+        VStack(alignment: .leading, spacing: 4) {
             if self.showRelogin {
                 ActionRow(
                     symbol: "person.crop.circle.badge.exclamationmark",
@@ -702,9 +731,36 @@ private struct ActionSection: View {
                     shortcut: nil,
                     action: self.actions.openRelogin)
             }
-            ActionRow(symbol: "gearshape", label: L("popover.settings"), shortcut: "⌘,", action: self.actions.openSettings)
-            ActionRow(symbol: "power", label: L("popover.quit"), shortcut: "⌘Q", action: self.actions.quit)
+            HStack(spacing: 2) {
+                ForEach(Self.items(self.actions)) { item in
+                    if item.id == "quit" { Spacer(minLength: 4) }
+                    IconActionButton(item: item)
+                }
+            }
         }
+    }
+}
+
+/// A square icon button with hover highlight and a tooltip.
+private struct IconActionButton: View {
+    let item: ActionSection.Item
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: self.item.action) {
+            Image(systemName: self.item.symbol)
+                .font(.system(size: 13))
+                .frame(width: 30, height: 26)
+                .foregroundStyle(self.item.muted && !self.isHovered ? Color.secondary.opacity(0.6) : Color.secondary)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(self.isHovered ? Color.secondary.opacity(0.16) : .clear))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(self.item.tooltip)
+        .accessibilityLabel(self.item.tooltip)
+        .onHover { self.isHovered = $0 }
     }
 }
 

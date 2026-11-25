@@ -52,24 +52,71 @@ enum DesignTokens {
     /// Positive, value-affirming green for the cost ROI line: `#5FB87E`.
     static let roiPositive = Color(red: 95 / 255, green: 184 / 255, blue: 126 / 255)
 
-    /// Bar fill colour for a consumed percentage (`< 70` brand, `70..<90` amber, `>= 90` red).
-    /// Half-open cuts so 90.0 is already critical. Pure; safe in a view body.
-    static func zoneBarColor(utilization: Double) -> Color {
-        switch utilization {
-        case ..<70: return brand
-        case ..<90: return zoneAttentionBar
-        default: return zoneCriticalBar
-        }
+    // MARK: - State palette (EXB-6.2 AC2) — gravity, never identity
+
+    /// How serious a usage reading is. Colour follows **gravity**, not the brand: a healthy window
+    /// reads neutral, so amber and red keep their meaning when they do appear.
+    enum Severity: Equatable, Sendable {
+        /// Within limits and on pace.
+        case neutral
+        /// Behind pace (deficit) or at/above 70% used.
+        case attention
+        /// The burn empties the window before the reset, or at/above 90% used.
+        case critical
     }
 
-    /// Headline-number colour for a consumed percentage. Same thresholds as `zoneBarColor`, with the
-    /// amber/red one luminance stop lighter for thin-glyph contrast.
-    static func zoneTextColor(utilization: Double) -> Color {
-        switch utilization {
-        case ..<70: return brand
-        case ..<90: return zoneAttentionText
-        default: return zoneCriticalText
+    /// The single severity rule. `runsOutBeforeReset` and `inDeficit` come from the pace; without a
+    /// pace only the consumed percentage decides.
+    static func severity(utilization: Double, inDeficit: Bool = false, runsOutBeforeReset: Bool = false) -> Severity {
+        if utilization >= 90 || runsOutBeforeReset { return .critical }
+        if utilization >= 70 || inDeficit { return .attention }
+        return .neutral
+    }
+
+    /// The colours a usage surface may use. Separate from `ModelPalette` on purpose: a model's
+    /// identity colour must never read as a warning.
+    enum StatePalette {
+        /// Neutral bar fill: the label colour, softened.
+        static let neutralBar = Color(nsColor: .labelColor).opacity(0.55)
+        /// Neutral headline text.
+        static let neutralText = Color(nsColor: .labelColor)
+
+        static func bar(_ severity: Severity) -> Color {
+            switch severity {
+            case .neutral: return neutralBar
+            case .attention: return zoneAttentionBar
+            case .critical: return zoneCriticalBar
+            }
         }
+
+        static func text(_ severity: Severity) -> Color {
+            switch severity {
+            case .neutral: return neutralText
+            case .attention: return zoneAttentionText
+            case .critical: return zoneCriticalText
+            }
+        }
+
+        /// Every colour the state palette can produce — what `ModelPalette` must stay clear of.
+        static let all: [Color] = [zoneAttentionBar, zoneCriticalBar, zoneAttentionText, zoneCriticalText]
+    }
+
+    // MARK: - Model palette (EXB-6.2 AC2.3) — identity, never gravity
+
+    /// Per-model identity swatches for the Dashboard. Cool and muted only: no brand terracotta, no
+    /// amber, no red — the old ramp put Opus (usually the top model) on terracotta and the fourth
+    /// model on amber, so a heavy Opus week looked like an alert.
+    enum ModelPalette {
+        static let ramp: [Color] = [
+            Color(red: 0.35, green: 0.55, blue: 0.78),  // slate blue
+            Color(red: 0.45, green: 0.68, blue: 0.50),  // sage green
+            Color(red: 0.62, green: 0.45, blue: 0.72),  // muted purple
+            Color(red: 0.40, green: 0.65, blue: 0.70),  // teal
+            Color(red: 0.60, green: 0.60, blue: 0.40),  // olive
+            Color(red: 0.42, green: 0.45, blue: 0.75),  // indigo
+            Color(red: 0.55, green: 0.58, blue: 0.62),  // steel grey
+            Color(red: 0.70, green: 0.55, blue: 0.75),  // lilac
+        ]
     }
 
     // MARK: - Popover theme (v2.2.0 — opt-in "eximIA Meter" skin)
@@ -88,24 +135,6 @@ enum DesignTokens {
         switch theme {
         case .classic: return brand
         case .meter: return meterAccent
-        }
-    }
-
-    /// Themed bar fill: the healthy `< 70` band uses the theme accent; attention/critical are shared.
-    static func zoneBarColor(utilization: Double, theme: PopoverTheme) -> Color {
-        switch utilization {
-        case ..<70: return accent(for: theme)
-        case ..<90: return zoneAttentionBar
-        default: return zoneCriticalBar
-        }
-    }
-
-    /// Themed headline-number colour. Healthy band uses the theme accent's lighter text variant.
-    static func zoneTextColor(utilization: Double, theme: PopoverTheme) -> Color {
-        switch utilization {
-        case ..<70: return theme == .meter ? meterAccentText : brand
-        case ..<90: return zoneAttentionText
-        default: return zoneCriticalText
         }
     }
 

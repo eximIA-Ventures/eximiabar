@@ -23,7 +23,7 @@ struct LocalizationTests {
     @Test
     func englishBaseResolvesStableLiterals() {
         withLanguage("en") {
-            #expect(L("popover.pace.on_pace") == "On pace")
+            #expect(L("popover.pace.left_at_reset", 10) == "~10% left at reset")
             #expect(L("popover.pace.lasts_until_reset") == "Lasts until reset")
             #expect(L("popover.refresh_now") == "Refresh Now")
             #expect(L("popover.quit") == "Quit")
@@ -38,7 +38,7 @@ struct LocalizationTests {
     @Test
     func portugueseTableResolves() {
         withLanguage("pt-BR") {
-            #expect(L("popover.pace.on_pace") == "No ritmo")
+            #expect(L("popover.pace.left_at_reset", 10) == "Sobra ~10% até o reset")
             #expect(L("popover.refresh_now") == "Atualizar Agora")
             #expect(L("popover.quit") == "Encerrar")
             #expect(L("settings.general.language") == "Idioma")

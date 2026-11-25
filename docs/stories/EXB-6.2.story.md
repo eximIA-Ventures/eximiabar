@@ -1,7 +1,7 @@
 # Story EXB-6.2: Popover direto (ritmo em linguagem de decisão, gravidade, ações em ícones)
 
 **ID:** EXB-6.2
-**Status:** Draft
+**Status:** Done
 **Depends on:** EXB-6.1 (marcador `~` no `MetricRow`)
 **Epic:** EPIC-EXB
 **Wave:** Onda 11 (v2.8 "Confiança e foco")
@@ -46,19 +46,38 @@
 ---
 
 ## Tasks
-- [ ] T1 `UsagePaceText` novo texto + tooltip do tique (AC1)
-- [ ] T2 Paletas de estado e de modelos (AC2)
-- [ ] T3 Barra de ícones (AC3)
-- [ ] T4 Ultra sem inventar preço (AC4)
-- [ ] T5 Strings e testes (AC5)
+- [x] T1 `UsagePaceText` novo texto + tooltip do tique (AC1)
+- [x] T2 Paletas de estado e de modelos (AC2)
+- [x] T3 Barra de ícones (AC3)
+- [x] T4 Ultra sem inventar preço (AC4)
+- [x] T5 Strings e testes (AC5)
 
 ## Verificação
 - `swift build --arch arm64`, `Scripts/run-tests.sh`, prints do README
 
 ## Dev Agent Record
-_(preenchido na implementação)_
+
+### Decisões
+- "Sobra ~N%" usa projeção linear do ritmo observado: `N = 100 − uso × 100 / esperado`. "Acaba ~<dia> <h>h" usa `UsagePace.projectedRunOut`; dia da semana vem de `popover.weekday.1…7` (EN/PT) para não depender do locale do host.
+- Gravidade (`DesignTokens.severity`): vermelho = esgota antes do reset ou ≥ 90%; âmbar = déficit de ritmo ou ≥ 70%; neutro = cor do rótulo (não a terracota). As funções `zoneBarColor/zoneTextColor` (por utilização e por tema) ficaram órfãs e foram removidas com seus testes; o tema `meter` continua trocando o acento da marca, não o estado.
+- `DesignTokens.ModelPalette` sem terracota/âmbar/vermelho; `DashboardPalette.ramp` passa a ler dele e não segue mais o tema (o acento do tema é cor de marca).
+- `[AUTO-DECISION]` Status Page sem dado de incidente → ícone discreto (opacidade reduzida), sempre presente. (motivo: não existe feed de incidentes no app; esconder tiraria o acesso.)
+- Re-login continua linha inteira acima da barra de ícones (é correção que o usuário precisa ver).
+- Ultra: `ClaudePlan.ultra.approxMonthlyPriceUSD == nil` (preço não publicado no código), linha "N×" omitida; teste trava.
+- Extra: o ROI "N× seu plano" também recebe `~` quando o custo é estimado (complemento de EXB-6.1).
+
+### Verificação
+- `swift build --arch arm64` verde; `Scripts/run-tests.sh` 750 testes / 88 suítes verdes (−4 testes de zona por tema removidos, +novos).
+- Visual: `docs/images/popover.png`, `popover-ultra.png`, `popover-multi-account.png` conferidos por Read.
+
+## File List
+- `Sources/ClaudeBar/Popover/UsagePaceText.swift`, `MetricRow.swift`, `UsageCardView.swift`, `PopoverStyle.swift`
+- `Sources/ClaudeBar/Design/DesignTokens.swift`, `Sources/ClaudeBar/Dashboard/DashboardView.swift` (`DashboardPalette`)
+- `Sources/ClaudeBar/Resources/{en,pt-BR}.lproj/Localizable.strings`
+- `Tests/ClaudeBarTests/UsagePaceTextTests.swift`, `PopoverStyleZonesTests.swift`, `PopoverThemeTests.swift`, `LocalizationTests.swift`, `PopoverDirectTests.swift`, `ReadmeScreenshotRenderer.swift`
 
 ## Change Log
 | Data | Mudança | Autor |
 |:---|:---|:---|
 | 2026-11-25 | Story criada | @dev (Dex) |
+| 2026-11-25 | Implementada, Done | @dev (Dex) |

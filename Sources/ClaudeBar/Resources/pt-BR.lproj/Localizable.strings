@@ -32,9 +32,6 @@
 "popover.forecast.hours_minutes" = "%1$dh %2$dm";
 
 /* MARK: - Linhas de ritmo (pace) */
-"popover.pace.on_pace"         = "No ritmo";
-"popover.pace.deficit"         = "%d%% em déficit";
-"popover.pace.reserve"         = "%d%% em reserva";
 "popover.pace.lasts_until_reset" = "Dura até a renovação";
 "popover.pace.runs_out_now"    = "Esgota agora";
 "popover.pace.runs_out_in"     = "Esgota em %@";
@@ -42,6 +39,17 @@
 "popover.pace.duration_days_hours" = "%1$dd %2$dh";
 "popover.pace.duration_hours_minutes" = "%1$dh %2$dmin";
 "popover.pace.duration_minutes" = "%dmin";
+"popover.pace.runs_out_at"     = "No ritmo atual, acaba ~%@";
+"popover.pace.left_at_reset"   = "Sobra ~%d%% até o reset";
+"popover.pace.day_hour"        = "%1$@ %2$dh";
+"popover.pace.expected_tooltip" = "Esperado até agora: %d%%";
+"popover.weekday.1" = "dom";
+"popover.weekday.2" = "seg";
+"popover.weekday.3" = "ter";
+"popover.weekday.4" = "qua";
+"popover.weekday.5" = "qui";
+"popover.weekday.6" = "sex";
+"popover.weekday.7" = "sáb";
 
 /* MARK: - Uso extra */
 "popover.extra.title"          = "Uso extra";
@@ -54,6 +62,7 @@
 "popover.cost.roi"             = "%1$d× sua assinatura %2$@";
 "popover.cost.more_models"     = "+%1$d modelos";
 "popover.cost.today"           = "Hoje: %1$@ · %2$@ tokens";
+"popover.action.tooltip" = "%1$@ (%2$@)";
 "popover.cost.estimated_share" = "%d%% estimado por família";
 "popover.account.menu_bar_shows" = "Barra mostra: %@";
 "popover.account.menu_bar_unknown" = "conta ativa";
