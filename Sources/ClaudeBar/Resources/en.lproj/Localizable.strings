@@ -272,7 +272,7 @@
 
 "settings.claude.section.keychain"  = "Keychain";
 "settings.claude.avoid_prompts"          = "Avoid keychain prompts";
-"settings.claude.avoid_prompts.subtitle" = "Read credentials via the security CLI (1.5 s timeout) instead of the Security framework, which can show a system prompt.";
+"settings.claude.avoid_prompts.subtitle" = "Read Claude Code credentials via the security CLI (1.5 s timeout), prompt-free. When off, the app does not read the Keychain.";
 "settings.claude.prompt_policy"          = "Keychain prompt policy";
 "settings.claude.prompt_policy.subtitle" = "When a keychain dialog may be raised.";
 "settings.claude.policy.never"           = "Never";

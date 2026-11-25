@@ -27,9 +27,11 @@ import Darwin
 /// The Claude CLI leaves several generic-password items behind (one per renewal). We do **not**
 /// pass `-a` (account) in the background path: the `security` tool returns the keychain's
 /// canonical match for the service, and we then *parse* the payload and verify it is non-expired
-/// before trusting it. If the CLI read is empty, unparseable, or expired, the caller falls back
-/// to the no-UI `SecItemCopyMatching` enumeration (which selects the newest item by
-/// modification date and never prompts). See `CredentialsStore.loadFromClaudeKeychain`.
+/// before trusting it. If the CLI read is empty, unparseable, or expired, layer (e) yields nothing
+/// (there is no `SecItem` fallback any more; see `CredentialsStore.loadFromClaudeKeychain`).
+///
+/// The fingerprint used for change detection comes from the same tool **without** `-w`: that
+/// prints the item's attributes (account, creation and modification dates) and never the secret.
 extension CredentialsStore {
     static let securityBinaryPath = "/usr/bin/security"
     static let securityCLIReadTimeout: TimeInterval = 1.5
@@ -81,6 +83,9 @@ extension CredentialsStore {
                 case .nonZeroExit:
                     throw SecurityCLIReadError.nonZeroExit(status: 44, stderrLength: 0)
                 }
+            } else if self.securityCLIAttributesOverride != nil {
+                // A test drove only the attributes probe; never fall through to the real binary.
+                return nil
             } else {
                 result = try Self.runClaudeSecurityCLIRead(timeout: Self.securityCLIReadTimeout)
             }
@@ -95,21 +100,21 @@ extension CredentialsStore {
             do {
                 credentials = try ClaudeOAuthCredentials.parse(data: sanitized)
             } catch {
-                self.log.warning("Claude keychain security CLI output invalid; falling back")
+                self.log.warning("Claude keychain security CLI output invalid")
                 return nil
             }
 
             // Selection guard: the `-w` read may surface an older/expired renewal. Only trust a
-            // live token here; an expired one routes the caller to the no-UI candidate enumeration.
+            // live token here; an expired one makes layer (e) yield nothing.
             guard !credentials.isExpired else {
-                self.log.debug("Claude keychain security CLI returned an expired token; falling back")
+                self.log.debug("Claude keychain security CLI returned an expired token")
                 return nil
             }
 
             self.log.debug("Claude keychain security CLI read succeeded")
             return credentials
         } catch {
-            self.log.warning("Claude keychain security CLI read failed; falling back")
+            self.log.warning("Claude keychain security CLI read failed")
             return nil
         }
     }
@@ -126,16 +131,57 @@ extension CredentialsStore {
     /// timeout. The whole process group is terminated on timeout so a stuck `security` never wedges
     /// the actor. Mirrors `ClaudeOAuthCredentials+SecurityCLIReader.runClaudeSecurityCLIRead`.
     static func runClaudeSecurityCLIRead(timeout: TimeInterval) throws -> SecurityCLIReadResult {
+        try self.runSecurityCLI(
+            arguments: ["find-generic-password", "-s", self.claudeKeychainService, "-w"],
+            timeout: timeout)
+    }
+
+    /// Attribute-only probe (no `-w`, no `-g`): the output never contains the secret.
+    static func runClaudeSecurityCLIAttributes(timeout: TimeInterval) throws -> SecurityCLIReadResult {
+        try self.runSecurityCLI(
+            arguments: ["find-generic-password", "-s", self.claudeKeychainService],
+            timeout: timeout)
+    }
+
+    /// Change-detection fingerprint of the Claude item: a hash of its account and date attributes
+    /// as printed by `/usr/bin/security`. `nil` when the item is absent or the probe fails.
+    func claudeKeychainFingerprint() -> String? {
+        let output: Data
+        #if DEBUG
+        if let override = self.securityCLIAttributesOverride {
+            output = override
+        } else if self.securityCLIReadOverride != nil {
+            return nil
+        } else {
+            guard let result = try? Self.runClaudeSecurityCLIAttributes(timeout: Self.securityCLIReadTimeout)
+            else { return nil }
+            output = result.stdout
+        }
+        #else
+        guard let result = try? Self.runClaudeSecurityCLIAttributes(timeout: Self.securityCLIReadTimeout)
+        else { return nil }
+        output = result.stdout
+        #endif
+        return Self.fingerprint(fromAttributesOutput: output)
+    }
+
+    /// Keeps only the `acct`, `cdat` and `mdat` lines, so a renewal (new dates) or a different
+    /// login (new account) changes the fingerprint and nothing else does.
+    static func fingerprint(fromAttributesOutput output: Data) -> String? {
+        guard let text = String(data: output, encoding: .utf8) else { return nil }
+        let relevant = text
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.hasPrefix("\"acct\"") || $0.hasPrefix("\"cdat\"") || $0.hasPrefix("\"mdat\"") }
+        guard !relevant.isEmpty else { return nil }
+        return Self.sha256Prefix(Data(relevant.joined(separator: "\n").utf8))
+    }
+
+    static func runSecurityCLI(arguments: [String], timeout: TimeInterval) throws -> SecurityCLIReadResult {
+        RealKeychainTripwire.check("/usr/bin/security subprocess")
         guard FileManager.default.isExecutableFile(atPath: self.securityBinaryPath) else {
             throw SecurityCLIReadError.binaryUnavailable
         }
-
-        let arguments = [
-            "find-generic-password",
-            "-s",
-            self.claudeKeychainService,
-            "-w",
-        ]
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: self.securityBinaryPath)
@@ -205,5 +251,6 @@ extension CredentialsStore {
     }
     #else
     func loadFromClaudeKeychainViaSecurityCLI() -> ClaudeOAuthCredentials? { nil }
+    func claudeKeychainFingerprint() -> String? { nil }
     #endif
 }

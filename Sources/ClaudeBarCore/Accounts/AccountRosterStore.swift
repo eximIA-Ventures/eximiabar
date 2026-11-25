@@ -10,23 +10,24 @@ import Security
 /// `~/Library/Application Support/exímIABar/accounts.json`, mode `0600`. Enumerable and
 /// readable with **no keychain access at all**, which is what keeps the switcher cheap.
 ///
-/// **Layer 2 — secret.** Only for `.archived` accounts, one generic-password item per account
-/// in this store's own keychain service. The payload is `ArchivedToken`: access token plus
-/// expiry, nothing more (decision D-A).
+/// **Layer 2 — secret.** Only for `.archived` accounts: a `[account: ArchivedToken]` map in
+/// `archived-tokens.json`, mode `0600`, next to the index. The payload is access token plus
+/// expiry, nothing more (decision D-A). It used to be one keychain item per account; that item's
+/// ACL is bound to the app's code signature, so every ad-hoc rebuild made macOS prompt for the
+/// password on the next write. See `PrivateFile` for the rationale. Items from those releases are
+/// read once, no-UI, for migration (`legacyKeychainService`), and never written or deleted.
 ///
-/// The keychain service is injectable, and that is not a nicety. `CredentialsStore.swift:36-40`
-/// documents the root cause of the keychain Allow/Deny pop-up that EXB-3.8 spent a whole wave
-/// killing: the test process touching the real keychain item. This store inherits that seam
-/// from its first commit so the same bug cannot be reintroduced through a new service.
-///
-/// A plain `actor`: no main-actor annotation anywhere, all file and keychain I/O behind
+/// A plain `actor`: no main-actor annotation anywhere, all file I/O behind
 /// `await` (AC6 / R10).
 public actor AccountRosterStore {
     // MARK: Constants (exact contract strings)
 
     public static let indexDirectoryName = "exímIABar"
     public static let indexFileName = "accounts.json"
+    /// Keychain service of the releases before secrets moved to `archived-tokens.json`. Only
+    /// read (no-UI) for migration; never written.
     public static let keychainService = "com.eximia.eximiabar.accounts"
+    public static let secretsFileName = "archived-tokens.json"
 
     /// Decision D-B: the roster holds at most 8 accounts; the 9th evicts the least recently
     /// seen one (LRU by `lastSeenAt`), secret included.
@@ -38,18 +39,25 @@ public actor AccountRosterStore {
     // MARK: State
 
     private let indexFileURL: URL
-    private let keychainService: String
+    private let secretsFileURL: URL
+    /// The pre-file keychain service, consulted once per account for migration. `nil` disables
+    /// the migration entirely (tests), so no keychain is ever reached.
+    private let legacyKeychainService: String?
     private let log = CoreLog.logger(CoreLog.Category.credentials)
 
     private var entries: [AccountRosterEntry] = []
     private var hasLoaded = false
+    private var secrets: [String: ArchivedToken] = [:]
+    private var secretsLoaded = false
+    private var legacyAttempted: Set<String> = []
 
     public init(
         supportDirectory: URL = AccountRosterStore.defaultSupportDirectory,
-        keychainService: String = AccountRosterStore.keychainService)
+        legacyKeychainService: String? = AccountRosterStore.keychainService)
     {
         self.indexFileURL = supportDirectory.appendingPathComponent(Self.indexFileName)
-        self.keychainService = keychainService
+        self.secretsFileURL = supportDirectory.appendingPathComponent(Self.secretsFileName)
+        self.legacyKeychainService = legacyKeychainService
     }
 
     /// `~/Library/Application Support/exímIABar` — the production index location.
@@ -64,9 +72,8 @@ public actor AccountRosterStore {
     /// Where this instance writes its index. Exposed so tests can assert isolation.
     public nonisolated var indexURL: URL { self.indexFileURL }
 
-    /// The keychain service this instance uses. Exposed so tests can prove they are not on the
-    /// production one.
-    public nonisolated var activeKeychainService: String { self.keychainService }
+    /// Where this instance keeps archived secrets (mode `0600`). Exposed so tests can assert it.
+    public nonisolated var secretsURL: URL { self.secretsFileURL }
 
     // MARK: Public API
 
@@ -264,61 +271,88 @@ public actor AccountRosterStore {
         return decoder
     }()
 
-    // MARK: Keychain (layer 2)
+    // MARK: Secret file (layer 2)
 
-    /// `"{provider}:{identifier}"` — the account attribute of the keychain item (AC2.4).
+    /// `"{provider}:{identifier}"` — the key of an archived secret (AC2.4). Also the account
+    /// attribute the pre-file releases used for their keychain items, which is what the one-shot
+    /// migration looks up.
     static func keychainAccount(for key: AccountKey) -> String {
         "\(key.provider.rawValue):\(key.identifier)"
     }
 
+    private func loadSecretsIfNeeded() {
+        guard !self.secretsLoaded else { return }
+        self.secretsLoaded = true
+        guard let data = PrivateFile.read(self.secretsFileURL),
+              let decoded = try? Self.decoder.decode([String: ArchivedToken].self, from: data)
+        else { return }
+        self.secrets = decoded
+    }
+
+    private func persistSecrets() {
+        do {
+            if self.secrets.isEmpty {
+                PrivateFile.remove(self.secretsFileURL)
+                return
+            }
+            try PrivateFile.write(try Self.encoder.encode(self.secrets), to: self.secretsFileURL)
+        } catch {
+            self.log.error("Could not store the archived account secrets")
+        }
+    }
+
     private func readSecret(for key: AccountKey) -> ArchivedToken? {
+        self.loadSecretsIfNeeded()
+        let account = Self.keychainAccount(for: key)
+        if let token = self.secrets[account] { return token }
+        // One-shot migration from the keychain items written before secrets moved to a file.
+        // The read is no-UI (it can fail, never prompt) and attempted once per account per run.
+        // The legacy item is deliberately NOT deleted: deleting an item whose ACL no longer
+        // matches our signature is exactly what raises the password prompt.
+        guard let legacyKeychainService = self.legacyKeychainService,
+              !self.legacyAttempted.contains(account)
+        else { return nil }
+        self.legacyAttempted.insert(account)
+        guard let data = Self.readLegacyKeychainSecret(service: legacyKeychainService, account: account),
+              let token = try? Self.decoder.decode(ArchivedToken.self, from: data)
+        else { return nil }
+        self.secrets[account] = token
+        self.persistSecrets()
+        return token
+    }
+
+    private func writeSecret(_ token: ArchivedToken, for key: AccountKey) {
+        self.loadSecretsIfNeeded()
+        self.secrets[Self.keychainAccount(for: key)] = token
+        self.persistSecrets()
+    }
+
+    private func deleteSecret(for key: AccountKey) {
+        self.loadSecretsIfNeeded()
+        let account = Self.keychainAccount(for: key)
+        // Also stop a later read from resurrecting it through the legacy migration.
+        self.legacyAttempted.insert(account)
+        guard self.secrets.removeValue(forKey: account) != nil else { return }
+        self.persistSecrets()
+    }
+
+    /// The only `SecItem` call left in the roster: a **no-UI** read of the app's *own* legacy item.
+    private static func readLegacyKeychainSecret(service: String, account: String) -> Data? {
         #if os(macOS)
+        RealKeychainTripwire.check("AccountRosterStore legacy keychain migration")
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: self.keychainService,
-            kSecAttrAccount as String: Self.keychainAccount(for: key),
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
             kSecMatchLimit as String: kSecMatchLimitOne,
             kSecReturnData as String: true,
         ]
         KeychainNoUIQuery.apply(to: &query)
         var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data
-        else { return nil }
-        return try? Self.decoder.decode(ArchivedToken.self, from: data)
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else { return nil }
+        return result as? Data
         #else
         return nil
-        #endif
-    }
-
-    private func writeSecret(_ token: ArchivedToken, for key: AccountKey) {
-        #if os(macOS)
-        guard let data = try? Self.encoder.encode(token) else { return }
-        let base: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: self.keychainService,
-            kSecAttrAccount as String: Self.keychainAccount(for: key),
-        ]
-        SecItemDelete(base as CFDictionary)
-        var add = base
-        add[kSecValueData as String] = data
-        // This device only, never synchronized to iCloud (AC2.4).
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        let status = SecItemAdd(add as CFDictionary, nil)
-        if status != errSecSuccess {
-            self.log.error("Could not store the archived account secret (OSStatus \(status))")
-        }
-        #endif
-    }
-
-    private func deleteSecret(for key: AccountKey) {
-        #if os(macOS)
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: self.keychainService,
-            kSecAttrAccount as String: Self.keychainAccount(for: key),
-        ]
-        SecItemDelete(query as CFDictionary)
         #endif
     }
 }

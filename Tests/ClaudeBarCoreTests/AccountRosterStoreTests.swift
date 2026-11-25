@@ -2,38 +2,28 @@ import Foundation
 import Testing
 @testable import ClaudeBarCore
 
-#if os(macOS)
-import Security
-#endif
-
 /// EXB-5.2 — account roster: capture on login, read-only persistence.
 ///
-/// Every test writes its index into a throwaway `tmp` directory and pins its own keychain
-/// service (`com.eximia.eximiabar.accounts.test.<uuid>`), so neither the real
-/// `~/Library/Application Support/exímIABar/accounts.json` nor the production keychain service
-/// is ever touched — the seam `CredentialsStore.swift:36-40` documents, inherited here from the
-/// first commit.
+/// Every test writes its index and secrets into a throwaway `tmp` directory and disables the
+/// legacy keychain migration (`legacyKeychainService: nil`), so neither the real
+/// `~/Library/Application Support/exímIABar/` nor any keychain is ever touched. Under
+/// `Scripts/run-tests.sh` a keychain access would crash the run (`RealKeychainTripwire`).
 struct AccountRosterStoreTests {
     // MARK: Fixtures
 
-    /// A store on a fresh temp directory and a fresh keychain service.
+    /// A store on a fresh temp directory, with no keychain at all.
     private func makeStore() -> (store: AccountRosterStore, directory: URL, service: String) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("eximiabar-roster-\(UUID().uuidString)")
         let service = "com.eximia.eximiabar.accounts.test.\(UUID().uuidString)"
-        return (AccountRosterStore(supportDirectory: directory, keychainService: service),
+        return (AccountRosterStore(supportDirectory: directory, legacyKeychainService: nil),
                 directory,
                 service)
     }
 
     private func cleanUp(directory: URL, service: String) {
+        _ = service
         try? FileManager.default.removeItem(at: directory)
-        #if os(macOS)
-        SecItemDelete([
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-        ] as CFDictionary)
-        #endif
     }
 
     private func identity(_ email: String) -> AccountIdentity {
@@ -100,7 +90,7 @@ struct AccountRosterStoreTests {
             credentials: credentials(accessToken: "token-a"))
 
         // A brand-new instance over the same directory must see the same roster.
-        let reopened = AccountRosterStore(supportDirectory: directory, keychainService: service)
+        let reopened = AccountRosterStore(supportDirectory: directory, legacyKeychainService: nil)
         let roster = await reopened.roster()
         #expect(roster.count == 2)
         #expect(roster.first { $0.key.identifier == "b@example.com" }?.lifecycle == .live)
@@ -145,40 +135,46 @@ struct AccountRosterStoreTests {
         #expect(contents.contains("archived"))
     }
 
-    // MARK: AC2.7 — keychain seam
+    // MARK: AC2.7 — secrets live in a 0600 file, not the keychain
 
     @Test
-    func keychainServiceIsInjectableInTests() async throws {
+    func archivedSecretLivesInPrivateFileNotKeychain() async throws {
         let (store, directory, service) = makeStore()
         defer { cleanUp(directory: directory, service: service) }
 
-        #expect(store.activeKeychainService == service)
-        #expect(store.activeKeychainService != AccountRosterStore.keychainService)
         #expect(AccountRosterStore.keychainService == "com.eximia.eximiabar.accounts")
-        // The production index location is never the one this test writes to.
+        // The production locations are never the ones this test writes to.
         #expect(!store.indexURL.path.contains("Application Support"))
+        #expect(!store.secretsURL.path.contains("Application Support"))
+        #expect(store.secretsURL.deletingLastPathComponent() == store.indexURL.deletingLastPathComponent())
 
-        // And the injected service is the one actually used by the keychain item.
         await store.captureIfIdentityChanged(
             current: identity("a@example.com"),
             credentials: credentials(accessToken: "token-a"))
+        // A live account has no secret of ours: nothing on disk yet.
+        #expect(!FileManager.default.fileExists(atPath: store.secretsURL.path))
+
         await store.captureIfIdentityChanged(
             current: identity("b@example.com"),
             credentials: credentials(accessToken: "token-a"))
 
-        #if os(macOS)
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: AccountRosterStore
-                .keychainAccount(for: AccountKey(provider: .claude, identifier: "a@example.com")),
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecReturnData as String: true,
-        ]
-        KeychainNoUIQuery.apply(to: &query)
-        var result: AnyObject?
-        #expect(SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess)
-        #endif
+        let attrs = try FileManager.default.attributesOfItem(atPath: store.secretsURL.path)
+        #expect((attrs[.posixPermissions] as? NSNumber)?.int16Value == 0o600)
+        let dirAttrs = try FileManager.default.attributesOfItem(atPath: directory.path)
+        #expect((dirAttrs[.posixPermissions] as? NSNumber)?.int16Value == 0o700)
+
+        let contents = try String(contentsOf: store.secretsURL, encoding: .utf8)
+        #expect(contents.contains("claude:a@example.com"))
+        #expect(!contents.contains("renewal-secret-that-must-never-be-archived"))
+        // No temp file left behind by the atomic write.
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            .filter { $0.hasSuffix(".tmp") }
+        #expect(leftovers.isEmpty)
+
+        // A fresh instance (next launch) reads the secret back from the file alone.
+        let reopened = AccountRosterStore(supportDirectory: directory, legacyKeychainService: nil)
+        let archived = await reopened.archivedToken(for: AccountKey(provider: .claude, identifier: "a@example.com"))
+        #expect(archived?.accessToken == "token-a")
     }
 
     // MARK: AC2.5 — decision D-A

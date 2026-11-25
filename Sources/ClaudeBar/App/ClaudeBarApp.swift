@@ -21,7 +21,7 @@ private final class PromptPolicyHolder: Sendable {
 /// `CredentialsStore` reads this off-MainActor on every fetch via a `@Sendable` closure. It maps
 /// the user's "Avoid keychain prompts" Settings toggle onto the Core strategy: ON →
 /// `.securityCLIPrimary` (read via the trusted `/usr/bin/security` tool, prompt-free); OFF →
-/// `.securityFramework` (legacy no-UI `SecItemCopyMatching` only). Default ON.
+/// `.securityFramework` (layer (e) skipped; no keychain read at all). Default ON.
 private final class KeychainReadStrategyHolder: Sendable {
     private let lock = OSAllocatedUnfairLock(initialState: KeychainReadStrategy.securityCLIPrimary)
 

@@ -1,13 +1,8 @@
 import CryptoKit
 import Foundation
 
-#if os(macOS)
-import LocalAuthentication
-import Security
-#endif
-
 /// Loads Claude OAuth credentials from five sources in strict priority order, with
-/// fingerprint-based change detection and a no-UI keychain read path (AC2, AC3, AC4).
+/// fingerprint-based change detection, and no `SecItem` call anywhere (AC2, AC3, AC4).
 ///
 /// All work runs inside this actor — callers `await`. There are no `@MainActor`
 /// annotations and no synchronous I/O on the main thread.
@@ -15,30 +10,38 @@ import Security
 /// Priority (AC2):
 ///   1. env `CLAUDEBAR_OAUTH_TOKEN`            → owner `.environment`
 ///   2. in-memory cache (TTL 30 min)          → owner from cache
-///   3. keychain cache (own service/account)  → owner from cache
+///   3. own cache file (`oauth-cache.json`, 0600) → owner from cache
 ///   4. file `~/.claude/.credentials.json`    → owner `.claudeCLI`
 ///   5. keychain `"Claude Code-credentials"`  → owner `.claudeCLI`
 ///
-/// Layer (5/e) reads the Claude keychain item via the trusted `/usr/bin/security` CLI first
-/// (`.securityCLIPrimary`, the default), which is prompt-free, and only falls back to a no-UI
-/// `SecItemCopyMatching` query. **No layer ever raises a keychain Allow/Deny dialog.** See
-/// `CredentialsStore+SecurityCLI.swift` for the rationale (the Claude CLI's partition list trusts
-/// `/usr/bin/security` but not us, and it recreates the item on every token renewal).
+/// Layer (5/e) reads the Claude keychain item **only** through the trusted `/usr/bin/security`
+/// CLI (`.securityCLIPrimary`, the default), which is prompt-free because the Claude CLI's item
+/// trusts that binary. The change-detection fingerprint comes from the same CLI without `-w`
+/// (attributes only, never the secret). This store never calls `SecItem*` on a third-party item:
+/// that path depended on our code signature being in the item's ACL, which it never is.
+/// `.securityFramework` is kept as a setting value only and now means "skip layer (e)".
+///
+/// Layer (3/c) is the app's own cache. It used to be a keychain item that the app deleted and
+/// re-added on every fetch; with an ad-hoc signature (a new `cdhash` per build) that write made
+/// macOS ask for the login password after every reinstall. It is now a `0600` file
+/// (`PrivateFile`). The legacy item is never read, written or deleted again — its 30-minute TTL
+/// made it worthless, and touching it is what prompted.
 public actor CredentialsStore {
     // MARK: Constants (exact contract strings)
 
     public static let environmentTokenKey = "CLAUDEBAR_OAUTH_TOKEN"
     public static let credentialsFileRelativePath = ".claude/.credentials.json"
     public static let claudeKeychainService = "Claude Code-credentials"
-    public static let cacheKeychainService = "com.eximia.eximiabar.cache"
-    public static let cacheKeychainAccount = "oauth.claude"
+    /// Service of the pre-file keychain cache. Kept only as a documented constant: nothing reads,
+    /// writes or deletes that item any more.
+    public static let legacyCacheKeychainService = "com.eximia.eximiabar.cache"
+    public static let cacheFileName = "oauth-cache.json"
 
-    /// The keychain service used for this store's *own* credential cache (layer c). Injectable so
-    /// tests can pin an isolated, throwaway service (e.g. `com.eximia.eximiabar.cache.test.<uuid>`)
-    /// and never read/write/delete the real `com.eximia.eximiabar.cache` item — which is what made
-    /// the test-helper process trigger the keychain Allow/Deny prompt. Defaults to the production
-    /// `Self.cacheKeychainService`, so app code is unaffected.
-    private let cacheKeychainService: String
+    /// `~/Library/Application Support/exímIABar` — the same directory as the account roster.
+    public static var defaultCacheDirectory: URL { AccountRosterStore.defaultSupportDirectory }
+
+    /// Where layer (c) keeps its cache file. Injectable so tests use a throwaway directory.
+    private let cacheFileURL: URL
 
     private static let memoryCacheTTL: TimeInterval = 1800 // 30 min
     private static let fingerprintThrottle: TimeInterval = 60 // at most once per 60 s
@@ -77,6 +80,14 @@ public actor CredentialsStore {
     /// drives the CLI reader's result instead. Mirrors the reference's `securityCLIReadOverride`.
     var securityCLIReadOverride: SecurityCLIReadOverride?
 
+    /// Test seam for the attributes probe (fingerprint). When any CLI override is set and this one
+    /// is not, the probe yields "no item" instead of launching the real subprocess.
+    var securityCLIAttributesOverride: Data?
+
+    func setSecurityCLIAttributesOverrideForTesting(_ output: Data?) {
+        self.securityCLIAttributesOverride = output
+    }
+
     /// Sets the CLI-read override from tests (the property is actor-isolated).
     func setSecurityCLIReadOverrideForTesting(_ override: SecurityCLIReadOverride?) {
         self.securityCLIReadOverride = override
@@ -97,7 +108,7 @@ public actor CredentialsStore {
         promptPolicy: PromptPolicy = .onUserAction,
         enableSystemKeychain: Bool = true,
         readStrategy: KeychainReadStrategy = .securityCLIPrimary,
-        cacheKeychainService: String = CredentialsStore.cacheKeychainService,
+        cacheDirectory: URL = CredentialsStore.defaultCacheDirectory,
         accountRoster: AccountRosterStore? = nil,
         identityResolver: ClaudeIdentityResolver? = nil)
     {
@@ -108,7 +119,7 @@ public actor CredentialsStore {
             promptPolicyProvider: { promptPolicy },
             enableSystemKeychain: enableSystemKeychain,
             readStrategyProvider: { readStrategy },
-            cacheKeychainService: cacheKeychainService,
+            cacheDirectory: cacheDirectory,
             accountRoster: accountRoster,
             identityResolver: identityResolver)
     }
@@ -123,7 +134,7 @@ public actor CredentialsStore {
         promptPolicyProvider: @escaping @Sendable () -> PromptPolicy,
         enableSystemKeychain: Bool = true,
         readStrategyProvider: @escaping @Sendable () -> KeychainReadStrategy = { .securityCLIPrimary },
-        cacheKeychainService: String = CredentialsStore.cacheKeychainService,
+        cacheDirectory: URL = CredentialsStore.defaultCacheDirectory,
         accountRoster: AccountRosterStore? = nil,
         identityResolver: ClaudeIdentityResolver? = nil)
     {
@@ -133,7 +144,7 @@ public actor CredentialsStore {
         self.promptPolicyProvider = promptPolicyProvider
         self.enableSystemKeychain = enableSystemKeychain
         self.readStrategyProvider = readStrategyProvider
-        self.cacheKeychainService = cacheKeychainService
+        self.cacheFileURL = cacheDirectory.appendingPathComponent(Self.cacheFileName)
         self.accountRoster = accountRoster
         self.identityResolver = identityResolver
     }
@@ -141,13 +152,16 @@ public actor CredentialsStore {
     // MARK: Public API
 
     /// Loads the best available credential record. No phase ever raises a keychain prompt: layer
-    /// (e) reads the Claude keychain via the trusted `/usr/bin/security` CLI (prompt-free) and, if
-    /// that yields nothing usable, via a no-UI `SecItemCopyMatching` fallback. `phase` is retained
+    /// (e) reads the Claude keychain only via the trusted `/usr/bin/security` CLI (prompt-free), and
+    /// layer (c) is a plain `0600` file. `phase` is retained
     /// for call-site provenance (and 429-gate / notification decisions upstream).
     public func load(phase: RefreshPhase = .background) async throws -> ClaudeOAuthCredentialRecord {
         // Throttled fingerprint poll → capture the account switch, then invalidate caches (AC3,
         // EXB-5.2 AC4.11 — that order is load-bearing).
-        await self.pollFingerprintsAndInvalidateIfChanged()
+        // Sample the live strategy once per load (never memoized, AC11): the fingerprint probe and
+        // layer (e) must agree on it, and `.securityFramework` keeps both off the keychain.
+        let strategy = self.enableSystemKeychain ? self.readStrategyProvider() : nil
+        await self.pollFingerprintsAndInvalidateIfChanged(strategy: strategy)
 
         // (a) environment
         if let credentials = self.loadFromEnvironment() {
@@ -168,9 +182,9 @@ public actor CredentialsStore {
                 source: .memoryCache)
         }
 
-        // (c) keychain cache
+        // (c) own cache file
         if self.enableSystemKeychain,
-           let record = self.loadFromCacheKeychain(), !record.credentials.isExpired
+           let record = self.loadFromCacheFile(), !record.credentials.isExpired
         {
             self.storeInMemory(record)
             return record
@@ -179,18 +193,15 @@ public actor CredentialsStore {
         // (d) credentials file
         if let record = try self.loadFromFile() {
             self.storeInMemory(record)
-            if self.enableSystemKeychain { self.saveToCacheKeychain(record) }
+            if self.enableSystemKeychain { self.saveToCacheFile(record) }
             return record
         }
 
         // (e) system keychain "Claude Code-credentials"
-        if self.enableSystemKeychain {
-            // Read the *current* strategy now — never memoize, so a settings change between
-            // fetches is honoured immediately (mirrors the AC11 prompt-policy contract).
-            let strategy = self.readStrategyProvider()
+        if let strategy {
             if let record = try self.loadFromClaudeKeychain(strategy: strategy) {
                 self.storeInMemory(record)
-                self.saveToCacheKeychain(record)
+                self.saveToCacheFile(record)
                 return record
             }
         }
@@ -198,11 +209,11 @@ public actor CredentialsStore {
         throw ClaudeOAuthCredentialsError.notFound
     }
 
-    /// Drops in-memory and keychain caches (used after a successful delegated refresh).
+    /// Drops the in-memory and file caches (used after a successful delegated refresh).
     public func invalidateCaches() {
         self.cachedRecord = nil
         self.cacheTimestamp = nil
-        self.clearCacheKeychain()
+        self.clearCacheFile()
     }
 
     // MARK: (a) Environment
@@ -245,21 +256,10 @@ public actor CredentialsStore {
             source: .credentialsFile)
     }
 
-    // MARK: (c) Own keychain cache
+    // MARK: (c) Own cache file
 
-    private func loadFromCacheKeychain() -> ClaudeOAuthCredentialRecord? {
-        #if os(macOS)
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: self.cacheKeychainService,
-            kSecAttrAccount as String: Self.cacheKeychainAccount,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecReturnData as String: true,
-        ]
-        KeychainNoUIQuery.apply(to: &query)
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data else { return nil }
+    private func loadFromCacheFile() -> ClaudeOAuthCredentialRecord? {
+        guard let data = PrivateFile.read(self.cacheFileURL) else { return nil }
         guard let entry = try? JSONDecoder().decode(CacheEntry.self, from: data) else { return nil }
         guard Date().timeIntervalSince(entry.storedAt) < Self.memoryCacheTTL else { return nil }
         guard let credentials = try? ClaudeOAuthCredentials.parse(data: entry.credentialsData)
@@ -268,41 +268,24 @@ public actor CredentialsStore {
             credentials: credentials,
             owner: entry.owner,
             source: .cacheKeychain)
-        #else
-        return nil
-        #endif
     }
 
-    private func saveToCacheKeychain(_ record: ClaudeOAuthCredentialRecord) {
-        #if os(macOS)
+    private func saveToCacheFile(_ record: ClaudeOAuthCredentialRecord) {
         guard let credentialsData = self.serializeCredentials(record.credentials) else { return }
         let entry = CacheEntry(
             credentialsData: credentialsData,
             storedAt: Date(),
             owner: record.owner)
         guard let data = try? JSONEncoder().encode(entry) else { return }
-        let base: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: self.cacheKeychainService,
-            kSecAttrAccount as String: Self.cacheKeychainAccount,
-        ]
-        SecItemDelete(base as CFDictionary)
-        var add = base
-        add[kSecValueData as String] = data
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        SecItemAdd(add as CFDictionary, nil)
-        #endif
+        do {
+            try PrivateFile.write(data, to: self.cacheFileURL)
+        } catch {
+            self.log.warning("Could not write the OAuth cache file")
+        }
     }
 
-    private func clearCacheKeychain() {
-        #if os(macOS)
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: self.cacheKeychainService,
-            kSecAttrAccount as String: Self.cacheKeychainAccount,
-        ]
-        SecItemDelete(query as CFDictionary)
-        #endif
+    private func clearCacheFile() {
+        PrivateFile.remove(self.cacheFileURL)
     }
 
     private func serializeCredentials(_ credentials: ClaudeOAuthCredentials) -> Data? {
@@ -328,33 +311,15 @@ public actor CredentialsStore {
 
     // MARK: (e) System keychain "Claude Code-credentials"
 
+    /// Reads the Claude item **only** via `/usr/bin/security`. There is deliberately no
+    /// `SecItem` fallback: the item belongs to the Claude CLI and its ACL never lists us, so a
+    /// framework read could at best fail and at worst prompt. `.securityFramework` skips the layer.
     private func loadFromClaudeKeychain(strategy: KeychainReadStrategy) throws -> ClaudeOAuthCredentialRecord? {
         #if os(macOS)
-        // Always refresh the keychain fingerprint baseline from a no-UI attribute probe (AC3),
-        // independent of which reader supplies the secret. Enumerating attributes never prompts.
-        let candidate = self.newestClaudeKeychainCandidate()
-        if let candidate {
-            self.persistKeychainFingerprint(self.keychainFingerprint(for: candidate))
-        }
-
-        // PRIMARY: read the secret via `/usr/bin/security`, which the Claude CLI's item trusts.
-        // This is prompt-free and is the path that fixes the recurring Allow/Deny dialog.
-        if strategy == .securityCLIPrimary,
-           let credentials = self.loadFromClaudeKeychainViaSecurityCLI()
-        {
-            return ClaudeOAuthCredentialRecord(
-                credentials: credentials,
-                owner: .claudeCLI,
-                source: .claudeKeychain)
-        }
-
-        // FALLBACK: no-UI `SecItemCopyMatching` on the newest candidate. This NEVER prompts —
-        // if the bytes are not readable without UI, it returns nil and we surface `.notFound`.
-        guard let candidate else { return nil }
-        guard let data = try self.readKeychainData(persistentRef: candidate.persistentRef)
-        else { return nil }
-
-        let credentials = try ClaudeOAuthCredentials.parse(data: data)
+        guard strategy == .securityCLIPrimary else { return nil }
+        // Refresh the fingerprint baseline from the attribute-only CLI probe (AC3).
+        self.persistKeychainFingerprint(self.claudeKeychainFingerprint())
+        guard let credentials = self.loadFromClaudeKeychainViaSecurityCLI() else { return nil }
         return ClaudeOAuthCredentialRecord(
             credentials: credentials,
             owner: .claudeCLI,
@@ -364,91 +329,11 @@ public actor CredentialsStore {
         #endif
     }
 
-    #if os(macOS)
-    private struct KeychainCandidate {
-        let persistentRef: Data
-        let modifiedAt: Date?
-        let createdAt: Date?
-    }
-
-    /// Probes the system keychain with `kSecMatchLimitAll` + `kSecReturnPersistentRef`
-    /// under a no-UI policy, returning the most-recently-modified item (AC4).
-    private func newestClaudeKeychainCandidate() -> KeychainCandidate? {
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.claudeKeychainService,
-            kSecMatchLimit as String: kSecMatchLimitAll,
-            kSecReturnAttributes as String: true,
-            kSecReturnPersistentRef as String: true,
-        ]
-        KeychainNoUIQuery.apply(to: &query)
-
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecUserCanceled || status == errSecAuthFailed
-            || status == errSecNoAccessForItem
-        {
-            ClaudeOAuthKeychainAccessGate.recordDenied()
-        }
-        guard status == errSecSuccess, let rows = result as? [[String: Any]], !rows.isEmpty
-        else { return nil }
-
-        let candidates: [KeychainCandidate] = rows.compactMap { row in
-            guard let persistentRef = row[kSecValuePersistentRef as String] as? Data else { return nil }
-            return KeychainCandidate(
-                persistentRef: persistentRef,
-                modifiedAt: row[kSecAttrModificationDate as String] as? Date,
-                createdAt: row[kSecAttrCreationDate as String] as? Date)
-        }
-        return candidates.sorted { lhs, rhs in
-            let l = lhs.modifiedAt ?? lhs.createdAt ?? .distantPast
-            let r = rhs.modifiedAt ?? rhs.createdAt ?? .distantPast
-            return l > r
-        }.first
-    }
-
-    /// Reads the secret bytes for a candidate via its persistent ref. This is the FALLBACK reader
-    /// and is **always** no-UI: it never raises a keychain prompt under any circumstance. The
-    /// `/usr/bin/security` CLI reader is the prompt-free primary path; if it fails, this no-UI read
-    /// is the only secondary, and a non-readable item simply surfaces as `.notFound` (no dialog).
-    private func readKeychainData(persistentRef: Data) throws -> Data? {
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecValuePersistentRef as String: persistentRef,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecReturnData as String: true,
-        ]
-        KeychainNoUIQuery.apply(to: &query)
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        switch status {
-        case errSecSuccess:
-            return result as? Data
-        // The item exists but is not readable without UI (the Claude CLI's ACL excludes us). We do
-        // NOT prompt — record the denial for cooldown bookkeeping and fall through to `.notFound`.
-        case errSecItemNotFound, errSecInteractionNotAllowed:
-            return nil
-        case errSecUserCanceled, errSecAuthFailed, errSecNoAccessForItem:
-            ClaudeOAuthKeychainAccessGate.recordDenied()
-            return nil
-        default:
-            throw ClaudeOAuthCredentialsError.keychainError(Int(status))
-        }
-    }
-
-    private func keychainFingerprint(for candidate: KeychainCandidate) -> String {
-        let modified = candidate.modifiedAt.map { Int($0.timeIntervalSince1970 * 1000) } ?? 0
-        let created = candidate.createdAt.map { Int($0.timeIntervalSince1970 * 1000) } ?? 0
-        let refHash = Self.sha256Prefix(candidate.persistentRef)
-        return "\(modified):\(created):\(refHash)"
-    }
-    #endif
-
     // MARK: Fingerprint polling (AC3)
 
     /// Throttled (≤ once / 60 s). Captures the current account into the roster and, on a change
     /// to the file or keychain fingerprint, drops the in-memory and keychain caches.
-    private func pollFingerprintsAndInvalidateIfChanged() async {
+    private func pollFingerprintsAndInvalidateIfChanged(strategy: KeychainReadStrategy?) async {
         let now = Date()
         if let last = self.lastFingerprintCheckAt,
            now.timeIntervalSince(last) < Self.fingerprintThrottle
@@ -466,9 +351,8 @@ public actor CredentialsStore {
         }
 
         #if os(macOS)
-        if self.enableSystemKeychain {
-            let currentKeychain = self.newestClaudeKeychainCandidate()
-                .map { self.keychainFingerprint(for: $0) }
+        if strategy == .securityCLIPrimary {
+            let currentKeychain = self.claudeKeychainFingerprint()
             let storedKeychain = self.defaults.string(forKey: Self.keychainFingerprintDefaultsKey)
             if currentKeychain != storedKeychain {
                 changed = true
@@ -485,7 +369,7 @@ public actor CredentialsStore {
             self.log.debug("Credential fingerprint changed — invalidating caches")
             self.cachedRecord = nil
             self.cacheTimestamp = nil
-            self.clearCacheKeychain()
+            self.clearCacheFile()
         }
     }
 

@@ -18,8 +18,12 @@
 # Usage:  Scripts/run-tests.sh [extra swift-test args…]
 #   e.g.  Scripts/run-tests.sh --filter ClaudeIdentityResolverTests
 #
-# NOTE: `--no-parallel` is deliberate. `CredentialLoadOrderTests` races with
-# `RefreshOwnershipTests` over the real system keychain when run in parallel.
+# NOTE: `--no-parallel` is deliberate (historically `CredentialLoadOrderTests` raced with
+# `RefreshOwnershipTests` over the real system keychain; that is now forbidden, see below).
+#
+# EXIMIABAR_FORBID_REAL_KEYCHAIN=1 arms `RealKeychainTripwire`: any test that would reach the
+# real keychain (the `/usr/bin/security` subprocess or a legacy `SecItem` read) crashes instead
+# of touching the user's keychain and raising a password prompt.
 
 set -euo pipefail
 
@@ -32,6 +36,8 @@ if [[ ! -d "${FRAMEWORKS}/Testing.framework" ]]; then
     echo "       With a full Xcode installed, plain \`swift test\` should work — try that." >&2
     exit 1
 fi
+
+export EXIMIABAR_FORBID_REAL_KEYCHAIN=1
 
 exec swift test \
     --arch arm64 \

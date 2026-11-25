@@ -3,9 +3,6 @@ import Foundation
 import Testing
 @testable import ClaudeBar
 
-#if os(macOS)
-import Security
-#endif
 
 /// EXB-5.5 — the inline account switcher and the Settings roster manager.
 ///
@@ -295,23 +292,16 @@ struct AccountSwitcherTests {
     // MARK: - AC5: Settings roster management
 
     /// Removing an account in Settings erases both layers: the index row **and** the archived secret
-    /// in the keychain. The store is pinned to a throwaway directory and its own keychain service, so
-    /// neither the real index nor the production keychain item is ever touched.
+    /// in `archived-tokens.json`. The store is pinned to a throwaway directory with the legacy
+    /// keychain migration off, so neither the real index nor any keychain item is ever touched.
     @Test
     func settingsRemoveAccountClearsIndexAndKeychainSecret() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("eximiabar-switcher-\(UUID().uuidString)")
         let service = "com.eximia.eximiabar.accounts.test.\(UUID().uuidString)"
-        let store = AccountRosterStore(supportDirectory: directory, keychainService: service)
-        defer {
-            try? FileManager.default.removeItem(at: directory)
-            #if os(macOS)
-            SecItemDelete([
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-            ] as CFDictionary)
-            #endif
-        }
+        _ = service
+        let store = AccountRosterStore(supportDirectory: directory, legacyKeychainService: nil)
+        defer { try? FileManager.default.removeItem(at: directory) }
 
         func credentials(_ token: String) -> ClaudeOAuthCredentials {
             ClaudeOAuthCredentials(
@@ -353,23 +343,13 @@ struct AccountSwitcherTests {
         let indexContents = try String(contentsOf: store.indexURL, encoding: .utf8)
         #expect(!indexContents.contains("a@example.com"))
         #expect(indexContents.contains("b@example.com"))
-        // …and gone from the keychain: no orphan secret survives the removal (AC5.11).
+        // …unreadable through the store…
         #expect(await store.archivedToken(for: archivedKey) == nil)
-        #if os(macOS)
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            // The literal contract of AC5.11: `security -s <service> -a "claude:{email}"`. Spelled
-            // out rather than reused from the implementation, so a change to the naming scheme
-            // fails here instead of silently agreeing with itself.
-            kSecAttrAccount as String: "claude:a@example.com",
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecReturnData as String: true,
-        ]
-        KeychainNoUIQuery.apply(to: &query)
-        var result: AnyObject?
-        #expect(SecItemCopyMatching(query as CFDictionary, &result) != errSecSuccess)
-        #endif
+        // …and gone from the secrets file: no orphan secret survives the removal (AC5.11). The key
+        // is spelled out rather than reused from the implementation, so a change to the naming
+        // scheme fails here instead of silently agreeing with itself.
+        let secrets = (try? String(contentsOf: store.secretsURL, encoding: .utf8)) ?? ""
+        #expect(!secrets.contains("claude:a@example.com"))
     }
 
     /// AC5.12 / I1: the roster is an actor, so the Settings pane can only reach it through `await`.

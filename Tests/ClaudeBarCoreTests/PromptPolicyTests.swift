@@ -87,14 +87,12 @@ struct PromptPolicyTests {
             homeDirectory: home,
             defaults: UserDefaults(suiteName: "exb.policy.\(UUID().uuidString)")!,
             promptPolicyProvider: { .never },
-            // System keychain enabled so the strategy provider is consulted in layer (e). Use the
-            // legacy strategy so the (DEBUG) CLI override is never consulted and the load reliably
-            // reaches the no-UI fallback → `.notFound` under test.
+            // System keychain enabled so the strategy provider is consulted. `.securityFramework`
+            // now skips layer (e) entirely, so no subprocess and no keychain → `.notFound`.
             enableSystemKeychain: true,
             readStrategyProvider: { reads.bump(); return .securityFramework },
-            // Isolated, per-test cache service: layer (c)'s save/load/clear must never touch the real
-            // `com.eximia.eximiabar.cache` item (that write+re-read is what prompts the keychain).
-            cacheKeychainService: "com.eximia.eximiabar.cache.test.\(UUID().uuidString)")
+            // Throwaway cache directory: layer (c) never writes into the real Application Support.
+            cacheDirectory: home.appendingPathComponent("support"))
 
         let loadCount = 3
         for _ in 0 ..< loadCount {

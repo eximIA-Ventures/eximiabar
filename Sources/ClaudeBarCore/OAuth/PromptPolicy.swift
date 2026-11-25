@@ -64,12 +64,12 @@ public enum FetchMode: Sendable, Equatable {
 /// How layer (e) reads the system `"Claude Code-credentials"` keychain item.
 ///
 /// The Claude CLI creates that item with a partition list that trusts `/usr/bin/security`
-/// but not our app, so `SecItemCopyMatching` prompts. `.securityCLIPrimary` reads via the
-/// trusted `/usr/bin/security` tool first (prompt-free), only falling back to the no-UI
-/// Security.framework query if the CLI yields nothing usable. This is the default.
+/// but not our app, so a `SecItemCopyMatching` read could never succeed without a prompt.
+/// The app therefore never calls `SecItem*` on it: `.securityCLIPrimary` reads via the trusted
+/// `/usr/bin/security` tool (prompt-free). This is the default.
 public enum KeychainReadStrategy: String, Sendable, Equatable, CaseIterable, Codable {
-    /// `/usr/bin/security` CLI read first, then no-UI `SecItemCopyMatching` fallback. Default.
+    /// `/usr/bin/security` CLI read only. Default.
     case securityCLIPrimary
-    /// Legacy: `SecItemCopyMatching` only (kept for diagnostics / opt-out).
+    /// Opt-out: layer (e) is skipped entirely (raw value kept so stored settings still decode).
     case securityFramework
 }
