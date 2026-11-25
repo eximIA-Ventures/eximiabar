@@ -51,6 +51,9 @@ enum DashboardPeriod: String, CaseIterable, Identifiable, Sendable {
     /// Everything the archive can vouch for. Its day count is not fixed — it grows with the history,
     /// which is exactly why it could not exist while the period was an input to the scan.
     case tudo
+    /// EXB-6.3: from the start of the current weekly window (`resetsAt − 7 d`) to today — "what ate
+    /// the week". Without a known weekly window it falls back to the last 7 days.
+    case sinceReset
 
     var id: String { self.rawValue }
 
@@ -59,9 +62,17 @@ enum DashboardPeriod: String, CaseIterable, Identifiable, Sendable {
     /// `inicioDoHistorico` is the first day the archive covers. `.tudo` starts there and nowhere
     /// earlier: **nothing is drawn before the data actually begins** (the owner's decision), so the
     /// widest button cannot manufacture a stretch nobody ever observed.
-    func span(inicioDoHistorico: Date?, now: Date, calendar: Calendar = .current) -> DashboardSpan {
+    func span(
+        inicioDoHistorico: Date?,
+        inicioDaSemana: Date? = nil,
+        now: Date,
+        calendar: Calendar = .current) -> DashboardSpan
+    {
         let hoje = calendar.startOfDay(for: now)
         switch self {
+        case .sinceReset:
+            guard let inicio = inicioDaSemana, inicio <= now else { return .ultimos(7, now: now, calendar: calendar) }
+            return DashboardSpan(inicio: inicio, fim: hoje, calendar: calendar)
         case .sevenDays: return .ultimos(7, now: now, calendar: calendar)
         case .thirtyDays: return .ultimos(30, now: now, calendar: calendar)
         case .tudo:
@@ -77,6 +88,7 @@ enum DashboardPeriod: String, CaseIterable, Identifiable, Sendable {
         case .sevenDays: return L("dashboard.period.7d")
         case .thirtyDays: return L("dashboard.period.30d")
         case .tudo: return L("dashboard.period.all")
+        case .sinceReset: return L("dashboard.period.since_reset")
         }
     }
 
@@ -86,6 +98,7 @@ enum DashboardPeriod: String, CaseIterable, Identifiable, Sendable {
         case .sevenDays: return "7d"
         case .thirtyDays: return "30d"
         case .tudo: return "tudo"
+        case .sinceReset: return "desde-reset"
         }
     }
 }

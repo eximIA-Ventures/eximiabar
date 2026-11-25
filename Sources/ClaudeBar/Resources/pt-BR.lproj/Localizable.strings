@@ -500,3 +500,19 @@
 "dashboard.flow.tooltip.total"     = "Total %@";
 "dashboard.flow.tooltip.first_day" = "Primeiro dia do eixo: não há dia anterior para comparar.";
 "dashboard.flow.empty"             = "Nenhum projeto com volume nesta janela.";
+
+/* EXB-6.3 — what ate the week */
+"dashboard.period.since_reset" = "Desde o reset";
+"dashboard.week.title" = "O que comeu a semana";
+"dashboard.week.since" = "Desde %@";
+"dashboard.week.consumed" = "%d p.p. do limite semanal consumidos";
+"dashboard.week.no_reset" = "reset semanal desconhecido, mostrando os últimos 7 dias";
+"dashboard.week.estimated" = "proporção estimada (peso pelo custo local)";
+"dashboard.week.empty" = "Sem uso desde o reset.";
+"dashboard.week.by_project" = "Por projeto";
+"dashboard.week.by_agent" = "Por agente";
+"dashboard.week.points" = "%@ p.p.";
+"dashboard.week.more" = "+%1$d outros · %2$d%%";
+"dashboard.week.agent.main" = "sessão principal";
+"dashboard.week.agent.unnamed" = "subagente (sem nome)";
+"dashboard.week.subagents_total" = "Subagentes somados: %d%%";

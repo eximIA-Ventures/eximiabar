@@ -65,6 +65,9 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
     /// The active popover theme (v2.3.0), read when the window is built so the dashboard's accent
     /// (charts, highlight numbers, the model ramp's accent swatch) matches the popover skin.
     private let themeProvider: @MainActor () -> PopoverTheme
+    /// The live weekly window of the menu-bar account (EXB-6.3), read on the main actor by the range
+    /// model while resolving `.sinceReset`.
+    private let semanaProvider: @MainActor () -> SemanaInfo?
 
     /// Owns what is on screen (EXB-5.8 §8). The per-period `DashboardData` cache that used to live
     /// here existed only to dodge a re-scan; with the history loaded once and every range change a
@@ -89,8 +92,10 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
         costScanner: CostScanner = .shared,
         openSettings: @escaping @MainActor () -> Void,
         transparencyProvider: @escaping @MainActor () -> TransparencyLevel = { .frosted },
-        themeProvider: @escaping @MainActor () -> PopoverTheme = { .classic })
+        themeProvider: @escaping @MainActor () -> PopoverTheme = { .classic },
+        semanaProvider: @escaping @MainActor () -> SemanaInfo? = { nil })
     {
+        self.semanaProvider = semanaProvider
         self.costSettingsProvider = costSettingsProvider
         self.costScanner = costScanner
         self.openSettings = openSettings
@@ -232,7 +237,8 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
         }
         let modelo = rangeModel ?? DashboardRangeModel(
             source: CostScannerSource(scanner: costScanner),
-            atalhoInicial: model.atalho ?? .thirtyDays)
+            atalhoInicial: model.atalho ?? .thirtyDays,
+            semana: semanaProvider)
         rangeModel = modelo
 
         if case .loaded = model.state {

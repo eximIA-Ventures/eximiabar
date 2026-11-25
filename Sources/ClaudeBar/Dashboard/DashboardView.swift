@@ -325,7 +325,7 @@ private struct DashboardSectionHeader: View {
 /// nothing on it said which of the two was the quantity being consumed and which was an estimate.
 /// Naming the sections is the cheapest way to say it, and it says it even to someone who reads no
 /// further than the labels.
-private struct DashboardSectionLabel: View {
+struct DashboardSectionLabel: View {
     let text: String
 
     var body: some View {
@@ -377,6 +377,10 @@ private struct LoadedDashboard: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
                 CoverageBanner(data: data)                        // EXB-5.9: what the source covers
+                // EXB-6.3: "what ate the week" leads its own period — it is the question that period asks.
+                if let semana = data.semana {
+                    WeeklyAttributionSection(semana: semana)
+                }
                 VolumeSection(data: data)                         // the principal quantity
                 CostSection(data: data)                           // the estimate, named as one
                 // EXB-4.5 AC3: the "This week" wrapped recap — only in the 7-day period.

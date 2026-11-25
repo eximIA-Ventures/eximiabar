@@ -162,7 +162,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // the dashboard, so a strong capture is cycle-free.
             transparencyProvider: { [settings] in settings.transparencyLevel },
             // v2.3.0: the dashboard's accent follows the popover theme (terracotta / amber).
-            themeProvider: { [settings] in settings.popoverTheme })
+            themeProvider: { [settings] in settings.popoverTheme },
+            // EXB-6.3: "since the reset" is anchored on the menu-bar account's weekly window.
+            semanaProvider: { [weak self] in
+                guard let weekly = self?.appState.menuBarSnapshot?.weekly,
+                      let resetsAt = weekly.resetsAt
+                else { return nil }
+                return SemanaInfo(resetsAt: resetsAt, utilization: weekly.utilization)
+            })
 
         let controller = StatusItemController(settings: settings)
         statusItemController = controller

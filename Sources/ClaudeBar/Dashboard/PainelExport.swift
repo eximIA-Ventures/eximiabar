@@ -42,6 +42,7 @@ enum PainelExport {
         case .sevenDays: nome = "Últimos 7 dias"
         case .thirtyDays: nome = "Últimos 30 dias"
         case .tudo: nome = "Todo o histórico"
+        case .sinceReset: nome = "Desde o último reset"
         // A dragged range names its dates, because "últimos 30 dias" over a stretch that is not the
         // last 30 days is a file that lies about itself long after anyone remembers dragging it.
         case nil: nome = "Intervalo escolhido"

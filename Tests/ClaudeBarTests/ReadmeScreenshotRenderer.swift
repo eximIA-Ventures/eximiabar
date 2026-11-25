@@ -118,6 +118,24 @@ struct ReadmeScreenshotRenderer {
         return (workspace, estimado)
     }
 
+    /// A fictitious week: four projects, the main session and four sub-agents, 61 p.p. consumed.
+    static func semana() -> SemanaAtribuida {
+        func fatias(_ pares: [(String, Double)]) -> [WeeklyAttribution.Slice] {
+            let total = pares.reduce(0) { $0 + $1.1 }
+            return pares.map { .init(name: $0.0, weight: $0.1, tokens: Int($0.1 * 1_000_000), share: $0.1 / total) }
+        }
+        let inicio = calendario.date(byAdding: .day, value: -4, to: calendario.startOfDay(for: hoje))!
+        return SemanaAtribuida(
+            atribuicao: WeeklyAttribution(
+                since: inicio,
+                byProject: fatias([("web-app", 41), ("api-gateway", 22), ("data-pipeline", 9), ("docs-site", 4)]),
+                byAgent: fatias([(WeeklyAttribution.mainAgentName, 38), ("code-reviewer", 19), ("test-runner", 11),
+                                 ("explorer", 6), (WeeklyAttribution.unnamedSubagentName, 2)]),
+                totalWeight: 76),
+            pontosConsumidos: 61,
+            inicioConhecido: true)
+    }
+
     static func popoverSnapshot(ultra: Bool = false) -> DisplaySnapshot {
         let agora = Date()
         let hora: TimeInterval = 3600
@@ -147,6 +165,8 @@ struct ReadmeScreenshotRenderer {
         escritos["popover-multi-account"] = try Self.escrever(
             UsageCardView(snapshot: focado, actions: UsageCardActions(), workspace: workspace),
             largura: PopoverStyle.panelWidth, nome: "popover-multi-account")
+        escritos["since-reset"] = try Self.escrever(
+            WeeklyAttributionSection(semana: Self.semana()), largura: 720, nome: "dashboard-since-reset")
         let dados = Self.dados(dias: 30)
         escritos["models"] = try Self.escrever(
             ModelBreakdownSection(data: dados), largura: 720, nome: "dashboard-models")

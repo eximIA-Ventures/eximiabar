@@ -141,7 +141,28 @@ struct TopModel: Equatable, Sendable {
 /// Built off-MainActor from the `UsageAnalytics` the `CostScanner` produces (EXB-1.7 + EXB-3.2) — the
 /// dashboard does **no** JSONL parsing of its own. `dailyCosts` is the zero-filled day axis shared by
 /// the cost and stacked-tokens charts.
+/// EXB-6.3: the week's attribution as the dashboard shows it.
+struct SemanaAtribuida: Equatable, Sendable {
+    let atribuicao: WeeklyAttribution
+    /// Percentage points of the weekly window consumed (`weekly.utilization`), or `nil` when the
+    /// weekly reading is unknown — then slices are shown as shares only.
+    let pontosConsumidos: Double?
+    /// `false` when no weekly `resetsAt` was known and the start fell back to 7 days ago.
+    let inicioConhecido: Bool
+}
+
+/// What the dashboard knows about the live weekly window (EXB-6.3).
+struct SemanaInfo: Equatable, Sendable {
+    let resetsAt: Date
+    let utilization: Double
+    var inicio: Date { WeeklyAttribution.windowStart(resetsAt: resetsAt) }
+}
+
 struct DashboardData: Equatable, Sendable {
+    /// EXB-6.3: present only for `.sinceReset`. Attached after `build`, because it is read from disk
+    /// by its own door and is not a fold of the analytics archive.
+    var semana: SemanaAtribuida? = nil
+
     /// The slice of time this data covers (EXB-5.8 §8) — the day axis, and the range the Senhor is
     /// looking at whether he got there by a shortcut or by dragging.
     let span: DashboardSpan

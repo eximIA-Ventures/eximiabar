@@ -502,3 +502,19 @@
 "dashboard.flow.tooltip.total"     = "Total %@";
 "dashboard.flow.tooltip.first_day" = "First day of the axis: there is no previous day to compare with.";
 "dashboard.flow.empty"             = "No project has volume in this window.";
+
+/* EXB-6.3 — what ate the week */
+"dashboard.period.since_reset" = "Since reset";
+"dashboard.week.title" = "What ate the week";
+"dashboard.week.since" = "Since %@";
+"dashboard.week.consumed" = "%d p.p. of the weekly limit used";
+"dashboard.week.no_reset" = "weekly reset unknown, showing the last 7 days";
+"dashboard.week.estimated" = "estimated proportion (local cost weight)";
+"dashboard.week.empty" = "No usage since the reset.";
+"dashboard.week.by_project" = "By project";
+"dashboard.week.by_agent" = "By agent";
+"dashboard.week.points" = "%@ p.p.";
+"dashboard.week.more" = "+%1$d more · %2$d%%";
+"dashboard.week.agent.main" = "main session";
+"dashboard.week.agent.unnamed" = "sub-agent (unnamed)";
+"dashboard.week.subagents_total" = "Sub-agents together: %d%%";

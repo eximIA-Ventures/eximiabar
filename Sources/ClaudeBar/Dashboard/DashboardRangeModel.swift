@@ -16,6 +16,16 @@ protocol DashboardSource: Sendable {
     func carregarHistoria(now: Date) async -> DashboardHistoria
     /// A slice of the archive already in memory. **Must not touch the filesystem.**
     func fatiar(_ intervalo: ClosedRange<Date>, now: Date) async -> UsageAnalytics
+    /// EXB-6.3: the week's split by project/agent since `desde`. **Reads the disk** — a third door,
+    /// called only for `.sinceReset`, and cached per start instant by the range model.
+    func atribuirSemana(desde: Date) async -> WeeklyAttribution
+}
+
+extension DashboardSource {
+    /// Sources that cannot attribute (test doubles) answer with an empty week.
+    func atribuirSemana(desde: Date) async -> WeeklyAttribution {
+        WeeklyAttribution(since: desde, byProject: [], byAgent: [], totalWeight: 0)
+    }
 }
 
 /// What one full load yields: the fingerprint that invalidates the cache, and where the data begins.
@@ -29,6 +39,12 @@ struct DashboardHistoria: Sendable {
 /// `CostScanner` behind the two doors.
 struct CostScannerSource: DashboardSource {
     let scanner: CostScanner
+
+    func atribuirSemana(desde: Date) async -> WeeklyAttribution {
+        await Task.detached(priority: .userInitiated) {
+            WeeklyAttributionScanner.scan(since: desde)
+        }.value
+    }
 
     /// A window wide enough to mean "everything". The archive keeps every day it ever saw, so the
     /// only job of this number is to not clip; it is not a retention policy.
@@ -60,6 +76,10 @@ struct CostScannerSource: DashboardSource {
 final class DashboardRangeModel {
     private let source: DashboardSource
     private let agora: @Sendable () -> Date
+    /// The live weekly window, read when `.sinceReset` resolves (EXB-6.3).
+    private let semana: @MainActor () -> SemanaInfo?
+    /// One attribution per window start — the window only moves at a reset.
+    private var atribuicoes: [Date: WeeklyAttribution] = [:]
     /// How still the gesture has to be before the fold runs (see ``aplicarArrasto(_:)``).
     private let assentamento: Duration
 
@@ -88,13 +108,15 @@ final class DashboardRangeModel {
         source: DashboardSource,
         atalhoInicial: DashboardPeriod = .thirtyDays,
         agora: @escaping @Sendable () -> Date = { Date() },
-        assentamento: Duration = DashboardRangeModel.assentamentoPadrao)
+        assentamento: Duration = DashboardRangeModel.assentamentoPadrao,
+        semana: @escaping @MainActor () -> SemanaInfo? = { nil })
     {
         self.source = source
         self.agora = agora
+        self.semana = semana
         self.assentamento = assentamento
         self.atalho = atalhoInicial
-        self.span = atalhoInicial.span(inicioDoHistorico: nil, now: agora())
+        self.span = atalhoInicial.span(inicioDoHistorico: nil, inicioDaSemana: semana()?.inicio, now: agora())
     }
 
     /// Read the disk. **The only method here that does.** Everything after it is arithmetic.
@@ -105,7 +127,7 @@ final class DashboardRangeModel {
         // Re-resolve the shortcut now that the history's start is known — `.tudo` has no meaning
         // until then, and no shortcut may reach back past the first day of real data.
         if let atalho {
-            span = atalho.span(inicioDoHistorico: historia.inicio, now: now)
+            span = atalho.span(inicioDoHistorico: historia.inicio, inicioDaSemana: semana()?.inicio, now: now)
         }
         await recomputar()
     }
@@ -174,7 +196,7 @@ final class DashboardRangeModel {
         // the thing that ends up on screen.
         arrastoPendente?.cancel()
         return aplicar(
-            atalho.span(inicioDoHistorico: historia?.inicio, now: agora()).intervalo,
+            atalho.span(inicioDoHistorico: historia?.inicio, inicioDaSemana: semana()?.inicio, now: agora()).intervalo,
             atalho: atalho)
     }
 
@@ -183,7 +205,24 @@ final class DashboardRangeModel {
         let span = self.span
         let analytics = await source.fatiar(span.intervalo, now: now)
         guard !Task.isCancelled, span == self.span else { return }
-        dados = DashboardData.build(from: analytics, span: span, atalho: atalho, now: now)
+        var novos = DashboardData.build(from: analytics, span: span, atalho: atalho, now: now)
+        if atalho == .sinceReset {
+            let info = semana()
+            let desde = info?.inicio ?? span.inicio
+            let atribuicao: WeeklyAttribution
+            if let pronta = atribuicoes[desde] {
+                atribuicao = pronta
+            } else {
+                atribuicao = await source.atribuirSemana(desde: desde)
+                atribuicoes[desde] = atribuicao
+            }
+            guard !Task.isCancelled, span == self.span else { return }
+            novos.semana = SemanaAtribuida(
+                atribuicao: atribuicao,
+                pontosConsumidos: info?.utilization,
+                inicioConhecido: info != nil)
+        }
+        dados = novos
         isRefreshing = false
     }
 }
