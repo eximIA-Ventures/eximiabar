@@ -1,75 +1,134 @@
-# exímIABar
+<p align="center">
+  <img src="docs/images/icon.png" width="128" height="128" alt="exímIABar icon">
+</p>
 
-A macOS menu bar app that monitors your Claude usage and rate limits at a glance.
+<h1 align="center">exímIABar</h1>
 
-exímIABar lives in your menu bar, renders your current Claude rate-limit window as a
-compact icon, and opens a popover with live utilization, pace, and local cost data.
-It reads the same OAuth credentials your `claude` CLI uses — and never writes to them.
+<p align="center">
+  <strong>Your Claude rate limits and spend, one glance away in the macOS menu bar.</strong>
+</p>
 
-![menu bar screenshot placeholder](docs/screenshot.png)
+<p align="center">
+  <a href="https://github.com/eximIA-Ventures/eximiabar/releases/latest"><img src="https://img.shields.io/github/v/release/eximIA-Ventures/eximiabar?label=release&color=d97757" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/macOS-14%2B-111?logo=apple" alt="macOS 14+">
+  <img src="https://img.shields.io/badge/Swift-6.2-F05138?logo=swift&logoColor=white" alt="Swift 6.2">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-3b82f6" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/models-Claude%205%20%C2%B7%204.x-d97757" alt="Claude 5 and 4.x models">
+</p>
 
-> _Screenshot placeholder — replace `docs/screenshot.png` with a real capture of the
-> menu bar icon + popover._
+---
+
+exímIABar lives in your menu bar, draws your current Claude rate-limit window as a compact
+meter, and opens a popover with live utilization, pace, reset times and an estimated value of
+your usage. A local dashboard breaks your Claude Code spend down by model, day and project, all
+computed on your Mac from the session logs Claude Code already writes.
+
+<p align="center">
+  <img src="docs/images/popover.png" width="342" alt="Popover on a Max plan: session, weekly and Opus windows, value of use">
+  &nbsp;&nbsp;
+  <img src="docs/images/popover-ultra.png" width="342" alt="Popover on an Ultra plan: no 5-hour window, weekly leads">
+</p>
+<p align="center"><sub>Left: a Max plan (5-hour session + weekly + Opus). Right: an Ultra plan, which has no 5-hour limit, so the weekly window leads. Sample data.</sub></p>
 
 ## Features
 
-- **Live rate-limit meter** in the menu bar — session, weekly and (when reported) Opus windows.
-- **Pace indicator and local cost breakdown** in the popover.
-- **Multiple Claude accounts.** Accounts are captured automatically as you log in and kept
-  in a read-only roster; an inline switcher in the popover lets you inspect any of them.
-  Archived accounts show no live reading, and switching focus never changes the menu bar
-  meter — it stays anchored to the account currently logged in.
-- **Codex provider.** When `~/.codex/auth.json` is present, a Codex pane shows your session
-  and weekly usage alongside Claude. No Codex login, no pane — and no error either.
-- **Read-only by design.** Credentials are read from the same stores the `claude` and
-  `codex` CLIs use, and never written to.
+- **Live rate-limit meter** in the menu bar: the 5-hour session, the weekly window and the
+  per-model weekly caps (Opus, and Fable when Anthropic reports it).
+- **Claude Ultra aware.** Ultra has no 5-hour limit. When the usage response omits
+  `five_hour` (or sends it as `null`), exímIABar shows no empty session bar, no reset line and
+  no session alert, and the menu bar falls back to the weekly window.
+- **Pace and forecasts.** See whether you are ahead of or behind an even burn, and roughly when
+  a window runs out at the current rate.
+- **Value of use.** Estimated API-equivalent spend for today and the last 30 days, compared
+  with your plan price.
+- **Local cost dashboard.** Spend and tokens by model, by day and by project, a heatmap, a
+  monthly comparison, and CSV / XLSX / HTML export.
+- **Current model pricing.** Opus 5.5, Sonnet 5.5, Haiku 5.5, Fable 5.2 and the 4.x line are
+  priced individually, including cache reads and cache writes (see below).
+- **Multiple Claude accounts.** Accounts are captured as you log in and kept in a read-only
+  roster; switching focus never changes the menu bar meter, which stays on the logged-in account.
+- **Codex pane.** When `~/.codex/auth.json` exists, Codex session and weekly usage appear
+  alongside Claude. No Codex login, no pane and no error.
+- **English and Portuguese (Brazil)** interface.
 
-## Requirements
-
-- macOS 14+ (Sonoma)
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and logged in (`claude`)
-- Swift 6.2 / Xcode 16+ (to build from source)
+<p align="center">
+  <img src="docs/images/dashboard-models.png" width="760" alt="Dashboard model breakdown: donut and table by model">
+</p>
+<p align="center">
+  <img src="docs/images/dashboard-models-by-day.png" width="760" alt="Dashboard: tokens per day stacked by model">
+</p>
+<p align="center"><sub>Dashboard sections rendered from the real SwiftUI views with fictitious sample data.</sub></p>
 
 ## Installation
 
-### Homebrew (recommended)
+1. Download `ExímIABar-<version>.zip` from the
+   **[latest GitHub release](https://github.com/eximIA-Ventures/eximiabar/releases/latest)**.
+2. Unzip it and move **ExímIABar.app** to `/Applications`.
+3. The app is ad-hoc signed (no Apple Developer ID), so the first launch needs a
+   right-click → **Open** to clear Gatekeeper.
 
-The cleanest path — a versioned install with one-command uninstall:
+Updates are built in: **Settings → About → Check for Updates** fetches and installs the latest
+release in place.
 
-```bash
-brew tap eximia-ventures/tap https://github.com/eximIA-Ventures/homebrew-tap
-brew install --cask eximiabar
-```
+> The Homebrew cask is not maintained past 1.4.1. Use the GitHub release above (or build from
+> source) to get current versions.
 
-To upgrade later: `brew upgrade --cask eximiabar`. To remove: `brew uninstall --cask eximiabar`.
+### Requirements
 
-### Build from source (`make install`)
+- macOS 14 (Sonoma) or later
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and logged in (`claude`)
 
-Prefer to build locally from the source tree? See **[Build from source](#build-from-source)** below
-(`make build && sudo make install`).
+## Supported models
 
-> **A note on `npm`:** `npm` does not apply to native macOS apps — exímIABar is a signed
-> `.app` bundle, not a JavaScript package. Distribution is via Homebrew (above) or a direct
-> [release download](#releases). There is no `npm install eximiabar`.
+Cost is estimated locally from `~/.claude/projects/**/*.jsonl`. Prices come from the
+[models.dev](https://models.dev) catalog when reachable, with this built-in table as the
+fallback (USD per million tokens):
+
+| Model | Input | Output | Cache read |
+|:---|---:|---:|---:|
+| Fable 5.2 | 8 | 40 | 0.20 |
+| Fable 5.1 / Fable 5 | 10 | 50 | 1.00 |
+| Mythos 5.2 | 8 | 40 | 0.80 |
+| Mythos 5.1 | 10 | 50 | 1.00 |
+| Opus 5.5 | 4 | 20 | 0.20 |
+| Opus 5 · 4.8 · 4.7 · 4.6 · 4.5 | 5 | 25 | 0.50 |
+| Opus 4.1 · 4 | 15 | 75 | 1.50 |
+| Sonnet 5.5 | 2 | 10 | 0.10 |
+| Sonnet 5 | 2 | 10 | 0.20 |
+| Sonnet 4.6 · 4.5 · 4 · 3.7 · 3.5 | 3 | 15 | 0.30 |
+| Haiku 5.5 (prompts up to 100K) | 0.10 | 0.50 | 0.01 |
+| Haiku 4.5 | 1 | 5 | 0.10 |
+| Haiku 3.5 | 0.80 | 4 | 0.08 |
+
+- Cache writes (5-minute TTL) are priced at 1.25× input; cache reads without a published price
+  at 0.1× input.
+- Model IDs are normalized before lookup: dates (`-20261001`), `anthropic.` / `anthropic/`
+  prefixes and Bedrock / Vertex suffixes are removed, and the longest known ID wins, so
+  `claude-opus-4-8` is never priced as `claude-opus-4`.
+- An unknown model is priced as the current model of its family (a future `claude-opus-*` as
+  Opus 5.5, and so on), and only then as Sonnet 5.5.
+
+## Privacy
+
+- **Read-only credentials.** exímIABar reads the OAuth credentials your `claude` CLI already
+  stores (macOS Keychain, falling back to `~/.claude/.credentials.json`) and never writes or
+  exports them. A denied Keychain prompt backs off instead of nagging.
+- **Minimal network.** Anthropic is called only for the usage endpoint (plus OAuth token renewal
+  when needed), the same endpoints the CLI uses. Pricing may fetch the public models.dev catalog;
+  updates check GitHub Releases.
+- **Cost stays on your Mac.** Session logs are parsed locally and never uploaded.
 
 ## Build from source
+
+Requires Swift 6.2 (Xcode 16+ or the Command Line Tools).
 
 ```bash
 make build && sudo make install
 ```
 
-- `make build` produces a universal (arm64 + x86_64), ad-hoc-signed
-  `dist/ExímIABar.app`.
-- `make install` copies it to **`/Applications/`** (the canonical, system-wide
-  location — Spotlight indexes it for all users). Writing to `/Applications`
-  needs admin rights, so run it with `sudo`.
-- Prefer a per-user install? `make install-user` copies to `~/Applications/`
-  with no `sudo`.
-
-Because the app is ad-hoc signed (no Apple Developer ID), the first launch needs
-a right-click → **Open** to clear Gatekeeper.
-
-### Other make targets
+- `make build` produces a universal (arm64 + x86_64), ad-hoc-signed `dist/ExímIABar.app`.
+- `make install` copies it to `/Applications/` (needs `sudo`); `make install-user` copies it to
+  `~/Applications/` without `sudo`.
 
 | Target | Action |
 |--------|--------|
@@ -78,28 +137,25 @@ a right-click → **Open** to clear Gatekeeper.
 | `make install-user` | Copy to `~/Applications/` (no `sudo`) |
 | `make uninstall` | Remove from `/Applications/` (may need `sudo`) |
 | `make clean` | Remove `dist/` and `.build/` |
-| `make test` | Run `swift test` |
 | `make icon` | Regenerate `AppIcon.icns` |
 
-## Releases
+Quick debug build and the test suite:
 
-Pre-built, signed releases are published on GitHub:
+```bash
+swift build --arch arm64
+Scripts/run-tests.sh          # use this instead of a bare `swift test` on machines without Xcode
+```
 
-- **[github.com/eximIA-Ventures/eximiabar/releases](https://github.com/eximIA-Ventures/eximiabar/releases)**
+The README screenshots are rendered from the real views with sample data:
 
-Each release ships a `ExímIABar-<version>.zip` you can unzip and drop into
-`/Applications`.
-
-### Auto-updater
-
-exímIABar checks GitHub Releases for newer versions. Open the app and go to
-**Settings → About → Check for Updates** to fetch and install the latest
-release in place. No package manager required.
+```bash
+EXB_README=1 Scripts/run-tests.sh --filter ReadmeScreenshotRenderer   # writes docs/images/*.png
+```
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+MIT, see [`LICENSE`](LICENSE).
 
-exímIABar is a derivative work of [**CodexBar**](https://github.com/steipete/CodexBar)
-by Peter Steinberger, used under the MIT License. It adapts CodexBar's Claude OAuth
-pipeline and visual design into a Claude-only, freeze-free menu bar monitor.
+exímIABar is a derivative work of [**CodexBar**](https://github.com/steipete/CodexBar) by Peter
+Steinberger, used under the MIT License. It adapts CodexBar's Claude OAuth pipeline and visual
+design into a Claude-focused, freeze-free menu bar monitor.
