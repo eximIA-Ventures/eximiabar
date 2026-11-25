@@ -270,9 +270,11 @@ struct CostScannerDimensionsTests {
         }
 
         // Absolute anchor, so the agreement above cannot be two folds sharing one defect: alpha is
-        // 100 input + 50 output per day for 5 days, plus cache tokens that are volume, not charge.
+        // 100 input + 50 output per day for 5 days, plus cache tokens priced at their own rates
+        // (sonnet-4: cache read 0.1× input = $0.0000003, cache write 1.25× input = $0.00000375).
         let alpha = try #require(analytics.byProject.first { $0.project == "alpha" })
-        #expect(abs(alpha.costUSD - 5 * (100 * 0.000003 + 50 * 0.000015)) < 1e-9)
+        let alphaCache = 7 * 100 * 0.0000003 + 100 * 0.00000375
+        #expect(abs(alpha.costUSD - (5 * (100 * 0.000003 + 50 * 0.000015) + alphaCache)) < 1e-9)
         // 5 days × (100 + 50) + cache read 7×(18+19+20+21+22) + cache write (18+…+22)
         #expect(alpha.totalTokens == 750 + 7 * 100 + 100)
     }

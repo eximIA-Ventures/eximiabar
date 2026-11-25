@@ -708,16 +708,19 @@ extension CostScanner {
         }
 
         // One price lookup per distinct model in the whole scan (was: one per parsed row).
-        var prices: [String: (input: Double, output: Double)] = [:]
+        var prices: [String: TokenPrice] = [:]
         for model in models.sorted() {
-            prices[model] = await self.pricing.costPerToken(model: model)
+            prices[model] = await self.pricing.tokenPrice(model: model)
         }
-        // Cache-read is cheaper and cache-write dearer than base input, but exímIABar prices on the
-        // base input/output table (EXB-1.7), same as the popover scan. Cache tokens surface as
-        // volume (heatmap / stacked chart / project totals), never as a separate charge.
+        // Cache tokens are priced at their own rates (cache read ≈ 0.1× input, 5-minute cache
+        // write = 1.25× input, or the model's published cache price) — the same rule as the popover.
         func cost(_ totals: AnalyticsBucketTotals, _ model: String) -> Double {
-            let price = prices[model] ?? (0, 0)
-            return Double(totals.inputTokens) * price.input + Double(totals.outputTokens) * price.output
+            guard let price = prices[model] else { return 0 }
+            return price.cost(
+                input: totals.inputTokens,
+                output: totals.outputTokens,
+                cacheRead: totals.cacheReadTokens,
+                cacheWrite: totals.cacheWriteTokens)
         }
 
         // --- Per-(day, model) entries, sorted by cost desc (then date desc, model asc) ---

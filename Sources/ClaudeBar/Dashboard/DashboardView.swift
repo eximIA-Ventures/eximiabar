@@ -985,10 +985,10 @@ private struct WeeklySummarySection: View {
         return "\(Self.weekdayName(busiest.dayOfWeek)) · \(PopoverFormatter.currency(busiest.cost))"
     }
 
-    /// Top-model value: `"claude-sonnet-4 · 12.3B"`, or a placeholder when the week is empty.
+    /// Top-model value: `"Sonnet 5.5 · 12.3B"`, or a placeholder when the week is empty.
     private var topModelValue: String {
         guard let top = data.topModelByTokens else { return L("dashboard.insights.weekly.no_data") }
-        return L("dashboard.insights.weekly.model_value", top.name, DashboardFormat.tokenCount(top.tokens))
+        return L("dashboard.insights.weekly.model_value", Pricing.displayName(for: top.name), DashboardFormat.tokenCount(top.tokens))
     }
 
     /// Week total: `"$18.45 · 45.2B"` (the 7-day cost + token totals).
@@ -1405,7 +1405,8 @@ private struct StackedTokensChart: View {
 
 // MARK: - Model breakdown: donut + table (AC5)
 
-private struct ModelBreakdownSection: View {
+// Internal (not private) so the README screenshot renderer can draw it with sample data.
+struct ModelBreakdownSection: View {
     @Environment(\.popoverTheme) private var popoverTheme
     let data: DashboardData
     private var rows: [DashboardModelEntry] { data.byModel }
@@ -1503,7 +1504,7 @@ private struct DonutTooltip: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(entry.model)
+            Text(Pricing.displayName(for: entry.model))
                 .font(.caption.bold())
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -1566,7 +1567,7 @@ private struct ModelBreakdownTable: View {
                     Circle()
                         .fill(color(for: row.model))
                         .frame(width: 10, height: 10)
-                    Text(row.model)
+                    Text(Pricing.displayName(for: row.model))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -1619,10 +1620,18 @@ struct ModelsByDayChart: View {
     /// even though it is one click away for the Senhor. The alternative was to rebuild the chart
     /// inside the render harness — which would have produced a picture of a copy and told us nothing
     /// about the screen. A seam that preserves the default is the cheaper of the two errors.
-    init(data: DashboardData, modoInicial: ModoComposicao = .absoluto) {
+    ///
+    /// `mostraSeletor` is the same kind of seam: `ImageRenderer` cannot draw an AppKit-backed
+    /// segmented control (it paints a "prohibited" placeholder), so the README renderer hides it.
+    /// The screen always shows it.
+    init(data: DashboardData, modoInicial: ModoComposicao = .absoluto, mostraSeletor: Bool = true) {
         self.data = data
         self._modo = State(initialValue: modoInicial)
+        self.mostraSeletor = mostraSeletor
     }
+
+    /// Whether the absolute/share toggle is drawn (always `true` on screen).
+    private let mostraSeletor: Bool
 
     /// Per-`(day, model)` volume, clipped to the days the source watched.
     ///
@@ -1643,8 +1652,10 @@ struct ModelsByDayChart: View {
 
     /// The stable model→colour scale (shared with the donut, AC11). Computed once per render from the
     /// view model's pre-sorted model names — never recomputed inside the chart closure (anti-freeze).
+    /// The domain carries display names ("Opus 5.5") because the chart legend reads it directly.
     private var colorScale: (domain: [String], range: [Color]) {
-        DashboardPalette.scale(for: data.sortedModelNames, theme: self.popoverTheme)
+        let scale = DashboardPalette.scale(for: data.sortedModelNames, theme: self.popoverTheme)
+        return (scale.domain.map { Pricing.displayName(for: $0) }, scale.range)
     }
 
     /// Total token volume over the window — the header highlight number.
@@ -1673,15 +1684,17 @@ struct ModelsByDayChart: View {
             // The toggle rides on its own row rather than beside the header's total: at the window's
             // 760pt floor a title, a "Total: 4.9B tokens · $1.6K" and a segmented control on one line
             // is the arrangement that truncates first.
-            Picker("", selection: $modo) {
-                ForEach(ModoComposicao.allCases) { opcao in
-                    Text(opcao.label).tag(opcao)
+            if mostraSeletor {
+                Picker("", selection: $modo) {
+                    ForEach(ModoComposicao.allCases) { opcao in
+                        Text(opcao.label).tag(opcao)
+                    }
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.small)
+                .fixedSize()
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.small)
-            .fixedSize()
             if hasData {
                 if modo == .absoluto { chart } else { chartProporcao }
             } else {
@@ -1702,7 +1715,7 @@ struct ModelsByDayChart: View {
                 AreaMark(
                     x: .value(L("dashboard.chart.axis.date"), fracao.date, unit: .day),
                     y: .value(L("dashboard.models_by_day.y_share"), fracao.fracao))
-                    .foregroundStyle(by: .value(L("dashboard.models.col.model"), fracao.modelName))
+                    .foregroundStyle(by: .value(L("dashboard.models.col.model"), Pricing.displayName(for: fracao.modelName)))
                     .interpolationMethod(.monotone)
             }
         }
@@ -1739,7 +1752,7 @@ struct ModelsByDayChart: View {
                 BarMark(
                     x: .value(L("dashboard.chart.axis.date"), entry.date, unit: .day),
                     y: .value(L("dashboard.chart.tokens.y_label"), entry.tokens))
-                    .foregroundStyle(by: .value(L("dashboard.models.col.model"), entry.modelName))
+                    .foregroundStyle(by: .value(L("dashboard.models.col.model"), Pricing.displayName(for: entry.modelName)))
                     .opacity(selectedDate == nil || isSelected(entry.date) ? 1 : 0.45)
             }
             if let selectedDate, !selectedDayBreakdown.isEmpty {
@@ -1808,7 +1821,7 @@ private struct ModelsByDayTooltip: View {
                 .font(.caption.bold())
             ForEach(rows.prefix(6)) { row in
                 HStack(spacing: 8) {
-                    Text(row.modelName)
+                    Text(Pricing.displayName(for: row.modelName))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)

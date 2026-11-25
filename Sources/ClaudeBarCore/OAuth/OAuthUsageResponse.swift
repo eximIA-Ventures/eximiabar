@@ -14,6 +14,8 @@ public struct OAuthUsageResponse: Decodable, Sendable, Equatable {
     public let sevenDayOAuthApps: OAuthUsageWindow?
     public let sevenDayOpus: OAuthUsageWindow?
     public let sevenDaySonnet: OAuthUsageWindow?
+    /// Per-model Fable cap. Tolerant: `nil` when the key is absent (most accounts today).
+    public let sevenDayFable: OAuthUsageWindow?
     public let sevenDayRoutines: OAuthUsageWindow?
     /// The key that supplied `sevenDayRoutines` (or, when present-but-null, the first null key).
     /// Non-nil even when the window is null so callers can render a 0% bar (AC9).
@@ -29,6 +31,7 @@ public struct OAuthUsageResponse: Decodable, Sendable, Equatable {
         self.sevenDayOAuthApps = Self.decodeWindow(in: container, keys: ["seven_day_oauth_apps"])
         self.sevenDayOpus = Self.decodeWindow(in: container, keys: ["seven_day_opus"])
         self.sevenDaySonnet = Self.decodeWindow(in: container, keys: ["seven_day_sonnet"])
+        self.sevenDayFable = Self.decodeWindow(in: container, keys: ["seven_day_fable"])
         let routines = Self.decodeWindowWithSource(in: container, keys: [
             "seven_day_routines",
             "seven_day_claude_routines",

@@ -377,6 +377,10 @@ private struct MetricsSection: View {
             if let opus = self.snapshot?.opus {
                 ModelRow(title: L("popover.metric.opus"), window: opus)
             }
+            // Fable weekly sub-limit — same rule as Opus: only when the API reports it.
+            if let fable = self.snapshot?.fable {
+                ModelRow(title: L("popover.metric.fable"), window: fable)
+            }
         }
     }
 }

@@ -8,6 +8,7 @@ public enum RateWindowID {
     public static let weekly = "weekly"
     public static let sonnet = "sonnet"
     public static let opus = "opus"
+    public static let fable = "fable"
     public static let dailyRoutines = "dailyRoutines"
 }
 

@@ -109,7 +109,7 @@ public enum ClaudeStatusProbe: Sendable {
     private static func isLikelyStatusContextLine(_ line: String) -> Bool {
         guard line.contains("|") else { return false }
         let lower = line.lowercased()
-        let modelTokens = ["opus", "sonnet", "haiku", "default"]
+        let modelTokens = ["opus", "sonnet", "haiku", "fable", "mythos", "default"]
         return modelTokens.contains(where: lower.contains)
     }
 

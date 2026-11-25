@@ -216,16 +216,17 @@ struct CostScannerTests {
     func unknownModelFallsBackToSonnetPrices() async {
         let pricing = Pricing(transport: NeverTransport(), defaults: Self.makeDefaults(), networkEnabled: false)
         let unknown = await pricing.costPerToken(model: "claude-totally-made-up")
-        let sonnet = await pricing.costPerToken(model: "claude-sonnet-4")
+        let sonnet = await pricing.costPerToken(model: "claude-sonnet-5-5")
         #expect(unknown.input == sonnet.input)
         #expect(unknown.output == sonnet.output)
     }
 
     @Test
     func normalizationCollapsesDatedAndVersionedModels() {
-        #expect(Pricing.normalize("claude-sonnet-4-5-20250929") == "claude-sonnet-4")
+        // Longest known key wins: 4.5 / 4.1 are priced on their own, not as the 4.0 family.
+        #expect(Pricing.normalize("claude-sonnet-4-5-20250929") == "claude-sonnet-4-5")
         #expect(Pricing.normalize("claude-sonnet-4-20250514") == "claude-sonnet-4")
-        #expect(Pricing.normalize("claude-opus-4-1") == "claude-opus-4")
+        #expect(Pricing.normalize("claude-opus-4-1") == "claude-opus-4-1")
         #expect(Pricing.normalize("anthropic.claude-3-5-sonnet-20241022") == "claude-3-5-sonnet")
         #expect(Pricing.normalize("claude-haiku-3-5") == "claude-haiku-3-5")
     }

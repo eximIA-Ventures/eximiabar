@@ -7,10 +7,37 @@ public struct TokenPrice: Sendable, Equatable {
     public let input: Double
     /// USD per output token.
     public let output: Double
+    /// USD per cache-read input token (`cache_read_input_tokens`).
+    public let cacheRead: Double
+    /// USD per cache-write input token (`cache_creation_input_tokens`, 5-minute TTL).
+    public let cacheWrite: Double
 
-    public init(input: Double, output: Double) {
+    /// Anthropic's published multipliers when a model has no explicit cache price:
+    /// cache read = 0.1 × input, 5-minute cache write = 1.25 × input.
+    public static let defaultCacheReadMultiplier = 0.1
+    public static let defaultCacheWriteMultiplier = 1.25
+
+    public init(input: Double, output: Double, cacheRead: Double? = nil, cacheWrite: Double? = nil) {
         self.input = input
         self.output = output
+        self.cacheRead = cacheRead ?? input * Self.defaultCacheReadMultiplier
+        self.cacheWrite = cacheWrite ?? input * Self.defaultCacheWriteMultiplier
+    }
+
+    /// Convenience: build from USD per **million** tokens (how Anthropic publishes prices).
+    static func perMillion(_ input: Double, _ output: Double, cacheRead: Double? = nil) -> TokenPrice {
+        TokenPrice(
+            input: input / 1_000_000,
+            output: output / 1_000_000,
+            cacheRead: cacheRead.map { $0 / 1_000_000 })
+    }
+
+    /// USD cost of one usage record (input + output + cache read + cache write).
+    public func cost(input: Int, output: Int, cacheRead: Int = 0, cacheWrite: Int = 0) -> Double {
+        Double(input) * self.input
+            + Double(output) * self.output
+            + Double(cacheRead) * self.cacheRead
+            + Double(cacheWrite) * self.cacheWrite
     }
 }
 
@@ -20,21 +47,67 @@ public struct TokenPrice: Sendable, Equatable {
 ///  1. In-memory cache (per model, valid for 24 h).
 ///  2. A models.dev catalog fetched lazily and cached to `UserDefaults` for 24 h.
 ///  3. A hardcoded fallback table when the network is unavailable / the cache is cold / the model
-///     is unknown. Unknown models fall back to `claude-sonnet-4` prices (AC5, T2).
+///     is unknown. Unknown models fall back to the current model of their family (opus/sonnet/haiku/fable),
+///     then to `claude-sonnet-5-5`.
 ///
 /// `actor` so all cache mutation and the network fetch run off the MainActor; callers `await`.
 public actor Pricing {
-    /// Hardcoded fallback prices (USD per token), from the story spec (T2). Keys are the
-    /// normalized model identifiers `normalize(_:)` produces.
+    /// Hardcoded fallback prices, built from Anthropic's published USD-per-million prices. Keys
+    /// are the normalized identifiers `normalize(_:)` produces. Cache prices are explicit where
+    /// Anthropic publishes them; otherwise `TokenPrice` derives 0.1× / 1.25× input.
     static let fallbackTable: [String: TokenPrice] = [
-        "claude-opus-4": TokenPrice(input: 0.000015, output: 0.000075),
-        "claude-sonnet-4": TokenPrice(input: 0.000003, output: 0.000015),
-        "claude-3-5-sonnet": TokenPrice(input: 0.000003, output: 0.000015),
-        "claude-haiku-3-5": TokenPrice(input: 0.0000008, output: 0.000004),
+        // Fable / Mythos
+        "claude-fable-5-2": .perMillion(8, 40, cacheRead: 0.20),
+        "claude-fable-5-1": .perMillion(10, 50),
+        "claude-fable-5": .perMillion(10, 50),
+        "claude-mythos-5-2": .perMillion(8, 40),
+        "claude-mythos-5-1": .perMillion(10, 50),
+        // Opus
+        "claude-opus-5-5": .perMillion(4, 20, cacheRead: 0.20),
+        "claude-opus-5": .perMillion(5, 25),
+        "claude-opus-4-8": .perMillion(5, 25),
+        "claude-opus-4-7": .perMillion(5, 25),
+        "claude-opus-4-6": .perMillion(5, 25),
+        "claude-opus-4-5": .perMillion(5, 25),
+        "claude-opus-4-1": .perMillion(15, 75),
+        "claude-opus-4": .perMillion(15, 75),
+        // Sonnet
+        "claude-sonnet-5-5": .perMillion(2, 10, cacheRead: 0.10),
+        "claude-sonnet-5": .perMillion(2, 10),
+        "claude-sonnet-4-6": .perMillion(3, 15),
+        "claude-sonnet-4-5": .perMillion(3, 15),
+        "claude-sonnet-4": .perMillion(3, 15),
+        "claude-3-7-sonnet": .perMillion(3, 15),
+        "claude-3-5-sonnet": .perMillion(3, 15),
+        // Haiku (haiku-5-5: price for prompts up to 100K tokens)
+        "claude-haiku-5-5": .perMillion(0.10, 0.50),
+        "claude-haiku-4-5": .perMillion(1, 5),
+        "claude-haiku-3-5": .perMillion(0.8, 4),
+        "claude-3-5-haiku": .perMillion(0.8, 4),
     ]
 
-    /// The model whose prices are used when an unknown model is requested (AC5, T2).
-    static let unknownModelFallbackKey = "claude-sonnet-4"
+    /// Current model per family — used for unknown IDs whose family can still be inferred
+    /// (e.g. a future `claude-opus-5-9` is priced as the current Opus, not as Sonnet).
+    static let currentModelByFamily: [(family: String, key: String)] = [
+        ("fable", "claude-fable-5-2"),
+        ("mythos", "claude-mythos-5-2"),
+        ("opus", "claude-opus-5-5"),
+        ("sonnet", "claude-sonnet-5-5"),
+        ("haiku", "claude-haiku-5-5"),
+    ]
+
+    /// The model whose prices are used when not even the family can be inferred.
+    static let unknownModelFallbackKey = "claude-sonnet-5-5"
+
+    /// The fallback-table price for `model` (exact normalized key → family → default).
+    static func fallbackPrice(for model: String) -> TokenPrice {
+        let key = Self.normalize(model)
+        if let price = Self.fallbackTable[key] { return price }
+        for (family, familyKey) in Self.currentModelByFamily where key.contains(family) {
+            return Self.fallbackTable[familyKey]!
+        }
+        return Self.fallbackTable[Self.unknownModelFallbackKey]!
+    }
 
     /// models.dev catalog endpoint (AC5, Dev Notes).
     static let modelsDevURL = URL(string: "https://models.dev/api/models.json")!
@@ -80,6 +153,11 @@ public actor Pricing {
         return (price.input, price.output)
     }
 
+    /// Full per-token price (including cache read / write) for `model`. Never throws.
+    public func tokenPrice(model: String) async -> TokenPrice {
+        await self.price(for: model)
+    }
+
     /// Resolve a `TokenPrice` for `model`, consulting (in order) memory cache → catalog → fallback.
     private func price(for model: String) async -> TokenPrice {
         let key = Self.normalize(model)
@@ -96,9 +174,8 @@ public actor Pricing {
             return price
         }
 
-        // 3. Hardcoded fallback; unknown model → sonnet-4 prices (AC5).
-        let fallback = Self.fallbackTable[key]
-            ?? Self.fallbackTable[Self.unknownModelFallbackKey]!
+        // 3. Hardcoded fallback; unknown model → current model of its family, else sonnet-5-5.
+        let fallback = Self.fallbackPrice(for: key)
         self.memoryCache[key] = (fallback, self.now())
         return fallback
     }
@@ -167,15 +244,21 @@ public actor Pricing {
         else { return nil }
         let fetchedAt = Date(timeIntervalSince1970: self.defaults.double(forKey: Self.catalogTimestampDefaultsKey))
         var prices: [String: TokenPrice] = [:]
-        for (key, pair) in raw where pair.count == 2 {
-            prices[key] = TokenPrice(input: pair[0], output: pair[1])
+        // `[input, output]` (pre-cache format) or `[input, output, cacheRead, cacheWrite]`.
+        for (key, values) in raw {
+            switch values.count {
+            case 2: prices[key] = TokenPrice(input: values[0], output: values[1])
+            case 4: prices[key] = TokenPrice(
+                    input: values[0], output: values[1], cacheRead: values[2], cacheWrite: values[3])
+            default: continue
+            }
         }
         guard !prices.isEmpty else { return nil }
         return (prices, fetchedAt)
     }
 
     private func persistCatalog(_ catalog: [String: TokenPrice], fetchedAt: Date) {
-        let raw = catalog.mapValues { [$0.input, $0.output] }
+        let raw = catalog.mapValues { [$0.input, $0.output, $0.cacheRead, $0.cacheWrite] }
         guard let data = try? JSONEncoder().encode(raw) else { return }
         self.defaults.set(data, forKey: Self.catalogDefaultsKey)
         self.defaults.set(fetchedAt.timeIntervalSince1970, forKey: Self.catalogTimestampDefaultsKey)
@@ -201,7 +284,9 @@ public actor Pricing {
             guard key.hasPrefix("claude") else { return }
             result[key] = TokenPrice(
                 input: inputPerMillion / 1_000_000,
-                output: outputPerMillion / 1_000_000)
+                output: outputPerMillion / 1_000_000,
+                cacheRead: Self.toDouble(cost["cache_read"]).map { $0 / 1_000_000 },
+                cacheWrite: Self.toDouble(cost["cache_write"]).map { $0 / 1_000_000 })
         }
 
         // Layout A: { provider: { models: { id: {...} } } }
@@ -234,32 +319,44 @@ public actor Pricing {
 
     /// Normalize a raw model identifier to a fallback-table / catalog key.
     ///
-    /// Strips an `anthropic.` provider prefix and a trailing `-YYYYMMDD` date stamp, then collapses
-    /// known long IDs to their family key (e.g. `claude-sonnet-4-5` / `claude-sonnet-4-20250514`
-    /// → `claude-sonnet-4`; `claude-opus-4-1` → `claude-opus-4`; `claude-3-5-sonnet-20241022`
-    /// → `claude-3-5-sonnet`). Adapted from the reference `normalizeClaudeModel` but trimmed to the
-    /// families exímIABar prices.
+    /// Strips `anthropic.` / `anthropic/` provider prefixes, a Bedrock `-vN[:N]` suffix and a
+    /// trailing `-YYYYMMDD` date stamp, then collapses to the **longest** known key that matches on a
+    /// `-` boundary — so `claude-opus-4-8` stays `claude-opus-4-8` (not `claude-opus-4`), while
+    /// `claude-sonnet-4-20250514` → `claude-sonnet-4`. Unknown IDs are returned cleaned but intact.
     static func normalize(_ raw: String) -> String {
         var s = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if s.hasPrefix("anthropic.") { s = String(s.dropFirst("anthropic.".count)) }
-        if s.hasPrefix("anthropic/") { s = String(s.dropFirst("anthropic/".count)) }
-
+        for prefix in ["anthropic.", "anthropic/", "us.anthropic.", "eu.anthropic."] where s.hasPrefix(prefix) {
+            s = String(s.dropFirst(prefix.count))
+        }
+        // Bedrock version suffix (`-v1:0`) and Vertex `@20250514`.
+        if let r = s.range(of: #"-v\d+(:\d+)?$"#, options: .regularExpression) { s = String(s[..<r.lowerBound]) }
+        if let r = s.range(of: #"@\d{8}$"#, options: .regularExpression) { s = String(s[..<r.lowerBound]) }
         // Drop a trailing `-YYYYMMDD` build date.
         if let dateRange = s.range(of: #"-\d{8}$"#, options: .regularExpression) {
             s = String(s[..<dateRange.lowerBound])
         }
 
-        // Collapse to a priced family key by longest-prefix match.
-        let families = [
-            "claude-3-5-sonnet",
-            "claude-haiku-3-5",
-            "claude-haiku-4",
-            "claude-opus-4",
-            "claude-sonnet-4",
-        ]
-        for family in families.sorted(by: { $0.count > $1.count }) where s.hasPrefix(family) {
-            return family
+        for key in Self.knownKeysLongestFirst where s == key || s.hasPrefix(key + "-") {
+            return key
         }
         return s
+    }
+
+    /// Fallback-table keys, longest first (longest-prefix wins).
+    private static let knownKeysLongestFirst: [String] =
+        fallbackTable.keys.sorted { $0.count != $1.count ? $0.count > $1.count : $0 < $1 }
+
+    /// Human-readable name for a normalized model ID: `claude-opus-5-5` → `Opus 5.5`,
+    /// `claude-3-5-sonnet` → `Sonnet 3.5`. Unrecognised IDs are returned unchanged.
+    public static func displayName(for model: String) -> String {
+        let key = Self.normalize(model)
+        var parts = key.split(separator: "-").map(String.init)
+        guard parts.first == "claude", parts.count >= 2 else { return model }
+        parts.removeFirst()
+        let families = ["opus", "sonnet", "haiku", "fable", "mythos"]
+        guard let familyIndex = parts.firstIndex(where: { families.contains($0) }) else { return model }
+        let family = parts.remove(at: familyIndex)
+        guard !parts.isEmpty, parts.allSatisfy({ Int($0) != nil }) else { return model }
+        return family.prefix(1).uppercased() + family.dropFirst() + " " + parts.joined(separator: ".")
     }
 }

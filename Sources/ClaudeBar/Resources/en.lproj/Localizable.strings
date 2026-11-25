@@ -21,6 +21,7 @@
 "popover.metric.weekly"        = "Weekly";
 "popover.metric.sonnet"        = "Sonnet";
 "popover.metric.opus"          = "Opus";
+"popover.metric.fable"         = "Fable";
 "popover.metric.by_model"      = "By model";
 "popover.metric.daily_routines" = "Daily Routines";
 "popover.metric.percent_left"  = "%d%% left";

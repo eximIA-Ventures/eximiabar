@@ -55,8 +55,10 @@ final class StatusItemController {
 
         // Snapshot the immutable, Sendable values the renderer needs so nothing UI/main-actor
         // bound is captured by the detached task.
-        let session = snapshot?.session
-        let weekly = snapshot?.weekly
+        // `primaryWindow` is the 5-hour session when the plan has one and the weekly window otherwise
+        // (Claude Ultra has no 5-hour limit), so the text and the meter never show an empty session.
+        let session = snapshot?.primaryWindow
+        let weekly = snapshot?.secondaryWindow
         let pace = snapshot?.pace
         let cost = snapshot?.cost
         let isStale = snapshot?.isStale ?? false

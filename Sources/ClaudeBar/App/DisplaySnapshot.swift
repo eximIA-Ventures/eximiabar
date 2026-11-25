@@ -18,6 +18,8 @@ struct DisplaySnapshot: Sendable, Equatable {
     let sonnet: RateWindow?
     /// Opus sub-window (7-day Opus cap), if the API exposes it.
     let opus: RateWindow?
+    /// Fable sub-window (7-day Fable cap), only when the API reports `seven_day_fable`.
+    let fable: RateWindow?
     /// Daily routines window.
     let dailyRoutines: RateWindow?
     /// Overage / extra-usage cap.
@@ -60,6 +62,7 @@ struct DisplaySnapshot: Sendable, Equatable {
         weekly: RateWindow?,
         sonnet: RateWindow? = nil,
         opus: RateWindow? = nil,
+        fable: RateWindow? = nil,
         dailyRoutines: RateWindow? = nil,
         extraUsage: ExtraUsage? = nil,
         cost: ProviderCost? = nil,
@@ -76,6 +79,7 @@ struct DisplaySnapshot: Sendable, Equatable {
         self.weekly = weekly
         self.sonnet = sonnet
         self.opus = opus
+        self.fable = fable
         self.dailyRoutines = dailyRoutines
         self.extraUsage = extraUsage
         self.cost = cost
@@ -127,6 +131,7 @@ extension DisplaySnapshot {
             weekly: usage.weekly,
             sonnet: usage.sonnet,
             opus: usage.opus,
+            fable: usage.fable,
             dailyRoutines: usage.dailyRoutines,
             extraUsage: usage.extraUsage,
             cost: cost,
@@ -159,7 +164,7 @@ extension DisplaySnapshot {
     /// rather than publish empty/zeroed windows.
     var isErrorOnly: Bool {
         error != nil && session == nil && weekly == nil
-            && sonnet == nil && opus == nil && dailyRoutines == nil
+            && sonnet == nil && opus == nil && fable == nil && dailyRoutines == nil
     }
 
     /// Returns a copy of this snapshot with `cost` replaced when a fresh value is provided, leaving
@@ -172,6 +177,7 @@ extension DisplaySnapshot {
             weekly: weekly,
             sonnet: sonnet,
             opus: opus,
+            fable: fable,
             dailyRoutines: dailyRoutines,
             extraUsage: extraUsage,
             cost: cost,
@@ -199,6 +205,7 @@ extension DisplaySnapshot {
             weekly: previous.weekly,
             sonnet: previous.sonnet,
             opus: previous.opus,
+            fable: previous.fable,
             dailyRoutines: previous.dailyRoutines,
             extraUsage: previous.extraUsage,
             cost: self.cost ?? previous.cost,
@@ -223,6 +230,7 @@ extension DisplaySnapshot {
             weekly: previous.weekly,
             sonnet: previous.sonnet,
             opus: previous.opus,
+            fable: previous.fable,
             dailyRoutines: previous.dailyRoutines,
             extraUsage: previous.extraUsage,
             cost: previous.cost,
@@ -246,6 +254,7 @@ extension DisplaySnapshot {
             weekly: weekly,
             sonnet: sonnet,
             opus: opus,
+            fable: fable,
             dailyRoutines: dailyRoutines,
             extraUsage: extraUsage,
             cost: cost,
@@ -272,6 +281,7 @@ extension DisplaySnapshot {
             weekly: weekly,
             sonnet: sonnet,
             opus: opus,
+            fable: fable,
             dailyRoutines: dailyRoutines,
             extraUsage: extraUsage,
             cost: cost,
@@ -297,6 +307,19 @@ extension DisplaySnapshot {
         let window: RateWindow
     }
 
+    /// The window the menu bar leads with: the 5-hour session when the plan has one, otherwise the
+    /// next available window (weekly, then the per-model caps). Claude Ultra has no 5-hour limit,
+    /// so on Ultra this is the weekly window — never an empty 0% session.
+    var primaryWindow: RateWindow? {
+        session ?? weekly ?? opus ?? fable ?? sonnet
+    }
+
+    /// The secondary window drawn under the primary one in the meter icon (`nil` when the primary
+    /// already *is* the weekly window, so the icon does not draw the same reading twice).
+    var secondaryWindow: RateWindow? {
+        session == nil ? nil : weekly
+    }
+
     /// The windows present in this snapshot that the predictor should sample, each with its stable
     /// id (EXB-4.3 AC1 §1). Absent windows are simply not included.
     var predictableWindows: [PredictableWindow] {
@@ -305,6 +328,7 @@ extension DisplaySnapshot {
         if let weekly { result.append(.init(id: RateWindowID.weekly, window: weekly)) }
         if let sonnet { result.append(.init(id: RateWindowID.sonnet, window: sonnet)) }
         if let opus { result.append(.init(id: RateWindowID.opus, window: opus)) }
+        if let fable { result.append(.init(id: RateWindowID.fable, window: fable)) }
         if let dailyRoutines {
             result.append(.init(id: RateWindowID.dailyRoutines, window: dailyRoutines))
         }

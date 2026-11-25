@@ -364,15 +364,15 @@ struct CodexProviderTests {
         }
 
         // primary_window → session lane
-        #expect(usage.snapshot.session.utilization == 42)
-        #expect(usage.snapshot.session.windowMinutes == 300)
-        #expect(usage.snapshot.session.resetsAt == Date(timeIntervalSince1970: 1_784_313_283))
+        #expect(usage.snapshot.session?.utilization == 42)
+        #expect(usage.snapshot.session?.windowMinutes == 300)
+        #expect(usage.snapshot.session?.resetsAt == Date(timeIntervalSince1970: 1_784_313_283))
         // secondary_window → weekly lane
         #expect(usage.snapshot.weekly.utilization == 7)
         #expect(usage.snapshot.weekly.windowMinutes == 10080)
         #expect(usage.snapshot.weekly.resetsAt == Date(timeIntervalSince1970: 1_784_913_283))
         // `used_percent` is a percentage already — never multiplied by 100.
-        #expect(usage.snapshot.session.remaining == 58)
+        #expect(usage.snapshot.session?.remaining == 58)
 
         #expect(usage.snapshot.source == .oauth)
         #expect(usage.account.key == AccountKey(provider: .codex, identifier: "hugo@example.com"))
@@ -406,7 +406,7 @@ struct CodexProviderTests {
             claims: nil,
             now: Date())
 
-        #expect(usage.snapshot.session.utilization == 0)
+        #expect(usage.snapshot.session?.utilization == 0)
         #expect(usage.snapshot.weekly.utilization == 0)
         // No e-mail anywhere → opaque key (R12), still comparable and indexable.
         #expect(usage.account.key.provider == .codex)
@@ -432,7 +432,7 @@ struct CodexProviderTests {
             claims: nil,
             now: Date())
 
-        #expect(usage.snapshot.session.windowMinutes == 300)
+        #expect(usage.snapshot.session?.windowMinutes == 300)
         #expect(usage.snapshot.weekly.windowMinutes == 10080)
     }
 
@@ -598,7 +598,7 @@ struct CodexProviderTests {
         #expect(codex == nil, "expected the Codex branch to fail")
         // …and the Claude panel is untouched: no error, no stale marker, full data.
         #expect(claude.error == nil)
-        #expect(claude.session.utilization == 33)
+        #expect(claude.session?.utilization == 33)
         #expect(claude.weekly.utilization == 11)
         #expect(claude.plan == .max)
 

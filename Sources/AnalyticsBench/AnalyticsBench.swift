@@ -143,7 +143,7 @@ enum AnalyticsBench {
         let calendar = Calendar.current
         let now = Date()
         let today = calendar.startOfDay(for: now)
-        let models = ["claude-sonnet-4", "claude-opus-4-1", "claude-haiku-4-5"]
+        let models = ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5"]
 
         let writeStart = DispatchTime.now().uptimeNanoseconds
         var bytes = 0

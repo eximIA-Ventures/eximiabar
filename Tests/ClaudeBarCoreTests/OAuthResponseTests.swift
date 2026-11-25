@@ -21,14 +21,14 @@ struct OAuthResponseTests {
         let response = try UsageFetcher.decode(Data(json.utf8))
         let snapshot = UsageSnapshot.from(response, rateLimitTier: "claude_pro")
 
-        #expect(snapshot.session.utilization == 12.5)
-        #expect(snapshot.session.remaining == 87.5)
-        #expect(snapshot.session.windowMinutes == 300)
+        #expect(snapshot.session?.utilization == 12.5)
+        #expect(snapshot.session?.remaining == 87.5)
+        #expect(snapshot.session?.windowMinutes == 300)
         #expect(snapshot.weekly.utilization == 30)
         #expect(snapshot.weekly.remaining == 70)
         #expect(snapshot.weekly.windowMinutes == 10080)
         #expect(snapshot.sonnet?.utilization == 5)
-        #expect(snapshot.session.resetsAt != nil)
+        #expect(snapshot.session?.resetsAt != nil)
         #expect(snapshot.plan == .pro)
     }
 
@@ -46,8 +46,9 @@ struct OAuthResponseTests {
     }
 
     @Test
-    func sessionFallbackCascadeUsesSevenDayWhenFiveHourMissing() throws {
-        // five_hour absent → falls back to seven_day (AC9 cascade).
+    func sessionIsAbsentWhenFiveHourMissing() throws {
+        // five_hour absent (Claude Ultra has no 5-hour limit) → NO session window. The old AC9
+        // cascade copied seven_day into the session slot, showing the weekly figure twice.
         let json = """
         {
           "seven_day": { "utilization": 42, "resets_at": "2025-12-31T00:00:00.000Z" }
@@ -55,8 +56,8 @@ struct OAuthResponseTests {
         """
         let response = try UsageFetcher.decode(Data(json.utf8))
         let snapshot = UsageSnapshot.from(response)
-        #expect(snapshot.session.utilization == 42)
-        #expect(snapshot.session.windowMinutes == 300)
+        #expect(snapshot.session == nil)
+        #expect(snapshot.weekly.utilization == 42)
     }
 
     @Test
@@ -74,7 +75,7 @@ struct OAuthResponseTests {
         #expect(response.iguanaNecktie != nil)
         let snapshot = UsageSnapshot.from(response)
         // Session stays at five_hour, unaffected by design/omelette.
-        #expect(snapshot.session.utilization == 12.5)
+        #expect(snapshot.session?.utilization == 12.5)
     }
 
     @Test

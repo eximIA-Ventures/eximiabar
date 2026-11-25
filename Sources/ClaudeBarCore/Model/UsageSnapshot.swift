@@ -16,14 +16,17 @@ public struct UsageSnapshot: Sendable, Equatable {
         }
     }
 
-    /// 5-hour session window (`windowMinutes == 300`).
-    public let session: RateWindow
+    /// 5-hour session window (`windowMinutes == 300`). `nil` on plans without a 5-hour limit
+    /// (Claude Ultra) — consumers must fall back to the next window, never draw an empty 0% bar.
+    public let session: RateWindow?
     /// 7-day weekly window (`windowMinutes == 10080`).
     public let weekly: RateWindow
     /// Sonnet sub-window (7-day Sonnet cap).
     public let sonnet: RateWindow?
     /// Opus sub-window (7-day Opus cap), if the API exposes it.
     public let opus: RateWindow?
+    /// Fable sub-window (7-day Fable cap), if the API exposes `seven_day_fable`.
+    public let fable: RateWindow?
     /// Daily routines window; present-but-null in the payload renders a 0% bar.
     public let dailyRoutines: RateWindow?
     /// Overage / extra usage cap, normalized to major units.
@@ -40,10 +43,11 @@ public struct UsageSnapshot: Sendable, Equatable {
     public let error: UsageError?
 
     public init(
-        session: RateWindow,
+        session: RateWindow?,
         weekly: RateWindow,
         sonnet: RateWindow?,
         opus: RateWindow? = nil,
+        fable: RateWindow? = nil,
         dailyRoutines: RateWindow?,
         extraUsage: ExtraUsage?,
         plan: ClaudePlan?,
@@ -56,6 +60,7 @@ public struct UsageSnapshot: Sendable, Equatable {
         self.weekly = weekly
         self.sonnet = sonnet
         self.opus = opus
+        self.fable = fable
         self.dailyRoutines = dailyRoutines
         self.extraUsage = extraUsage
         self.plan = plan

@@ -4,9 +4,10 @@ public extension UsageSnapshot {
     /// Maps a decoded `OAuthUsageResponse` to the immutable `UsageSnapshot` value type
     /// (AC9, AC10).
     ///
-    /// - `session`: from `five_hour`, with fallback cascade
-    ///   `five_hour → seven_day → seven_day_oauth_apps → seven_day_sonnet → seven_day_opus`
-    ///   (first non-nil wins). `windowMinutes == 300`.
+    /// - `session`: from `five_hour` only, `windowMinutes == 300`. **Optional**: plans without a
+    ///   5-hour limit (Claude Ultra) omit the key or send `null`, and the snapshot then carries no
+    ///   session window at all — no 0% bar, no reset line, no alert. (It used to cascade into
+    ///   `seven_day`, which on Ultra showed the weekly figure a second time labelled "Session".)
     /// - `weekly`: from `seven_day`, `windowMinutes == 10080`.
     /// - `sonnet`: from `seven_day_sonnet ?? seven_day_opus`.
     /// - `dailyRoutines`: from `seven_day_routines`; if the key is present but null, a 0%
@@ -21,16 +22,11 @@ public extension UsageSnapshot {
         source: DataSource = .oauth,
         now: Date = Date()) -> UsageSnapshot
     {
-        // Session — fallback cascade (AC9, spec §4.4).
-        let sessionSource = response.fiveHour
-            ?? response.sevenDay
-            ?? response.sevenDayOAuthApps
-            ?? response.sevenDaySonnet
-            ?? response.sevenDayOpus
-        let session = Self.window(
-            from: sessionSource,
-            windowMinutes: 300,
-            fallbackUtilization: 0)
+        // Session — `five_hour` only; absent / null → no session window (Ultra has no 5-hour limit).
+        // An object with neither utilization nor reset is the same "no 5-hour limit" signal.
+        let session = response.fiveHour
+            .flatMap { $0.utilization == nil && $0.resetsAt == nil ? nil : $0 }
+            .map { Self.window(from: $0, windowMinutes: 300) }
 
         // Weekly — from seven_day.
         let weekly = Self.window(
@@ -43,6 +39,9 @@ public extension UsageSnapshot {
 
         // Opus — from seven_day_opus, promoted to its own per-model window (EXB redesign #3).
         let opus = response.sevenDayOpus.flatMap { Self.window(from: $0, windowMinutes: 10080) }
+
+        // Fable — from seven_day_fable when present; absent key leaves no window (no 0% placeholder).
+        let fable = response.sevenDayFable.flatMap { Self.window(from: $0, windowMinutes: 10080) }
 
         // Daily routines — render a 0% window if the key is present but null (AC9).
         let dailyRoutines: RateWindow?
@@ -67,6 +66,7 @@ public extension UsageSnapshot {
             weekly: weekly,
             sonnet: sonnet,
             opus: opus,
+            fable: fable,
             dailyRoutines: dailyRoutines,
             extraUsage: extraUsage,
             plan: plan,

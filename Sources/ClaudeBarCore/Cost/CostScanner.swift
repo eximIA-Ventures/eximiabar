@@ -168,6 +168,9 @@ public actor CostScanner {
         var dayKey: DayModelKey
         var inputTokens: Int
         var outputTokens: Int
+        /// Cache tokens are priced (cache read / write rates) but not added to the token counts.
+        var cacheReadTokens: Int = 0
+        var cacheWriteTokens: Int = 0
         var model: String
         var timestamp: Date
     }
@@ -195,8 +198,12 @@ public actor CostScanner {
         var totalsByKey: [DayModelKey: Totals] = [:]
         let rows = keyed.values + unkeyed
         for row in rows {
-            let price = await self.pricing.costPerToken(model: row.model)
-            let cost = Double(row.inputTokens) * price.input + Double(row.outputTokens) * price.output
+            let price = await self.pricing.tokenPrice(model: row.model)
+            let cost = price.cost(
+                input: row.inputTokens,
+                output: row.outputTokens,
+                cacheRead: row.cacheReadTokens,
+                cacheWrite: row.cacheWriteTokens)
             totalsByKey[row.dayKey, default: Totals()].add(
                 input: row.inputTokens,
                 output: row.outputTokens,
@@ -231,6 +238,8 @@ public actor CostScanner {
         let input = max(0, Self.toInt(usage["input_tokens"]))
         let output = max(0, Self.toInt(usage["output_tokens"]))
         guard input > 0 || output > 0 else { return }
+        let cacheRead = max(0, Self.toInt(usage["cache_read_input_tokens"]))
+        let cacheWrite = max(0, Self.toInt(usage["cache_creation_input_tokens"]))
 
         guard let tsText = obj["timestamp"] as? String,
               let timestamp = ISO8601Decoder.date(from: tsText)
@@ -248,6 +257,8 @@ public actor CostScanner {
             dayKey: dayKey,
             inputTokens: input,
             outputTokens: output,
+            cacheReadTokens: cacheRead,
+            cacheWriteTokens: cacheWrite,
             model: normalizedModel,
             timestamp: timestamp)
 
