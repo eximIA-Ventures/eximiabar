@@ -401,11 +401,11 @@
 "dashboard.avg.divisor_window"     = "divide por %d dias pedidos";
 
 // Custo: a ressalva viaja junto dos números, não num rodapé.
-"dashboard.cost.caveat"            = "Estimativa de valor consumido. O plano é por assinatura, isto não é fatura, e o custo não precifica tokens de cache.";
+"dashboard.cost.caveat"            = "Estimativa de valor consumido, incluindo cache. O plano é assinatura; isto não é fatura.";
 
 // Uma frase por gráfico, dizendo o que ele desenha e onde o eixo começa.
 "dashboard.chart.tokens.sub"       = "Entrada, saída e cache empilhados. O eixo começa na primeira data com dado.";
-"dashboard.chart.cost.sub"         = "Estimativa de valor consumido, não fatura. Não precifica tokens de cache.";
+"dashboard.chart.cost.sub"         = "Estimativa de valor consumido, incluindo leitura e escrita de cache. Não é fatura.";
 "dashboard.models.sub"             = "Ordenado por volume de tokens. O custo acompanha como figura de apoio.";
 "dashboard.models_by_day.sub"      = "Uma série por modelo, com a mesma cor do detalhamento por modelo.";
 "dashboard.projects.sub"           = "Projeto é o último componente do caminho de trabalho; pastas de mesmo nome colapsam na mesma linha.";

@@ -403,11 +403,11 @@
 "dashboard.avg.divisor_window"     = "divides by %d days requested";
 
 // Cost: the caveat travels with the numbers, not in a footnote.
-"dashboard.cost.caveat"            = "An estimate of value consumed. The plan is a subscription, this is not a bill, and the cost does not price cache tokens.";
+"dashboard.cost.caveat"            = "An estimate of value consumed, including cache. The plan is a subscription; this is not a bill.";
 
 // One sentence per chart, saying what it draws and where its axis starts.
 "dashboard.chart.tokens.sub"       = "Input, output and cache stacked. The axis starts at the first day with data.";
-"dashboard.chart.cost.sub"         = "An estimate of value consumed, not a bill. Does not price cache tokens.";
+"dashboard.chart.cost.sub"         = "An estimate of value consumed, including cache reads and writes. Not a bill.";
 "dashboard.models.sub"             = "Ordered by token volume. Cost rides along as the supporting figure.";
 "dashboard.models_by_day.sub"      = "One series per model, in the same colour as the model breakdown.";
 "dashboard.projects.sub"           = "A project is the last component of the working path; folders of the same name collapse into one row.";
