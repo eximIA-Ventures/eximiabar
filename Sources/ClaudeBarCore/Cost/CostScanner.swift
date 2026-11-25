@@ -93,7 +93,29 @@ public actor CostScanner {
         self.saveOffsets(offsets)
         self.saveAggregate(aggregate)
 
-        return Self.makeProviderCost(from: aggregate, costDays: window, now: now)
+        let base = Self.makeProviderCost(from: aggregate, costDays: window, now: now)
+        // EXB-6.1 AC2.2: count the tokens whose price was a guess. Classified per distinct model, so
+        // this is one actor hop per model, not per row.
+        var sourceByModel: [String: Pricing.PriceSource] = [:]
+        var estimated = 0
+        for entry in base.byModel {
+            let source: Pricing.PriceSource
+            if let known = sourceByModel[entry.model] {
+                source = known
+            } else {
+                source = await self.pricing.priceSource(model: entry.model)
+                sourceByModel[entry.model] = source
+            }
+            if source.isEstimate { estimated += entry.totalTokens }
+        }
+        guard estimated > 0 else { return base }
+        return ProviderCost(
+            today: base.today,
+            last30Days: base.last30Days,
+            todayTokens: base.todayTokens,
+            last30DaysTokens: base.last30DaysTokens,
+            byModel: base.byModel,
+            estimatedTokens: estimated)
     }
 
     // MARK: - Directory enumeration (T4 / AC1)

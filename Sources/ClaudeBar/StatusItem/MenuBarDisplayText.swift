@@ -13,16 +13,18 @@ enum MenuBarDisplayText {
     /// - Parameters:
     ///   - session: the session window whose `remaining` percentage is shown.
     ///   - pace: pace delta in percentage points; only rendered when strictly greater than 0.
-    static func displayText(session: RateWindow?, pace: Double?) -> String? {
+    static func displayText(session: RateWindow?, pace: Double?, approximate: Bool = false) -> String? {
         guard let session else { return nil }
 
         let remaining = Int(min(100, max(0, session.remaining)).rounded())
+        // EXB-6.1 AC1.4: a CLI/positional reading is never shown as if it were measured.
+        let mark = approximate ? "~" : ""
 
         if let pace, pace > 0 {
             let paceValue = Int(pace.rounded())
-            return "\(remaining)% · +\(paceValue)%"
+            return "\(mark)\(remaining)% · +\(paceValue)%"
         }
 
-        return " \(remaining)%"
+        return " \(mark)\(remaining)%"
     }
 }

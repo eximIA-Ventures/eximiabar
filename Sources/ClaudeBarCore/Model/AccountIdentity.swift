@@ -23,6 +23,13 @@ public struct AccountKey: Hashable, Codable, Sendable {
         self.identifier = identifier
     }
 
+    /// `true` for the opaque fallback the UI uses when no identity resolved (`"live"` or empty).
+    /// Such a key addresses a pane; it never names a real account (EXB-6.1 AC3.2).
+    public var isPlaceholder: Bool {
+        let id = Self.normalize(self.identifier)
+        return id.isEmpty || id == "live"
+    }
+
     /// The single normalization rule for identifiers: trim, then lowercase.
     public static func normalize(_ raw: String) -> String {
         raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()

@@ -56,6 +56,9 @@
 "popover.cost.roi"             = "%1$d× your %2$@ plan";
 "popover.cost.more_models"     = "+%1$d more models";
 "popover.cost.today"           = "Today: %1$@ · %2$@ tokens";
+"popover.cost.estimated_share" = "%d%% estimated by model family";
+"popover.account.menu_bar_shows" = "Menu bar shows: %@";
+"popover.account.menu_bar_unknown" = "live account";
 
 /* MARK: - Action rows (UsageCardView) */
 "popover.refresh_now"          = "Refresh Now";

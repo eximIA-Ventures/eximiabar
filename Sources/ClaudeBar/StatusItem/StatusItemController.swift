@@ -64,6 +64,7 @@ final class StatusItemController {
         let isStale = snapshot?.isStale ?? false
         let hasError = snapshot?.hasError ?? false
         let sparklineSamples = snapshot?.sparklineSamples ?? []
+        let approximate = snapshot?.isApproximate ?? false
 
         // The brand icon lives on the main actor; resolve it here so the detached task only carries a
         // Sendable `NSImage` (or `nil`) into its compositing step.
@@ -76,8 +77,8 @@ final class StatusItemController {
             // Preserve the F2 brand-mode pace suffix when the brand icon is active; otherwise the
             // plain remaining percentage.
             mode == .brandIconPercent
-                ? MenuBarDisplayText.displayText(session: session, pace: pace)
-                : MenuBarContentText.percentRemaining(session: session)
+                ? MenuBarDisplayText.displayText(session: session, pace: pace, approximate: approximate)
+                : MenuBarContentText.percentRemaining(session: session, approximate: approximate)
         case .timeUntilReset:
             MenuBarContentText.timeUntilReset(session: session)
         case .costToday:

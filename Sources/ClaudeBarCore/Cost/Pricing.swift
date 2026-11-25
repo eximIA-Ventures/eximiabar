@@ -99,6 +99,35 @@ public actor Pricing {
     /// The model whose prices are used when not even the family can be inferred.
     static let unknownModelFallbackKey = "claude-sonnet-5-5"
 
+    /// Where a price came from (EXB-6.1 AC2.1). `family` and `fallbackDefault` are guesses: the
+    /// model id was not in any table, so it was priced as "the current model of its family" or as
+    /// the default. Tokens priced that way make the total an estimate, and the UI says so.
+    public enum PriceSource: String, Sendable, Equatable {
+        case catalog
+        case table
+        case family
+        case fallbackDefault
+
+        public var isEstimate: Bool { self == .family || self == .fallbackDefault }
+    }
+
+    /// The fallback-table origin of `model`'s price, without the catalog (exact key → family → default).
+    static func fallbackSource(for model: String) -> PriceSource {
+        let key = Self.normalize(model)
+        if Self.fallbackTable[key] != nil { return .table }
+        if Self.currentModelByFamily.contains(where: { key.contains($0.family) }) { return .family }
+        return .fallbackDefault
+    }
+
+    /// Where `model`'s price comes from right now: the models.dev catalog when it lists the key,
+    /// otherwise the embedded table's classification. Never fetches more than `tokenPrice` would.
+    public func priceSource(model: String) async -> PriceSource {
+        let key = Self.normalize(model)
+        await self.ensureCatalogLoaded()
+        if let catalog = self.catalog, catalog[key] != nil { return .catalog }
+        return Self.fallbackSource(for: key)
+    }
+
     /// The fallback-table price for `model` (exact normalized key → family → default).
     static func fallbackPrice(for model: String) -> TokenPrice {
         let key = Self.normalize(model)

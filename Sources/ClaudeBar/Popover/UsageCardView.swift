@@ -82,8 +82,35 @@ struct UsageCardView: View {
     }
 
     /// The card as it has always been: header, metrics, extras, cost, actions.
+    /// EXB-6.1 AC3.1: the label of the account the menu bar measures, when the popover is showing a
+    /// different one. `nil` when they are the same pane (or there is only one).
+    static func menuBarAccountLabel(for workspace: WorkspaceSnapshot?) -> String? {
+        guard let workspace, workspace.focusedKey != workspace.menuBarKey,
+              let pane = workspace.menuBar
+        else { return nil }
+        let identity = pane.identity
+        let name = identity.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let name, !name.isEmpty { return name }
+        return identity.email.isEmpty ? L("popover.account.menu_bar_unknown") : identity.email
+    }
+
     @ViewBuilder
     private var cardBody: some View {
+        if let label = Self.menuBarAccountLabel(for: self.workspace) {
+            HStack(spacing: 6) {
+                Image(systemName: "menubar.rectangle")
+                    .font(.caption2)
+                Text(L("popover.account.menu_bar_shows", label))
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.12)))
+        }
         HeaderSection(
             snapshot: self.snapshot,
             canSwitchAccounts: self.canSwitchAccounts,
@@ -102,7 +129,7 @@ struct UsageCardView: View {
         // (`costEnabled == true`). When cost is disabled it is `nil` and the section is hidden.
         if let cost = self.snapshot?.cost {
             Divider()
-            CostSection(cost: cost, plan: self.snapshot?.plan)
+            PopoverCostSection(cost: cost, plan: self.snapshot?.plan)
         }
 
         Divider()
@@ -349,7 +376,8 @@ private struct MetricsSection: View {
                     paceMode: self.options.paceDisplayMode,
                     forecastText: self.forecastText(
                         for: RateWindowID.session,
-                        barStripeAbsent: pace == nil))
+                        barStripeAbsent: pace == nil),
+                    isApproximate: self.snapshot?.isApproximate ?? false)
             }
             if let weekly = self.snapshot?.weekly {
                 let pace = self.pace(for: weekly)
@@ -366,7 +394,8 @@ private struct MetricsSection: View {
                     paceMode: self.options.paceDisplayMode,
                     forecastText: self.forecastText(
                         for: RateWindowID.weekly,
-                        barStripeAbsent: pace == nil))
+                        barStripeAbsent: pace == nil),
+                    isApproximate: self.snapshot?.isApproximate ?? false)
             }
             // Opus weekly sub-limit only. Anthropic reworked usage limits: Sonnet no longer has its own
             // window — it folded into the single "all models" weekly cap, which IS the Semanal bar
@@ -450,9 +479,20 @@ private struct ExtraUsageSection: View {
 
 /// Local cost estimate from the JSONL scan. The header summarizes today / window totals; tapping it
 /// expands the per-`(day, model)` breakdown (`byModel`) — the "cost detail submenu" of AC8.
-private struct CostSection: View {
+struct PopoverCostSection: View {
     let cost: ProviderCost
     let plan: ClaudePlan?
+
+    /// `"$12.30"`, or `"~$12.30"` when part of it was priced by family (EXB-6.1 AC2.3).
+    static func amount(_ value: Double, estimated: Bool) -> String {
+        (estimated ? "~" : "") + PopoverFormatter.currency(value)
+    }
+
+    /// `"12% estimado por família"`, or `nil` when nothing was guessed.
+    static func estimateFootnote(for cost: ProviderCost) -> String? {
+        guard cost.isEstimated else { return nil }
+        return L("popover.cost.estimated_share", max(1, Int((cost.estimatedShare * 100).rounded())))
+    }
 
     @State private var expanded = false
 
@@ -493,12 +533,12 @@ private struct CostSection: View {
                     .font(DesignTokens.Numeral.compact)
                     .foregroundStyle(PopoverStyle.roiPositive)
                     .monospacedDigit()
-                Text(PopoverFormatter.currency(self.cost.last30Days))
+                Text(PopoverCostSection.amount(self.cost.last30Days, estimated: self.cost.isEstimated))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             } else {
-                Text(PopoverFormatter.currency(self.cost.last30Days))
+                Text(PopoverCostSection.amount(self.cost.last30Days, estimated: self.cost.isEstimated))
                     .font(.body)
                     .fontWeight(.medium)
                     .monospacedDigit()
@@ -506,10 +546,17 @@ private struct CostSection: View {
 
             Text(L(
                 "popover.cost.today",
-                PopoverFormatter.currency(self.cost.today),
+                PopoverCostSection.amount(self.cost.today, estimated: self.cost.isEstimated),
                 PopoverFormatter.tokenCount(self.cost.todayTokens)))
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            // EXB-6.1 AC2.3: say how much of the figure is a guess, in the same place as the figure.
+            if let footnote = PopoverCostSection.estimateFootnote(for: self.cost) {
+                Text(footnote)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
 
             if self.expanded, !self.cost.byModel.isEmpty {
                 CostModelBreakdown(byModel: self.cost.byModel)

@@ -110,6 +110,12 @@ public actor AccountRosterStore {
     {
         self.loadIfNeeded()
 
+        // EXB-6.1 AC3.2: an unresolved placeholder identity ("live" / empty) is not an account.
+        // Writing it would invent a roster row that no login ever produced.
+        guard !current.key.isPlaceholder else {
+            return .skipped("placeholder identity — never recorded in the roster")
+        }
+
         let accessToken = credentials.accessToken
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !accessToken.isEmpty else {

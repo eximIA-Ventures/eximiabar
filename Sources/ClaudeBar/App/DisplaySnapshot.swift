@@ -109,6 +109,10 @@ extension DisplaySnapshot {
         now.timeIntervalSince(updatedAt) > Self.stalenessThreshold || error != nil
     }
 
+    /// `true` when the windows were scraped from the `claude` CLI panel rather than read from the
+    /// OAuth API (EXB-6.1 AC1.4). Every surface that prints one of these percentages prefixes `~`.
+    var isApproximate: Bool { source == .cli }
+
     /// `true` when the snapshot carries a terminal error. Kept for the icon's error styling.
     var hasError: Bool { error != nil }
 

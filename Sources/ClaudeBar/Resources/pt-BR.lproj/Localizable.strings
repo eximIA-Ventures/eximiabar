@@ -54,6 +54,9 @@
 "popover.cost.roi"             = "%1$d× sua assinatura %2$@";
 "popover.cost.more_models"     = "+%1$d modelos";
 "popover.cost.today"           = "Hoje: %1$@ · %2$@ tokens";
+"popover.cost.estimated_share" = "%d%% estimado por família";
+"popover.account.menu_bar_shows" = "Barra mostra: %@";
+"popover.account.menu_bar_unknown" = "conta ativa";
 
 /* MARK: - Linhas de ação */
 "popover.refresh_now"          = "Atualizar Agora";

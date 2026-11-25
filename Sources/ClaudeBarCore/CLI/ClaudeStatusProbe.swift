@@ -12,13 +12,33 @@ import Foundation
 /// layout changes (AC10). The percent-direction heuristic mirrors
 /// `_reference_codexbar/.../ClaudeStatusProbe.swift:337-360` — a value labelled "left"/"remaining"
 /// is remaining (so `utilization = 100 - value`), while "used"/"spent" is utilization verbatim.
+public struct ClaudeUsageReading: Sendable, Equatable {
+    public let session: Double
+    public let weekly: Double
+    /// `true` when at least one value came from the positional fallback rather than a label.
+    public let isPositional: Bool
+}
+
 public enum ClaudeStatusProbe: Sendable {
     /// Parse the raw `/usage` buffer into `(session, weekly)` utilization percentages (0–100).
     ///
-    /// Returns `nil` only when no session percentage can be recovered by either the label-based or
-    /// the positional path. When the weekly value is missing the session value is still returned and
-    /// `weekly` defaults to `0` (a present-but-empty weekly window renders a 0% bar downstream).
+    /// Thin wrapper over ``parseUsageReading(rawOutput:)`` kept for existing callers.
     public static func parseUsage(rawOutput: String) -> (session: Double, weekly: Double)? {
+        guard let reading = Self.parseUsageReading(rawOutput: rawOutput) else { return nil }
+        return (session: reading.session, weekly: reading.weekly)
+    }
+
+    /// Most percent-bearing lines the positional fallback will trust (EXB-6.1 AC1.2). Past this,
+    /// "the first two" is a guess about a layout we no longer recognise, not a reading.
+    static let maxPositionalCandidates = 4
+
+    /// Parse the raw `/usage` buffer, reporting whether the positional fallback was used.
+    ///
+    /// Label-driven first. The positional fallback (EXB-6.1 AC1) is now gated: every value it uses
+    /// must be a **raw** 0–100 (a `140%` is a misread, not a full meter), the buffer may carry at most
+    /// ``maxPositionalCandidates`` percent lines, and it needs at least two of them unless the
+    /// session label already resolved.
+    public static func parseUsageReading(rawOutput: String) -> ClaudeUsageReading? {
         let clean = Self.stripANSICodes(rawOutput)
         guard !clean.isEmpty else { return nil }
 
@@ -29,24 +49,46 @@ public enum ClaudeStatusProbe: Sendable {
             forLabel: "current session",
             lines: lines,
             normalizedLines: normalizedLines)
-        var weeklyUtil = Self.utilization(
+        let weeklyUtil = Self.utilization(
             forLabel: "current week",
             lines: lines,
             normalizedLines: normalizedLines)
 
-        // Positional fallback (AC10): if labels did not resolve, take the first two `\d+%` values in
-        // the raw buffer as session / weekly utilization respectively.
-        if sessionUtil == nil || weeklyUtil == nil {
-            let ordered = Self.orderedUtilizations(in: lines)
-            let session = sessionUtil ?? ordered[safe: 0]
-            let weekly = weeklyUtil ?? sessionUtil.map { _ in ordered[safe: 1] } ?? ordered[safe: 1]
-            guard let session else { return nil }
-            return (session: session, weekly: weekly ?? 0)
+        if let sessionUtil, let weeklyUtil {
+            return ClaudeUsageReading(session: sessionUtil, weekly: weeklyUtil, isPositional: false)
         }
 
-        guard let sessionUtil else { return nil }
-        if weeklyUtil == nil { weeklyUtil = 0 }
-        return (session: sessionUtil, weekly: weeklyUtil ?? 0)
+        // A session label with no weekly label and no other percent line is a session-only panel
+        // (enterprise): labelled, not positional.
+        let candidates = lines.filter { Self.rawPercent(in: $0) != nil && !Self.isLikelyStatusContextLine($0) }
+        if let sessionUtil, candidates.count <= 1 {
+            return ClaudeUsageReading(session: sessionUtil, weekly: 0, isPositional: false)
+        }
+
+        // Positional fallback, gated (EXB-6.1 AC1.1/AC1.2).
+        guard candidates.count <= Self.maxPositionalCandidates else { return nil }
+        guard candidates.allSatisfy({ (Self.rawPercent(in: $0) ?? -1) >= 0 && (Self.rawPercent(in: $0) ?? 101) <= 100 })
+        else { return nil }
+        let ordered = candidates.compactMap(Self.utilizationFromLine)
+        if let sessionUtil {
+            guard let weekly = ordered.dropFirst().first else {
+                return ClaudeUsageReading(session: sessionUtil, weekly: 0, isPositional: false)
+            }
+            return ClaudeUsageReading(session: sessionUtil, weekly: weekly, isPositional: true)
+        }
+        guard ordered.count >= 2 else { return nil }
+        return ClaudeUsageReading(session: ordered[0], weekly: ordered[1], isPositional: true)
+    }
+
+    /// The unclamped number in front of the first `%` on `line`, or `nil` when there is none.
+    static func rawPercent(in line: String) -> Double? {
+        let pattern = #"([0-9]{1,4}(?:\.[0-9]+)?)\p{Zs}*%"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(line.startIndex..<line.endIndex, in: line)
+        guard let match = regex.firstMatch(in: line, options: [], range: range),
+              let valRange = Range(match.range(at: 1), in: line)
+        else { return nil }
+        return Double(line[valRange])
     }
 
     // MARK: - Label-based extraction
@@ -111,14 +153,6 @@ public enum ClaudeStatusProbe: Sendable {
         let lower = line.lowercased()
         let modelTokens = ["opus", "sonnet", "haiku", "fable", "mythos", "default"]
         return modelTokens.contains(where: lower.contains)
-    }
-
-    // MARK: - Positional fallback
-
-    /// All percentages in the buffer, in order, normalized to utilization. Used when labels move or
-    /// were renamed (AC10).
-    private static func orderedUtilizations(in lines: [String]) -> [Double] {
-        lines.compactMap(Self.utilizationFromLine)
     }
 
     // MARK: - Helpers

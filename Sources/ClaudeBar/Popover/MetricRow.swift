@@ -51,6 +51,8 @@ struct MetricRow: View {
     /// Forecast line, already gated by `MetricsSection` (alarm-only in `.bar` mode, always in
     /// `.text` mode), or `nil` to render nothing.
     var forecastText: String? = nil
+    /// EXB-6.1 AC1.4: the reading came from the CLI fallback — the headline carries `~`.
+    var isApproximate: Bool = false
 
     /// The active popover skin, injected by `UsageCardView`. Decides whether the healthy `< 70` zone
     /// reads terracotta (classic) or amber (meter); attention/critical are shared across themes.
@@ -84,6 +86,11 @@ struct MetricRow: View {
         return !detail.isReserve
     }
 
+    /// The headline string, pure so a test can hold the `~` rule (EXB-6.1 AC4.1).
+    static func headlineText(value: Int, approximate: Bool) -> String {
+        "\(approximate ? "~" : "")\(value)%"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: PopoverStyle.metricInternalSpacing) {
             // Headline: title (left) + big usage number (right), same baseline (#1). The number is
@@ -96,7 +103,7 @@ struct MetricRow: View {
                     .lineLimit(1)
                     .layoutPriority(1)
                 Spacer(minLength: 8)
-                Text(verbatim: "\(self.headlineValue)%")
+                Text(verbatim: MetricRow.headlineText(value: self.headlineValue, approximate: self.isApproximate))
                     .font(self.prominence.numberFont)
                     .foregroundStyle(PopoverStyle.zoneTextColor(utilization: self.window.utilization, theme: self.popoverTheme))
                     .monospacedDigit()

@@ -61,14 +61,27 @@ public struct ProviderCost: Sendable, Equatable {
     public let last30DaysTokens: Int
     /// Per-`(day, model)` breakdown, sorted descending by cost. Drives the cost-detail submenu (AC8).
     public let byModel: [ModelCostEntry]
+    /// Tokens in the window whose price was a family/default guess (EXB-6.1 AC2.2).
+    public let estimatedTokens: Int
+
+    /// Share (0–1) of the window's tokens priced by family/default. `0` when nothing was guessed.
+    public var estimatedShare: Double {
+        guard self.last30DaysTokens > 0 else { return 0 }
+        return min(1, max(0, Double(self.estimatedTokens) / Double(self.last30DaysTokens)))
+    }
+
+    /// `true` when any part of the total is an estimate — every surface then prefixes `~`.
+    public var isEstimated: Bool { self.estimatedTokens > 0 }
 
     public init(
         today: Double,
         last30Days: Double,
         todayTokens: Int,
         last30DaysTokens: Int,
-        byModel: [ModelCostEntry] = [])
+        byModel: [ModelCostEntry] = [],
+        estimatedTokens: Int = 0)
     {
+        self.estimatedTokens = max(0, estimatedTokens)
         self.today = today
         self.last30Days = last30Days
         self.todayTokens = todayTokens
