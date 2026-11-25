@@ -26,8 +26,7 @@ struct DashboardView: View {
     /// A range dragged over the timeline. Writes into the same span the shortcuts write into — that
     /// is what keeps a button and a drag from being two different questions (EXB-5.8 §8).
     var selectRange: (ClosedRange<Date>) -> Void = { _ in }
-    /// Opens the export panel. Named for what it does, not for one of the three formats it offers —
-    /// `exportCSV` stopped being true the moment CSV became an option rather than the operation.
+    /// Saves the slice on screen as CSV (EXB-6.4: the only export format).
     var exportar: () -> Void = {}
     var openSettings: () -> Void = {}
 
@@ -137,10 +136,8 @@ private struct DashboardToolbar: View {
             Button {
                 exportar()
             } label: {
-                // The button opens a picker of three formats. Saying "Exportar CSV" on it was a label
-                // that lied about its own click — the same class of defect as a number whose divisor
-                // is invisible, and it earns no more patience than one.
-                Label(L("dashboard.export"), systemImage: "square.and.arrow.up")
+                // EXB-6.4: CSV is the only format again, so the button says exactly what it writes.
+                Label(L("dashboard.export.csv"), systemImage: "square.and.arrow.up")
             }
             .disabled(!canExport)
         }
@@ -168,10 +165,7 @@ enum DashboardFormat {
     /// **Built from `Calendar` components, not a `DateFormatter`, and that is deliberate.** A
     /// formatter resolves its pattern against the machine's locale, so the same date prints
     /// differently on a Mac set to another region and any test pinning the string passes here and
-    /// fails there — with no message saying why. The panel's `PainelDatas.longa` writes the digits by
-    /// hand for exactly this reason, and prints exactly this shape: the coverage block on screen and
-    /// the coverage block in the exported `painel.html` state the same date the same way, so the two
-    /// can be compared without translating between them.
+    /// fails there — with no message saying why.
     ///
     /// The calendar stays `.current` because that is what `DashboardData.build` bucketed days with —
     /// a "day" has to mean the same thing here as it did there.
@@ -376,55 +370,141 @@ private struct LoadedDashboard: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
+                // EXB-6.4: three numbers first — spend, projection, change vs the stretch before.
+                DashboardSummarySection(data: data)               // replaces the five-card cost grid
                 CoverageBanner(data: data)                        // EXB-5.9: what the source covers
                 // EXB-6.3: "what ate the week" leads its own period — it is the question that period asks.
                 if let semana = data.semana {
                     WeeklyAttributionSection(semana: semana)
                 }
                 VolumeSection(data: data)                         // the principal quantity
-                CostSection(data: data)                           // the estimate, named as one
                 // EXB-4.5 AC3: the "This week" wrapped recap — only in the 7-day period.
                 if data.atalho == .sevenDays {
                     WeeklySummarySection(data: data)
                 }
                 DashboardSectionLabel(text: L("dashboard.section.charts"))
-                // EXB-5.7 §6: tokens lead. The Senhor pays a subscription, so token volume is the
-                // quantity he is actually spending; the dollar figure is an estimate of value
-                // consumed, and it now reads as the supporting chart rather than the headline.
                 StackedTokensChart(data: data, selectRange: selectRange)  // AC4/AC9/AC10 + §8 drag
                 CostPerDayChart(data: data)                       // AC3/AC10/AC11/AC13/AC14
-                ModelBreakdownSection(data: data)                 // AC5/AC12/AC13
+                ModelBreakdownSection(data: data)                 // AC5 + EXB-6.4 single metric
                 ModelsByDayChart(data: data)                      // EXB-3.7 AC4 (models per day)
                 if !data.byProject.isEmpty {
-                    ProjectBreakdownTable(rows: data.byProject)   // AC6
-                    // EXB-5.10 G1: directly under the table it reads out of — the curve answers the
-                    // question the ordered list poses and cannot itself resolve.
-                    ProjectParetoChart(curva: ParetoCurva(projetos: data.byProject))
-                    // EXB-6.1 V3/V2: the project family in the order the questions are asked — who is
-                    // big (table), how few carry it (curve), who *rose* (flow), and who made the month
-                    // change (cascade). The last two need the `(day, project)` grain the table folds
-                    // away, which is why they could not exist before it was carried through.
-                    ProjectFlowChart(fluxo: FluxoDeProjetos(
-                        data: data, rotuloDoAgregado: L("dashboard.flow.others")))
+                    // EXB-6.4: the Pareto reading is the table's cumulative column; the flow chart
+                    // was cut. The cascade stays: it is the only block that says who changed the month.
+                    ProjectBreakdownTable(rows: data.byProject)
                     MonthlyCascadeChart(cascata: CascataMensal(
                         data: data, rotuloDeOutros: L("dashboard.cascade.others")))
                 }
-                ActivityHeatmapChart(data: data)                  // AC7/AC9/AC13/AC14
-                // EXB-5.10 G4: beside the heatmap, the other grid on this screen — one folds the
-                // window into a week, this one unfolds it against a whole year.
-                if let fim = data.rangeEnd {
-                    AnnualCalendarChart(
-                        grade: CalendarioAnual(entradas: data.diasCobertos, fim: fim))
-                }
+                // EXB-6.4: one grid block — hour×weekday or the rolling year, by a toggle.
+                ActivityGridSection(data: data)
                 if !data.topSessions.isEmpty {
-                    // EXB-6.1 V1: the distribution comes **before** the ten names, because the ten
-                    // names cannot say whether they are the spend or a fringe of it — and the reader
-                    // who sees the table first has already formed that conclusion.
+                    // EXB-6.1 V1: the distribution comes **before** the ten names.
                     SessionSizeHistogramChart(histograma: HistogramaDeSessoes(data: data))
                     TopSessionsTable(rows: data.topSessions)      // AC8
                 }
             }
             .padding(20)
+        }
+    }
+}
+
+// MARK: - Summary (EXB-6.4)
+
+/// The three numbers that answer "how am I doing" before any chart: spend in the period, the month's
+/// projection, and the change against the equal stretch before. Built from `MetricCard`/`DeltaBadge`.
+/// The cost caveat travels with them — none of these dollars is a bill.
+struct DashboardSummarySection: View {
+    @Environment(\.popoverTheme) private var popoverTheme
+    let data: DashboardData
+
+    private let columns = [GridItem(.adaptive(minimum: 168), spacing: 12, alignment: .top)]
+
+    /// The variation card's headline: `"+12%"` / `"−8%"`, or a dash when there is no base.
+    static func variacaoTexto(_ estado: DailyDeltaState) -> String {
+        guard case let .comparado(delta) = estado else { return "—" }
+        let pct = Int((delta * 100).rounded())
+        return pct > 0 ? "+\(pct)%" : pct < 0 ? "−\(-pct)%" : "0%"
+    }
+
+    /// "against the 7 days before ($72.40)" — the base is named, so the percentage can be checked.
+    static func nota(_ data: DashboardData) -> String {
+        let base = L("dashboard.summary.vs_previous.note", data.spanDays)
+        guard let anterior = data.anterior, anterior.completo else { return base }
+        return "\(base) (\(PopoverFormatter.currency(anterior.custo)))"
+    }
+
+    /// Warm when spend rose, green when it fell — the same direction colours as the today badge.
+    static func tint(_ estado: DailyDeltaState) -> Color? {
+        guard case let .comparado(delta) = estado else { return nil }
+        if delta > 0.005 { return Color(red: 0.82, green: 0.42, blue: 0.30) }
+        if delta < -0.005 { return Color(red: 0.30, green: 0.62, blue: 0.40) }
+        return nil
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            DashboardSectionLabel(text: L("dashboard.summary.title"))
+            LazyVGrid(columns: columns, spacing: 12) {
+                let tint = PopoverStyle.accent(for: self.popoverTheme)
+                MetricCard(
+                    title: L("dashboard.summary.spent"),
+                    value: PopoverFormatter.currency(data.totalCost),
+                    valueTint: tint)
+                MetricCard(
+                    title: L("dashboard.summary.projection"),
+                    value: PopoverFormatter.currency(data.monthProjection),
+                    valueTint: tint)
+                // The number is the headline; the badge only speaks when there is no number to give.
+                MetricCard(
+                    title: L("dashboard.summary.vs_previous"),
+                    value: Self.variacaoTexto(data.variacaoVsAnterior),
+                    note: Self.nota(data),
+                    valueTint: Self.tint(data.variacaoVsAnterior),
+                    badge: data.variacaoVsAnterior == .semBase
+                        ? DeltaBadgeModel(state: .semBase, contexto: .periodo) : nil)
+            }
+            Text(L("dashboard.cost.caveat"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+// MARK: - Activity grid (EXB-6.4)
+
+/// The heatmap and the yearly calendar were two grids answering "when do I work"; one block now, with
+/// the granularity as a toggle.
+struct ActivityGridSection: View {
+    enum Granularidade: String, CaseIterable, Identifiable {
+        case semana
+        case ano
+        var id: String { rawValue }
+        var rotulo: String {
+            switch self {
+            case .semana: L("dashboard.activity.week")
+            case .ano: L("dashboard.activity.year")
+            }
+        }
+    }
+
+    let data: DashboardData
+    @State var granularidade: Granularidade = .semana
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if data.rangeEnd != nil {
+                Picker("", selection: $granularidade) {
+                    ForEach(Granularidade.allCases) { Text($0.rotulo).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+            if granularidade == .ano, let fim = data.rangeEnd {
+                AnnualCalendarChart(grade: CalendarioAnual(entradas: data.diasCobertos, fim: fim))
+            } else {
+                ActivityHeatmapChart(data: data)                  // AC7/AC9/AC13/AC14
+            }
         }
     }
 }
@@ -600,64 +680,17 @@ struct VolumeSection: View {
     }
 }
 
-// MARK: - Cost: the estimate, named as one (EXB-5.9)
-
-/// Estimated cost, under a caveat that travels with the numbers rather than living in a footnote.
-///
-/// The caveat is not decoration. The Senhor pays a subscription: none of these dollars is a bill, and
-/// none of them prices a cache token. A figure that leaves this screen without that sentence becomes a
-/// wrong fact in somebody else's spreadsheet.
-private struct CostSection: View {
-    @Environment(\.popoverTheme) private var popoverTheme
-    let data: DashboardData
-
-    /// Top-aligned for the same reason as the volume grid: two of these five cards carry a divisor
-    /// note and three do not, so the row was already centring uneven cards — a milder version of the
-    /// same defect, visible here as a slight float rather than as a hole.
-    private let columns = [GridItem(.adaptive(minimum: 168), spacing: 12, alignment: .top)]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            DashboardSectionLabel(text: L("dashboard.section.cost"))
-            Text(L("dashboard.cost.caveat"))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            LazyVGrid(columns: columns, spacing: 12) {
-                let tint = PopoverStyle.accent(for: self.popoverTheme)
-                MetricCard(
-                    title: L("dashboard.cost.total"),
-                    value: PopoverFormatter.currency(data.totalCost),
-                    valueTint: tint)
-                MetricCard(
-                    title: L("dashboard.cost.today"),
-                    value: PopoverFormatter.currency(data.todayCost),
-                    valueTint: tint)
-                MetricCard(
-                    title: L("dashboard.volume.avg_covered"),
-                    value: PopoverFormatter.currency(data.custoPorDiaComUso),
-                    note: L("dashboard.avg.divisor_covered", data.diasComDado),
-                    valueTint: tint)
-                MetricCard(
-                    title: L("dashboard.volume.avg_window"),
-                    value: PopoverFormatter.currency(data.custoPorDiaDaJanela),
-                    note: L("dashboard.avg.divisor_window", data.spanDays),
-                    valueTint: tint)
-                MetricCard(
-                    title: L("dashboard.summary.projection"),
-                    value: PopoverFormatter.currency(data.monthProjection),
-                    valueTint: tint)
-            }
-        }
-    }
-}
-
 // MARK: - KPI cards (AC2)
 
 /// The delta-vs-average badge model (EXB-5.7 §2). Carries the *reason* there is no number, so the
 /// badge never has to guess whether a missing delta means "sem uso hoje" or "cedo demais".
-private struct DeltaBadgeModel {
+struct DeltaBadgeModel {
+    /// What the badge compares against: the daily average (today card) or the previous stretch
+    /// (summary, EXB-6.4). Only the wording changes.
+    enum Contexto { case media, periodo }
+
     let state: DailyDeltaState
+    var contexto: Contexto = .media
 
     /// The percentage integer (rounded) shown in the label, or `nil` when there is nothing to compare.
     var percent: Int? {
@@ -676,7 +709,7 @@ private struct DeltaBadgeModel {
 ///
 /// The `note` is where an average writes its own denominator. All numerics use `.monospacedDigit()` to
 /// avoid layout jitter.
-private struct MetricCard: View {
+struct MetricCard: View {
     let title: String
     let value: String
     var note: String? = nil
@@ -821,10 +854,16 @@ struct DiaEntreParesStrip: View {
 
 /// The today-vs-average comparison badge (EXB-4.5 AC2). Colour encodes direction: above-average spend
 /// is warm (orange/red), below-average is green, on-average / no-data is neutral.
-private struct DeltaBadge: View {
+struct DeltaBadge: View {
     let model: DeltaBadgeModel
 
     private var text: String {
+        if model.contexto == .periodo {
+            guard let percent = model.percent else { return L("dashboard.summary.vs_previous.no_base") }
+            if percent > 0 { return L("dashboard.summary.vs_previous.up", percent) }
+            if percent < 0 { return L("dashboard.summary.vs_previous.down", -percent) }
+            return L("dashboard.summary.vs_previous.flat")
+        }
         switch model.state {
         case .semUsoHoje: return L("dashboard.insights.delta.no_usage")
         case .cedoDemais: return L("dashboard.insights.delta.too_early")
@@ -1396,11 +1435,45 @@ private struct StackedTokensChart: View {
 
 // MARK: - Model breakdown: donut + table (AC5)
 
+/// The single ordering metric of the model breakdown (EXB-6.4): the donut's angle and the table's row
+/// order always use the same one, so the biggest slice is always the first row.
+enum ModelMetric: String, CaseIterable, Identifiable, Sendable {
+    case tokens
+    case custo
+
+    var id: String { rawValue }
+
+    var rotulo: String {
+        switch self {
+        case .tokens: L("dashboard.models.metric.tokens")
+        case .custo: L("dashboard.models.metric.cost")
+        }
+    }
+
+    func valor(_ row: DashboardModelEntry) -> Double {
+        switch self {
+        case .tokens: Double(row.inputTokens + row.outputTokens)
+        case .custo: row.costUSD
+        }
+    }
+
+    /// Descending by the metric; ties by name so the order is stable.
+    static func ordenados(_ rows: [DashboardModelEntry], por metrica: ModelMetric) -> [DashboardModelEntry] {
+        rows.sorted {
+            let a = metrica.valor($0), b = metrica.valor($1)
+            return a != b ? a > b : $0.model < $1.model
+        }
+    }
+}
+
 // Internal (not private) so the README screenshot renderer can draw it with sample data.
 struct ModelBreakdownSection: View {
     @Environment(\.popoverTheme) private var popoverTheme
     let data: DashboardData
-    private var rows: [DashboardModelEntry] { data.byModel }
+    /// EXB-6.4: one metric orders the donut AND the table, chosen by the selector.
+    @State var metrica: ModelMetric = .tokens
+    var mostraSeletor = true
+    private var rows: [DashboardModelEntry] { ModelMetric.ordenados(data.byModel, por: metrica) }
 
     /// The model under the pointer — shared so the donut sector and the table row light up together
     /// (EXB-3.7 AC7, cross-highlight). Set from either the donut hover or a table-row hover.
@@ -1419,11 +1492,19 @@ struct ModelBreakdownSection: View {
             DashboardSectionHeader(
                 title: L("dashboard.models.title"),
                 subtitle: DashboardFormat.rangeSubtitle(data.rangeStart, data.rangeEnd),
-                explanation: L("dashboard.models.sub"))
+                explanation: metrica == .tokens ? L("dashboard.models.sub") : L("dashboard.models.sub.cost"))
+            if mostraSeletor {
+                Picker("", selection: $metrica) {
+                    ForEach(ModelMetric.allCases) { Text($0.rotulo).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
             HStack(alignment: .top, spacing: 16) {
-                ModelCostDonut(rows: rows, scale: colorScale, totalCost: totalCost, hoveredModel: $hoveredModel)
+                ModelCostDonut(rows: rows, metrica: metrica, scale: colorScale, totalCost: totalCost, hoveredModel: $hoveredModel)
                     .frame(width: 160, height: 160)
-                ModelBreakdownTable(rows: rows, scale: colorScale, hoveredModel: $hoveredModel)
+                ModelBreakdownTable(rows: rows, scale: colorScale, totalCost: totalCost, hoveredModel: $hoveredModel)
             }
         }
     }
@@ -1436,6 +1517,7 @@ struct ModelBreakdownSection: View {
 /// The hover binds upward so the matching table row highlights in lockstep.
 private struct ModelCostDonut: View {
     let rows: [DashboardModelEntry]
+    let metrica: ModelMetric
     let scale: (domain: [String], range: [Color])
     let totalCost: Double
     @Binding var hoveredModel: String?
@@ -1447,7 +1529,7 @@ private struct ModelCostDonut: View {
     private func model(forAngleValue value: Double) -> String? {
         var running = 0.0
         for row in rows {
-            running += row.costUSD
+            running += metrica.valor(row)
             if value <= running { return row.model }
         }
         return rows.last?.model
@@ -1461,7 +1543,7 @@ private struct ModelCostDonut: View {
     var body: some View {
         Chart(rows) { row in
             SectorMark(
-                angle: .value(L("dashboard.models.col.cost"), row.costUSD),
+                angle: .value(metrica.rotulo, metrica.valor(row)),
                 innerRadius: .ratio(0.6),
                 angularInset: hoveredModel == row.model ? 0.5 : 1.5)
                 .foregroundStyle(by: .value(L("dashboard.models.col.model"), row.model))
@@ -1526,7 +1608,14 @@ private struct DonutTooltip: View {
 private struct ModelBreakdownTable: View {
     let rows: [DashboardModelEntry]
     let scale: (domain: [String], range: [Color])
+    let totalCost: Double
     @Binding var hoveredModel: String?
+
+    /// `"42%"` — the row's share of the window's cost (EXB-6.4).
+    static func partDoCusto(_ custo: Double, total: Double) -> String {
+        guard total > 0 else { return "—" }
+        return "\(Int((custo / total * 100).rounded()))%"
+    }
 
     /// Colour for a model from the shared scale (matches the donut swatch, AC12).
     private func color(for model: String) -> Color {
@@ -1547,6 +1636,8 @@ private struct ModelBreakdownTable: View {
                     .frame(width: 70, alignment: .trailing)
                 Text(L("dashboard.models.col.cost"))
                     .frame(width: 70, alignment: .trailing)
+                Text(L("dashboard.models.col.cost_share"))
+                    .frame(width: 56, alignment: .trailing)
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
@@ -1571,6 +1662,10 @@ private struct ModelBreakdownTable: View {
                     Text(PopoverFormatter.currency(row.costUSD))
                         .frame(width: 70, alignment: .trailing)
                         .monospacedDigit()
+                    Text(Self.partDoCusto(row.costUSD, total: totalCost))
+                        .frame(width: 56, alignment: .trailing)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
                 }
                 .font(.callout)
                 .padding(.vertical, 2)
@@ -1834,10 +1929,30 @@ private struct ModelsByDayTooltip: View {
 
 // MARK: - Project breakdown table (AC6)
 
-private struct ProjectBreakdownTable: View {
+/// Projects by volume, with each one's share and the running total (EXB-6.4). The cumulative column
+/// is the Pareto reading that used to be a chart of its own: the row where it crosses 80% is how many
+/// projects carry the window. Shares come from `ParetoCurva`, the same derivation the chart used.
+struct ProjectBreakdownTable: View {
     let rows: [ProjectUsageEntry]
 
+    /// `projeto → (share, cumulative)` in 0…1, from the Pareto derivation.
+    static func participacoes(_ rows: [ProjectUsageEntry]) -> [String: (parte: Double, acumulado: Double)] {
+        let curva = ParetoCurva(projetos: rows)
+        guard curva.total > 0 else { return [:] }
+        var mapa: [String: (Double, Double)] = [:]
+        for ponto in curva.pontos {
+            mapa[ponto.projeto] = (Double(ponto.tokens) / Double(curva.total), ponto.acumulado)
+        }
+        return mapa
+    }
+
+    private static func pct(_ v: Double?) -> String {
+        guard let v else { return "—" }
+        return "\(Int((v * 100).rounded()))%"
+    }
+
     var body: some View {
+        let partes = Self.participacoes(rows)
         VStack(alignment: .leading, spacing: 8) {
             DashboardSectionHeader(
                 title: L("dashboard.projects.title"),
@@ -1850,6 +1965,10 @@ private struct ProjectBreakdownTable: View {
                     .frame(width: 80, alignment: .trailing)
                 Text(L("dashboard.projects.col.tokens"))
                     .frame(width: 80, alignment: .trailing)
+                Text(L("dashboard.projects.col.share"))
+                    .frame(width: 50, alignment: .trailing)
+                Text(L("dashboard.projects.col.cumulative"))
+                    .frame(width: 60, alignment: .trailing)
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
@@ -1857,6 +1976,7 @@ private struct ProjectBreakdownTable: View {
             Divider()
 
             ForEach(rows) { row in
+                let parte = partes[row.project]
                 HStack(spacing: 8) {
                     Text(row.project)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1868,6 +1988,13 @@ private struct ProjectBreakdownTable: View {
                     Text(PopoverFormatter.tokenCount(row.totalTokens))
                         .frame(width: 80, alignment: .trailing)
                         .monospacedDigit()
+                    Text(Self.pct(parte?.parte))
+                        .frame(width: 50, alignment: .trailing)
+                        .monospacedDigit()
+                    Text(Self.pct(parte?.acumulado))
+                        .frame(width: 60, alignment: .trailing)
+                        .monospacedDigit()
+                        .foregroundStyle((parte?.acumulado ?? 1) <= 0.8 ? Color.primary : Color.secondary)
                 }
                 .font(.callout)
             }
@@ -1877,112 +2004,6 @@ private struct ProjectBreakdownTable: View {
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color(nsColor: .controlBackgroundColor)))
-    }
-}
-
-// MARK: - Project concentration curve (EXB-5.10 G1)
-
-/// How much of the volume sits in how few projects.
-///
-/// **Why this is not the table above it.** The concentration is already inside the project table —
-/// the rows are ordered by volume — but reading it out means summing a hundred numbers by eye, and
-/// information per pixel of an ordered list falls towards zero as the list grows. The curve turns the
-/// same rows into one actionable count, and it is decisive in **both** directions: a crossing at rank
-/// 7 says attention has an address; a crossing at rank 45 says there is no lever at the project level
-/// at all and the answer lies somewhere else. The table asserts neither.
-struct ProjectParetoChart: View {
-    @Environment(\.popoverTheme) private var popoverTheme
-    let curva: ParetoCurva
-
-    private var eixoRank: String { L("dashboard.pareto.axis.rank") }
-    private var eixoShare: String { L("dashboard.pareto.axis.share") }
-
-    /// The sentence the whole chart exists to produce. `nil` when there is nothing to concentrate.
-    private var manchete: String? {
-        guard let rank = curva.rankNoLimiar else { return nil }
-        return L("dashboard.pareto.crossing",
-                 rank, curva.quantidadeDeProjetos, Int((curva.limiar * 100).rounded()))
-    }
-
-    /// Tick stride over the rank axis, capped at ~8 labels — the same rule the day axis uses, for the
-    /// same reason: a label per project is unreadable by rank 30 and illegible by rank 101.
-    private var passoDoRank: Int {
-        Swift.max(1, Int((Double(Swift.max(1, curva.quantidadeDeProjetos)) / 8.0).rounded(.up)))
-    }
-
-    private var valoresDoRank: [Int] {
-        stride(from: 1, through: Swift.max(1, curva.quantidadeDeProjetos), by: passoDoRank).map { $0 }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            DashboardSectionHeader(
-                title: L("dashboard.pareto.title"),
-                explanation: L("dashboard.pareto.sub"))
-            if curva.pontos.isEmpty {
-                ChartEmptyState(systemImage: "chart.line.uptrend.xyaxis", message: L("dashboard.pareto.empty"))
-            } else {
-                if let manchete {
-                    Text(manchete)
-                        .font(.system(.callout, design: .rounded).bold().monospacedDigit())
-                        .foregroundStyle(PopoverStyle.accent(for: self.popoverTheme))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                chart
-            }
-        }
-    }
-
-    private var chart: some View {
-        Chart {
-            ForEach(curva.pontos) { ponto in
-                LineMark(
-                    x: .value(eixoRank, ponto.rank),
-                    y: .value(eixoShare, ponto.acumulado))
-                    .foregroundStyle(PopoverStyle.accent(for: self.popoverTheme))
-                    .interpolationMethod(.monotone)
-            }
-            RuleMark(y: .value(eixoShare, curva.limiar))
-                .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                .foregroundStyle(.secondary.opacity(0.8))
-                // Leading, not trailing: on the right the label lands among the y-axis percentages
-                // and reads as a fourth tick between "75%" and "100%".
-                .annotation(position: .top, alignment: .leading) {
-                    Text(L("dashboard.pareto.threshold", Int((curva.limiar * 100).rounded())))
-                        .font(.system(size: 9, design: .rounded).monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-            if let rank = curva.rankNoLimiar {
-                RuleMark(x: .value(eixoRank, rank))
-                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                    .foregroundStyle(.secondary.opacity(0.8))
-            }
-        }
-        .chartYScale(domain: 0 ... 1)
-        .chartXScale(domain: 1 ... Swift.max(1, curva.quantidadeDeProjetos))
-        .chartXAxis {
-            AxisMarks(values: valoresDoRank) { value in
-                AxisGridLine()
-                AxisValueLabel {
-                    if let rank = value.as(Int.self) {
-                        Text("\(rank)")
-                    }
-                }
-            }
-        }
-        .chartYAxis {
-            AxisMarks(values: [0, 0.25, 0.5, 0.75, 1.0]) { value in
-                AxisGridLine()
-                AxisValueLabel {
-                    if let fracao = value.as(Double.self) {
-                        Text("\(Int((fracao * 100).rounded()))%")
-                    }
-                }
-            }
-        }
-        .chartXAxisLabel(eixoRank)
-        .chartLegend(.hidden)
-        .frame(height: 110)
     }
 }
 
@@ -2343,190 +2364,6 @@ struct CalendarLegend: View {
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
         }
-    }
-}
-
-// MARK: - Project composition flow (EXB-6.1 V3)
-
-/// Which project **rose** — the question `byProject` folds the date away from and cannot answer.
-///
-/// The band identities come from `rankedProjects`, ranked over the whole archive, and are used
-/// exactly as given: a top-N recomputed over the slice would re-rank mid-drag and a colour would
-/// change owner while the Senhor was looking at it. The aggregate band is a **sum**, so the stack
-/// height is the day's real total and agrees with every other total on the screen.
-struct ProjectFlowChart: View {
-    @Environment(\.popoverTheme) private var popoverTheme
-    let fluxo: FluxoDeProjetos
-
-    private var eixoData: String { L("dashboard.chart.axis.date") }
-    private var eixoTokens: String { L("dashboard.flow.axis") }
-    private var eixoProjeto: String { L("dashboard.projects.col.project") }
-
-    /// The day under the pointer — drives the rule + the per-band trajectory tooltip.
-    @State private var diaSelecionado: Date?
-
-    /// Colours follow the **global** rank, never the position in `bandas`: a band absent from the
-    /// slice shortens that array, and a colour keyed on it would shift for every band after the gap.
-    private var escala: (domain: [String], range: [Color]) {
-        (fluxo.dominio, fluxo.bandas.map { banda in
-            banda.ehAgregado
-                ? Color.secondary.opacity(0.45)
-                : DashboardPalette.color(at: banda.ordemGlobal, theme: self.popoverTheme)
-        })
-    }
-
-    private var diaAlvo: Date? {
-        guard let diaSelecionado else { return nil }
-        let alvo = Calendar.current.startOfDay(for: diaSelecionado)
-        return fluxo.dias.contains(alvo) ? alvo : nil
-    }
-
-    private var passoDoEixo: Int {
-        DashboardFormat.axisStride(forDays: Swift.max(1, fluxo.dias.count))
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            DashboardSectionHeader(
-                title: L("dashboard.flow.title"),
-                subtitle: DashboardFormat.rangeSubtitle(fluxo.dias.first, fluxo.dias.last),
-                explanation: L("dashboard.flow.sub"))
-            if fluxo.vaiDesenhar {
-                chart
-                // The cut states itself. A top-8 that does not say it is a top-8 is an instrument
-                // that lies, and the aggregate band's height is exactly the evidence of the cut.
-                if fluxo.truncado {
-                    Text(L("dashboard.flow.truncated", fluxo.projetosAgregados))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            } else {
-                ChartEmptyState(systemImage: "chart.line.uptrend.xyaxis", message: L("dashboard.flow.empty"))
-            }
-        }
-    }
-
-    private var chart: some View {
-        Chart {
-            ForEach(fluxo.pontos) { ponto in
-                AreaMark(
-                    x: .value(eixoData, ponto.dia, unit: .day),
-                    y: .value(eixoTokens, ponto.tokens))
-                    .foregroundStyle(by: .value(eixoProjeto, ponto.banda))
-                    // Monotone rather than a straight join: the daily series is spiky, and the corner
-                    // artefacts of a linear stack read as movement the data does not have.
-                    .interpolationMethod(.monotone)
-            }
-            if let diaAlvo {
-                RuleMark(x: .value(eixoData, diaAlvo, unit: .day))
-                    .foregroundStyle(.secondary.opacity(0.5))
-                    .annotation(position: .top, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
-                        ProjectFlowTooltip(
-                            dia: diaAlvo,
-                            total: fluxo.total(em: diaAlvo),
-                            linhas: fluxo.linhas(em: diaAlvo),
-                            primeiroDia: diaAlvo == fluxo.dias.first)
-                    }
-            }
-        }
-        .chartForegroundStyleScale(domain: escala.domain, range: escala.range)
-        .chartXAxis {
-            AxisMarks(values: .stride(by: .day, count: passoDoEixo)) { value in
-                AxisGridLine()
-                AxisValueLabel {
-                    if let date = value.as(Date.self) {
-                        Text(DashboardFormat.dayMonth.string(from: date))
-                    }
-                }
-            }
-        }
-        .chartYAxis {
-            AxisMarks { value in
-                AxisGridLine()
-                AxisValueLabel {
-                    if let tokens = value.as(Int.self) {
-                        Text(DashboardFormat.axisTokens(tokens))
-                    }
-                }
-            }
-        }
-        .chartYAxisLabel(eixoTokens)
-        .chartLegend(.visible)
-        .chartOverlay { proxy in
-            GeometryReader { geo in
-                Rectangle().fill(.clear).contentShape(Rectangle())
-                    .onContinuousHover { phase in
-                        switch phase {
-                        case let .active(location):
-                            guard let plotAnchor = proxy.plotFrame else { diaSelecionado = nil; return }
-                            let origin = geo[plotAnchor].origin
-                            diaSelecionado = proxy.value(atX: location.x - origin.x, as: Date.self)
-                        case .ended:
-                            diaSelecionado = nil
-                        }
-                    }
-            }
-        }
-        .frame(height: 220)
-    }
-}
-
-/// The flow's hover tooltip — and the mitigation for the one distortion a stacked area cannot design
-/// away: each band's **own** value and its **own** day-over-day change, free of the neighbour's
-/// movement that makes a flat band look like a rising one.
-private struct ProjectFlowTooltip: View {
-    let dia: Date
-    let total: Int
-    let linhas: [LinhaDoFluxo]
-    /// `true` on the first day of the axis, where there is no previous day — stated rather than shown
-    /// as a change of zero, which would assert a stability nobody measured.
-    let primeiroDia: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(DashboardFormat.dayMonth.string(from: dia))
-                .font(.caption.bold())
-            Text(L("dashboard.flow.tooltip.total", DashboardFormat.tokenCount(total)))
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            ForEach(linhas.prefix(6)) { linha in
-                HStack(spacing: 8) {
-                    Text(linha.banda)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer(minLength: 8)
-                    Text(DashboardFormat.tokenCount(linha.tokens))
-                        .font(.system(.caption2, design: .rounded).monospacedDigit())
-                    if let variacao = linha.variacao {
-                        Text(Self.sinal(variacao))
-                            .font(.system(.caption2, design: .rounded).monospacedDigit())
-                            .foregroundStyle(variacao >= 0 ? Color.green : Color.orange)
-                            .frame(width: 54, alignment: .trailing)
-                    }
-                }
-            }
-            if primeiroDia {
-                Text(L("dashboard.flow.tooltip.first_day"))
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .frame(minWidth: 190, maxWidth: 260)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(.separator, lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.15), radius: 5, y: 2)
-    }
-
-    /// A signed token count. The sign is written even for zero-crossing values, because "0" and "+0"
-    /// answer different questions and the reader is here for the direction.
-    static func sinal(_ variacao: Int) -> String {
-        let corpo = DashboardFormat.tokenCount(abs(variacao))
-        return variacao >= 0 ? "+\(corpo)" : "−\(corpo)"
     }
 }
 

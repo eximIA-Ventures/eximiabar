@@ -105,15 +105,6 @@
 "dashboard.export.csv"             = "Exportar CSV";
 
 // EXB-6.8 — o botão de exportar oferece três formatos, escolhidos no acessório do painel de salvar
-"dashboard.export"                 = "Exportar…";
-"dashboard.export.format"          = "Formato:";
-"dashboard.export.format.csv"      = "CSV";
-"dashboard.export.format.xlsx"     = "Planilha";
-"dashboard.export.format.pack"     = "Pacote";
-"dashboard.export.hint.csv"        = "Dados diários crus, uma linha por dia.";
-"dashboard.export.hint.xlsx"       = "Planilha do Excel: abas, gráficos e as ressalvas dentro do arquivo.";
-"dashboard.export.hint.pack"       = "Painel interativo + planilha + CSVs em grão fino + arquivo de conexão do Power BI.";
-"dashboard.export.period"          = "Exportando: %@";
 "dashboard.export.failed"          = "Não foi possível gravar a exportação.";
 
 "dashboard.summary.avg_daily"      = "Média diária";
@@ -400,7 +391,6 @@
 
 // Seções nomeadas: qual grandeza é a principal, e qual é estimativa.
 "dashboard.section.volume"         = "Volume, a grandeza principal";
-"dashboard.section.cost"           = "Custo estimado, secundário";
 "dashboard.section.charts"         = "Gráficos";
 
 // Volume.
@@ -412,8 +402,6 @@
 
 // Custo: a ressalva viaja junto dos números, não num rodapé.
 "dashboard.cost.caveat"            = "Estimativa de valor consumido. O plano é por assinatura, isto não é fatura, e o custo não precifica tokens de cache.";
-"dashboard.cost.total"             = "Custo estimado do período";
-"dashboard.cost.today"             = "Custo estimado hoje";
 
 // Uma frase por gráfico, dizendo o que ele desenha e onde o eixo começa.
 "dashboard.chart.tokens.sub"       = "Entrada, saída e cache empilhados. O eixo começa na primeira data com dado.";
@@ -426,13 +414,6 @@
 /* MARK: - Painel: quatro representações sobre dado que já existia (EXB-5.10) */
 
 // G1 — curva de concentração de projetos (Pareto).
-"dashboard.pareto.title"           = "Concentração dos projetos";
-"dashboard.pareto.sub"             = "Projetos ordenados do maior para o menor, com o volume acumulado. A leitura é decisiva nos dois sentidos: poucos projetos significam que a atenção tem endereço, muitos significam que não há alavanca no nível de projeto.";
-"dashboard.pareto.crossing"        = "%1$d de %2$d projetos concentram %3$d%% do volume";
-"dashboard.pareto.threshold"       = "%d%%";
-"dashboard.pareto.axis.rank"       = "Projetos, do maior ao menor";
-"dashboard.pareto.axis.share"      = "Volume acumulado";
-"dashboard.pareto.empty"           = "Nenhum projeto com volume nesta janela.";
 
 // G2 — composição normalizada a 100%: alternância do mesmo gráfico, não seção nova.
 "dashboard.models_by_day.mode.absolute" = "Absoluto";
@@ -492,14 +473,6 @@
 "dashboard.cascade.others.aggregate" = "\"Outros\" inclui o agregado do próprio arquivo, que já reúne os projetos fora das oito faixas.";
 
 // V3 — fluxo de composição por projeto.
-"dashboard.flow.title"             = "Fluxo dos projetos";
-"dashboard.flow.sub"               = "Área empilhada com base fixa no zero, uma faixa por projeto. O ranking vem do acervo inteiro, então arrastar o período não troca o dono de uma cor. A base de cada faixa sobe com a de baixo: para o valor próprio de cada projeto e a variação dele, veja a dica ao passar o ponteiro.";
-"dashboard.flow.axis"              = "Tokens no dia";
-"dashboard.flow.others"            = "Outros";
-"dashboard.flow.truncated"         = "Oito faixas por projeto; os outros %d projetos desta janela estão somados em \"Outros\".";
-"dashboard.flow.tooltip.total"     = "Total %@";
-"dashboard.flow.tooltip.first_day" = "Primeiro dia do eixo: não há dia anterior para comparar.";
-"dashboard.flow.empty"             = "Nenhum projeto com volume nesta janela.";
 
 /* EXB-6.3 — what ate the week */
 "dashboard.period.since_reset" = "Desde o reset";
@@ -516,3 +489,21 @@
 "dashboard.week.agent.main" = "sessão principal";
 "dashboard.week.agent.unnamed" = "subagente (sem nome)";
 "dashboard.week.subagents_total" = "Subagentes somados: %d%%";
+
+/* EXB-6.4 — summary, single-metric breakdown, activity grid */
+"dashboard.summary.title" = "Resumo";
+"dashboard.summary.spent" = "Gasto no período";
+"dashboard.summary.vs_previous" = "vs período anterior";
+"dashboard.summary.vs_previous.note" = "contra os %d dias anteriores";
+"dashboard.summary.vs_previous.no_base" = "sem período anterior completo";
+"dashboard.summary.vs_previous.up" = "%d%% a mais";
+"dashboard.summary.vs_previous.down" = "%d%% a menos";
+"dashboard.summary.vs_previous.flat" = "igual ao anterior";
+"dashboard.activity.week" = "Hora × dia";
+"dashboard.activity.year" = "Ano";
+"dashboard.models.metric.tokens" = "Tokens";
+"dashboard.models.metric.cost" = "Custo";
+"dashboard.models.col.cost_share" = "% custo";
+"dashboard.projects.col.share" = "%";
+"dashboard.projects.col.cumulative" = "% acum.";
+"dashboard.models.sub.cost" = "Ordenado pelo custo estimado. A rosca e a tabela seguem a mesma ordem.";

@@ -8,12 +8,6 @@ import Foundation
 /// change could leave behind; deriving them keeps one source and makes the derivation itself
 /// assertable.
 ///
-/// **Why the names mirror `PainelData`.** `painel.html` publishes exactly these figures
-/// (`PainelData.tokensPorDiaDaJanela`, `PainelCobertura.diasSemDado`, …), and the app's own screen now
-/// publishes them too. Two independent derivations of the same number is how a panel and the screen
-/// that exported it end up disagreeing — with nobody able to say which one is lying. So the adapter
-/// that fills `PainelData` reads from here rather than re-dividing.
-///
 /// **One definition of "covered", not two.** `coberto` is the flag `DashboardData.build` set from the
 /// coverage anchor (`coverageStart`), and it is the same flag the charts filter on when they refuse to
 /// draw a day. So the block at the top of the screen announces precisely the span the charts below it

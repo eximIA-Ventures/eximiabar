@@ -123,8 +123,6 @@ enum DesignTokens {
 
     /// "eximIA Meter" amber accent `#EB9A2C` — the meter theme's brand colour, in place of terracotta.
     static let meterAccent = Color(red: 235 / 255, green: 154 / 255, blue: 44 / 255)
-    /// Lighter amber for thin headline glyphs in the meter theme: `#F2A93E`.
-    static let meterAccentText = Color(red: 242 / 255, green: 169 / 255, blue: 62 / 255)
     /// Deep near-black surface behind the meter theme's card: `#0C0C0E`. Painted over the window
     /// material only when the meter skin is active, to get the "eximIA Meter" black depth.
     static let meterSurface = Color(red: 12 / 255, green: 12 / 255, blue: 14 / 255)

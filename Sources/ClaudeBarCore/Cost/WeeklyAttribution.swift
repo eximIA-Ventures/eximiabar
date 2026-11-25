@@ -86,9 +86,10 @@ public enum WeeklyAttributionScanner {
         // One file per worker: a week here is ~170 files / ~1 GB, and the decode is the cost. Each
         // file dedups its own streamed chunks (the last, cumulative chunk wins); the merge keeps the
         // first file's copy of a key that appears in two files.
-        let results = Results(count: files.count)
-        DispatchQueue.concurrentPerform(iterations: files.count) { index in
-            let url = files[index]
+        let candidates = files
+        let results = Results(count: candidates.count)
+        DispatchQueue.concurrentPerform(iterations: candidates.count) { index in
+            let url = candidates[index]
             let fileAgent = Self.subagentName(for: url, fileManager: FileManager())
             var keyed: [String: (offset: Int64, entry: Entry)] = [:]
             var loose: [Entry] = []

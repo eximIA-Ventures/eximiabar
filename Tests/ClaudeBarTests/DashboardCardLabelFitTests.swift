@@ -52,8 +52,8 @@ struct DashboardCardLabelFitTests {
         "dashboard.summary.today",
         "dashboard.summary.last_7_days",
         "dashboard.summary.projection",
-        "dashboard.cost.total",
-        "dashboard.cost.today",
+        "dashboard.summary.spent",
+        "dashboard.summary.vs_previous",
         "dashboard.insights.cache_hit.title",
         "dashboard.insights.month.title",
     ]

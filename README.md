@@ -30,6 +30,11 @@ computed on your Mac from the session logs Claude Code already writes.
 </p>
 <p align="center"><sub>Left: a Max plan (5-hour session + weekly + Opus). Right: an Ultra plan, which has no 5-hour limit, so the weekly window leads. Sample data.</sub></p>
 
+<p align="center">
+  <img src="docs/images/popover-multi-account.png" width="342" alt="Popover focused on a second account: the header names the account the menu bar measures, and CLI/estimated numbers carry a tilde">
+</p>
+<p align="center"><sub>Focus on a second account: the header says which account the menu bar measures, the reading came from the CLI fallback and part of the cost was priced by model family, so every such number carries <code>~</code>. Sample data.</sub></p>
+
 ## Features
 
 - **Live rate-limit meter** in the menu bar: the 5-hour session, the weekly window and the
@@ -37,20 +42,33 @@ computed on your Mac from the session logs Claude Code already writes.
 - **Claude Ultra aware.** Ultra has no 5-hour limit. When the usage response omits
   `five_hour` (or sends it as `null`), exímIABar shows no empty session bar, no reset line and
   no session alert, and the menu bar falls back to the weekly window.
-- **Pace and forecasts.** See whether you are ahead of or behind an even burn, and roughly when
-  a window runs out at the current rate.
+- **Pace in plain words.** Each bar says what the pace means: "At this pace, runs out ~Thu 11h"
+  or "~10% left at reset". The expected-use mark sits on the bar, with a tooltip. Colour follows
+  gravity: neutral when healthy, amber behind pace or past 70%, red only when the window runs out
+  before the reset or passes 90%. Model colours never use amber or red.
+- **Numbers that say when they are estimates.** A reading scraped from the `claude` CLI, or a cost
+  partly priced by model family (an unknown model id), is shown with `~` in the menu bar and the
+  popover, with the estimated share written under the cost.
 - **Value of use.** Estimated API-equivalent spend for today and the last 30 days, compared
   with your plan price.
-- **Local cost dashboard.** Spend and tokens by model, by day and by project, a heatmap, a
-  monthly comparison, and CSV / XLSX / HTML export.
+- **Local cost dashboard.** A three-number summary (spent, month projection, change vs the
+  previous period), spend and tokens by model (one ordering for donut and table, tokens or cost),
+  by day and by project (with share and cumulative %), an hour×weekday / yearly activity grid, and
+  CSV export.
+- **What ate the week.** The "Since reset" period splits the weekly limit used since the last
+  reset by project and by agent (main session vs. each sub-agent), as an estimated proportion.
 - **Current model pricing.** Opus 5.5, Sonnet 5.5, Haiku 5.5, Fable 5.2 and the 4.x line are
   priced individually, including cache reads and cache writes (see below).
 - **Multiple Claude accounts.** Accounts are captured as you log in and kept in a read-only
-  roster; switching focus never changes the menu bar meter, which stays on the logged-in account.
+  roster; switching focus never changes the menu bar meter, which stays on the logged-in account,
+  and the popover says "Menu bar shows: <account>" whenever the two differ.
 - **Codex pane.** When `~/.codex/auth.json` exists, Codex session and weekly usage appear
   alongside Claude. No Codex login, no pane and no error.
 - **English and Portuguese (Brazil)** interface.
 
+<p align="center">
+  <img src="docs/images/dashboard-since-reset.png" width="760" alt="Dashboard since the reset: summary and what ate the week, by project and by agent">
+</p>
 <p align="center">
   <img src="docs/images/dashboard-models.png" width="760" alt="Dashboard model breakdown: donut and table by model">
 </p>

@@ -151,6 +151,24 @@ struct SemanaAtribuida: Equatable, Sendable {
     let inicioConhecido: Bool
 }
 
+/// The stretch before the one on screen, for the summary's variation (EXB-6.4).
+struct PeriodoAnterior: Equatable, Sendable {
+    let custo: Double
+    let tokens: Int
+    /// `true` only when the source watched every day of that stretch — a partial stretch would make
+    /// any variation a comparison against days nobody observed.
+    let completo: Bool
+
+    static func de(_ analytics: UsageAnalytics, intervalo: ClosedRange<Date>, calendar: Calendar = .current) -> PeriodoAnterior {
+        let dias = DashboardSpan(inicio: intervalo.lowerBound, fim: intervalo.upperBound, calendar: calendar).dias(calendar: calendar)
+        let cobertos = analytics.coveredDays.filter { $0 >= intervalo.lowerBound && $0 <= intervalo.upperBound }.count
+        return PeriodoAnterior(
+            custo: analytics.byDayModel.reduce(0) { $0 + $1.cost },
+            tokens: analytics.byDayModel.reduce(0) { $0 + $1.inputTokens + $1.outputTokens },
+            completo: cobertos >= dias)
+    }
+}
+
 /// What the dashboard knows about the live weekly window (EXB-6.3).
 struct SemanaInfo: Equatable, Sendable {
     let resetsAt: Date
@@ -162,6 +180,15 @@ struct DashboardData: Equatable, Sendable {
     /// EXB-6.3: present only for `.sinceReset`. Attached after `build`, because it is read from disk
     /// by its own door and is not a fold of the analytics archive.
     var semana: SemanaAtribuida? = nil
+    /// EXB-6.4: the equal-length stretch before this one, when the source could read it.
+    var anterior: PeriodoAnterior? = nil
+
+    /// Spend on screen against the stretch before it. `.semBase` unless that stretch was watched in
+    /// full and spent something.
+    var variacaoVsAnterior: DailyDeltaState {
+        guard let anterior, anterior.completo, anterior.custo > 0 else { return .semBase }
+        return .comparado((totalCost - anterior.custo) / anterior.custo)
+    }
 
     /// The slice of time this data covers (EXB-5.8 §8) — the day axis, and the range the Senhor is
     /// looking at whether he got there by a shortcut or by dragging.

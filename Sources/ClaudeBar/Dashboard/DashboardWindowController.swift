@@ -23,10 +23,7 @@ final class DashboardModel {
     var onPeriodChange: (@MainActor (DashboardPeriod) -> Void)?
     /// Invoked when a range is dragged over the timeline (EXB-5.8 §8).
     var onRangeChange: (@MainActor (ClosedRange<Date>) -> Void)?
-    /// Invoked by the toolbar's export button (wired by the controller, AC9 / EXB-6.8).
-    ///
-    /// Named for the action, not for one of its outcomes: the button used to write a CSV and now opens
-    /// a panel where the format is chosen.
+    /// Invoked by the toolbar's export button (wired by the controller). Saves the slice as CSV.
     var onExport: (@MainActor () -> Void)?
 
     func selectPeriod(_ period: DashboardPeriod) {
@@ -282,83 +279,36 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    // MARK: - Export (AC9 / EXB-6.8)
+    // MARK: - Export (EXB-6.4: CSV only)
 
-    /// Present an `NSSavePanel` with a format chooser and write the slice currently on screen.
+    /// Save the slice on screen as CSV.
     ///
-    /// **What changed, and why here.** The button used to write one CSV and swallow any error inside a
-    /// `try?` with the panel already gone. It now offers the three artifacts the export engine builds —
-    /// raw CSV, the formatted workbook, and the whole package — and reports what happened. The chooser
-    /// lives in the panel's `accessoryView` rather than in the toolbar, so the dashboard gains no new
-    /// control; and it is a segmented picker rather than a pop-up list because the anti-freeze gate
-    /// T-R18 bans menu constructs from this target.
-    ///
-    /// **The export follows the screen.** `data` is the `DashboardData` being rendered right now, so a
-    /// dragged range exports that range. There is deliberately no period control in the panel: the
-    /// toolbar already owns the period, and a second control for the same question is how "exportei 30
-    /// dias e veio 7" happens. The accessory says in words which slice is going out.
+    /// EXB-6.4 cut the workbook, the HTML panel and the package: the owner kept one format, the
+    /// daily table a spreadsheet or BI tool opens without help. The export still follows the screen
+    /// (`data` is the `DashboardData` being rendered), still writes off-main and still reports a
+    /// failure instead of swallowing it.
     private func exportar() {
         guard case let .loaded(data) = model.state, let window else { return }
-        let dia = Self.fileDateTag()
-        let recorte = data.fileTag
-        let selecao = ExportFormatoSelecao()
         let panel = NSSavePanel()
         panel.canCreateDirectories = true
-        Self.aplicar(selecao.formato, em: panel, recorte: recorte, dia: dia)
-
-        let acessorio = NSHostingView(rootView: ExportFormatoAccessory(
-            selecao: selecao,
-            legendaDoPeriodo: L("dashboard.export.period", PainelExport.rotuloDaJanela(data)),
-            aoTrocar: { [weak panel] anterior, novo in
-                guard let panel else { return }
-                Self.aplicar(
-                    novo, em: panel, recorte: recorte, dia: dia,
-                    substituindo: anterior, nomeAtual: panel.nameFieldStringValue)
-            }))
-        acessorio.frame = NSRect(x: 0, y: 0, width: 460, height: 96)
-        panel.accessoryView = acessorio
-
+        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.nameFieldStringValue = Self.nomeDoCSV(recorte: data.fileTag, dia: Self.fileDateTag())
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
-            self?.escrever(data, formato: selecao.formato, em: url)
+            self?.escrever(data, em: url)
         }
     }
 
-    /// Point the panel at `formato`: what it accepts, and what it proposes to call the file.
-    ///
-    /// `substituindo` is the format the field was named for. Passing it keeps a name the owner typed
-    /// himself and replaces only the one the app proposed — the rule lives in `ExportNome`, tested
-    /// there rather than guessed here.
-    private static func aplicar(
-        _ formato: ExportFormato,
-        em panel: NSSavePanel,
-        recorte: String,
-        dia: String,
-        substituindo anterior: ExportFormato? = nil,
-        nomeAtual: String = "")
-    {
-        panel.allowedContentTypes = formato.tiposPermitidos
-        if let anterior {
-            panel.nameFieldStringValue = ExportNome.aoTrocar(
-                de: anterior, para: formato, nomeAtual: nomeAtual, recorte: recorte, dia: dia)
-        } else {
-            panel.nameFieldStringValue = ExportNome.padrao(formato: formato, recorte: recorte, dia: dia)
-        }
+    /// `claude-usage-<recorte>-<dia>.csv` — the slice names itself (a shortcut by its tag, a dragged
+    /// range by its dates).
+    nonisolated static func nomeDoCSV(recorte: String, dia: String) -> String {
+        "claude-usage-\(recorte)-\(dia).csv"
     }
 
-    /// Write off-main, then say what happened.
-    ///
-    /// The old path wrote with `try?` and told nobody. For a 90-line CSV that was survivable; for a
-    /// folder of five artifacts a silent failure becomes "cadê meu arquivo?" with no way to answer. So
-    /// success reveals the artifact in the Finder and failure raises the error on the dashboard's own
-    /// window.
-    private func escrever(_ data: DashboardData, formato: ExportFormato, em url: URL) {
-        let versao = Self.versaoDoApp()
-        // The task stays on the main actor and only *awaits* the off-main work, so `self` never
-        // crosses an isolation boundary. Sending a `@MainActor` controller into a detached task is
-        // what strict concurrency rejects — and rightly: the alert and the Finder call below are UI.
+    private func escrever(_ data: DashboardData, em url: URL) {
+        // Stay on the main actor and only await the off-main write, so `self` never crosses actors.
         Task { [weak self] in
-            switch await Self.gravar(data, formato: formato, em: url, versaoDoApp: versao) {
+            switch await Self.gravar(data, em: url) {
             case let .gravado(destino): self?.revelar(destino)
             case let .falhou(mensagem): self?.relatarFalha(mensagem)
             }
@@ -366,25 +316,17 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
     }
 
     /// The outcome of a write, reduced to values that can cross actors.
-    ///
-    /// The error is carried as its message rather than as an `Error`: what the alert needs is the
-    /// sentence, and a `Sendable` payload keeps the hop honest instead of papered over.
     private enum ResultadoDaExportacao: Sendable {
         case gravado(URL)
         case falhou(String)
     }
 
-    /// Bytes and one `FileManager` call, off the main thread (anti-freeze invariant I1).
-    private nonisolated static func gravar(
-        _ data: DashboardData,
-        formato: ExportFormato,
-        em url: URL,
-        versaoDoApp: String) async -> ResultadoDaExportacao
-    {
+    /// Bytes and one write, off the main thread (anti-freeze invariant I1).
+    private nonisolated static func gravar(_ data: DashboardData, em url: URL) async -> ResultadoDaExportacao {
         await Task.detached(priority: .utility) {
             do {
-                return ResultadoDaExportacao.gravado(try PainelExport.escrever(
-                    data, formato: formato, em: url, geradoEm: Date(), versaoDoApp: versaoDoApp))
+                try Data(data.csvExport().utf8).write(to: url, options: .atomic)
+                return ResultadoDaExportacao.gravado(url)
             } catch {
                 return ResultadoDaExportacao.falhou(error.localizedDescription)
             }
@@ -405,11 +347,6 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
         // language the system ships. Adding one would mean shipping a translation of "OK" to lose to
         // the system's.
         alerta.beginSheetModal(for: window)
-    }
-
-    /// `CFBundleShortVersionString`, for the provenance line inside the package.
-    private static func versaoDoApp() -> String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
     }
 
     private static func fileDateTag() -> String {

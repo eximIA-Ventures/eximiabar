@@ -86,7 +86,7 @@ struct ReadmeScreenshotRenderer {
         return DashboardData.build(
             from: analytics,
             span: .ultimos(dias, now: hoje, calendar: calendario),
-            atalho: dias == 30 ? .thirtyDays : nil,
+            atalho: dias == 30 ? .thirtyDays : dias == 5 ? .sinceReset : nil,
             now: hoje)
     }
 
@@ -165,11 +165,18 @@ struct ReadmeScreenshotRenderer {
         escritos["popover-multi-account"] = try Self.escrever(
             UsageCardView(snapshot: focado, actions: UsageCardActions(), workspace: workspace),
             largura: PopoverStyle.panelWidth, nome: "popover-multi-account")
+        var semanal = Self.dados(dias: 5)
+        semanal.semana = Self.semana()
+        semanal.anterior = PeriodoAnterior(custo: semanal.totalCost / 1.18, tokens: 1, completo: true)
         escritos["since-reset"] = try Self.escrever(
-            WeeklyAttributionSection(semana: Self.semana()), largura: 720, nome: "dashboard-since-reset")
+            VStack(alignment: .leading, spacing: 20) {
+                DashboardSummarySection(data: semanal)
+                WeeklyAttributionSection(semana: semanal.semana!)
+            },
+            largura: 720, nome: "dashboard-since-reset")
         let dados = Self.dados(dias: 30)
         escritos["models"] = try Self.escrever(
-            ModelBreakdownSection(data: dados), largura: 720, nome: "dashboard-models")
+            ModelBreakdownSection(data: dados, metrica: .custo, mostraSeletor: false), largura: 720, nome: "dashboard-models")
         escritos["by-day"] = try Self.escrever(
             ModelsByDayChart(data: dados, modoInicial: .absoluto, mostraSeletor: false), largura: 720, nome: "dashboard-models-by-day")
         for (nome, tamanho) in escritos.sorted(by: { $0.key < $1.key }) {

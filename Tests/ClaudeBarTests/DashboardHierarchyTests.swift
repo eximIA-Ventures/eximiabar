@@ -10,12 +10,7 @@ import Testing
 /// 1. **The derivations, in absolute terms.** A fixture where the three plausible divisors — window
 ///    (30), coverage (21) and days-with-usage (5) — are all different, so a wrong divisor produces a
 ///    visibly wrong number instead of coincidentally the right one.
-/// 2. **Agreement with `PainelData`.** The app screen and the exported panel now publish the same
-///    figures; two independent derivations of one number is how they would come to disagree with
-///    nobody able to say which is lying.
-/// 3. **That (2) is not proved by (1) alone.** Equivalence between two paths says they agree, not that
-///    they are right — if both shared a defect they would agree on the defect. So every equivalence
-///    assertion below sits beside an absolute assertion of the same quantity.
+/// (EXB-6.4 removed the exported HTML panel, and with it the app-vs-panel agreement tests.)
 struct DashboardHierarchyTests {
     // MARK: - Fixture
 
@@ -168,99 +163,14 @@ struct DashboardHierarchyTests {
         #expect(data.custoPorDiaDaJanela == 0)
     }
 
-    // MARK: - 2 + 3. Agreement with `PainelData`, each beside an absolute
-
-    /// Fills a `PainelData` the way the panel adapter must: reading the app's derivations, never
-    /// re-deriving them. Everything the panel then computes on top (`diasSemDado`, the four averages)
-    /// has to land on the same numbers the screen shows.
-    private func painel(from data: DashboardData) -> PainelData {
-        let cobertura = PainelCobertura(
-            janelaRotulo: "30 dias",
-            janelaDias: data.spanDays,
-            primeiroDia: data.primeiroDiaComDado,
-            ultimoDia: data.ultimoDiaComDado,
-            diasComDado: data.diasComDado)
-        let indicadores = PainelIndicadores(
-            tokensTotais: data.totalTokens,
-            tokensHoje: data.todayTokens,
-            modeloLiderNome: data.topModelByTokens?.name,
-            modeloLiderTokens: data.topModelByTokens?.tokens ?? 0,
-            taxaAcertoCache: data.cacheHitRate,
-            tokensDeCache: data.tokensDeCache,
-            tokensDeEntrada: data.tokensDeEntrada,
-            horaPico: data.peakHour,
-            custoTotal: data.totalCost,
-            custoHoje: data.todayCost,
-            projecaoMes: data.monthProjection)
-        return PainelData(
-            cobertura: cobertura,
-            indicadores: indicadores,
-            diario: data.dailyCosts.map {
-                PainelDia(
-                    dia: $0.date, entrada: $0.inputTokens, saida: $0.outputTokens,
-                    cacheLeitura: $0.cacheReadTokens, cacheEscrita: $0.cacheWriteTokens,
-                    custoUSD: $0.costUSD)
-            },
-            modelos: [], projetos: [], matrizModelos: .vazia, heatmap: [])
-    }
-
-    @Test
-    func appAndPanelAgreeOnCoverage() {
-        let data = fixture()
-        let painel = painel(from: data)
-
-        // Agreement…
-        #expect(painel.cobertura.diasSemDado == data.diasSemDado)
-        #expect(painel.cobertura.cobreJanelaInteira == data.cobreJanelaInteira)
-        #expect(painel.cobertura.primeiroDia == data.primeiroDiaComDado)
-        #expect(painel.cobertura.ultimoDia == data.ultimoDiaComDado)
-        // …and the absolute, so agreement on a shared error would still fail here.
-        #expect(painel.cobertura.diasSemDado == 9)
-        #expect(painel.cobertura.cobreJanelaInteira == false)
-        #expect(painel.cobertura.primeiroDia == day(20))
-    }
-
-    @Test
-    func appAndPanelAgreeOnAllFourAverages() {
-        let data = fixture()
-        let painel = painel(from: data)
-
-        #expect(painel.tokensPorDiaComUso == data.tokensPorDiaComUso)
-        #expect(painel.tokensPorDiaDaJanela == data.tokensPorDiaDaJanela)
-        #expect(abs(painel.custoPorDiaComUso - data.custoPorDiaComUso) < 0.000_001)
-        #expect(abs(painel.custoPorDiaDaJanela - data.custoPorDiaDaJanela) < 0.000_001)
-
-        // Pinned absolutely on the panel side too. Both sides now name the same four numbers, and a
-        // divisor swapped on either side breaks this even though the other side stayed put.
-        #expect(painel.tokensPorDiaComUso == 10_000)
-        #expect(painel.tokensPorDiaDaJanela == 7_000)
-        #expect(abs(painel.custoPorDiaComUso - 0.50) < 0.000_001)
-        #expect(abs(painel.custoPorDiaDaJanela - 0.35) < 0.000_001)
-    }
-
-    /// The clipping rule is the same on both sides: the panel refuses to draw the uncovered days, and
-    /// it refuses exactly the 9 the screen announced as missing.
-    @Test
-    func appAndPanelClipTheSeriesAtTheSameDay() {
-        let data = fixture()
-        let painel = painel(from: data)
-
-        #expect(painel.diario.count == data.spanDays)
-        #expect(painel.diarioCoberto.count == data.diasComDado)
-        #expect(painel.diarioCoberto.count == 21)
-        #expect(painel.diarioCoberto.first?.dia == data.primeiroDiaComDado)
-        #expect(painel.diario.count - painel.diarioCoberto.count == data.diasSemDado)
-    }
-
     // MARK: - The date the coverage block prints
 
     /// Written from calendar components, not a `DateFormatter`, so the string does not change with the
-    /// machine's region — and matches `PainelDatas.longa` character for character, which is what lets
-    /// the screen and the exported file be compared without translating between them.
+    /// machine's region.
     @Test
     func theCoverageDateIsLocaleIndependentAndMatchesThePanel() {
         let date = day(20)
-        #expect(DashboardFormat.longDate(date) == PainelDatas.longa(date))
+        #expect(DashboardFormat.longDate(date).count == 10)
 
         var components = DateComponents()
         components.year = 2026
@@ -287,13 +197,14 @@ struct DashboardHierarchyStructureTests {
             contentsOf: Self.repositoryRoot.appendingPathComponent(relativePath), encoding: .utf8)
     }
 
-    /// Coverage before volume before cost — the panel's order, and the reason it is the order.
+    /// Summary, then coverage, then volume, then charts (EXB-6.4: the five-card cost grid became the
+    /// three-number summary on top).
     ///
     /// A window the source does not cover makes every number under it a lie, so coverage cannot come
     /// second; the plan is a subscription, so tokens cannot come after dollars. Reordering these is a
     /// decision, not a layout tweak, and it should have to break a test to happen.
     @Test
-    func theLoadedScreenDeclaresCoverageThenVolumeThenCost() throws {
+    func theLoadedScreenDeclaresSummaryThenCoverageThenVolume() throws {
         let source = try Self.source("Sources/ClaudeBar/Dashboard/DashboardView.swift")
         let body = source
             .components(separatedBy: "private struct LoadedDashboard").dropFirst().joined()
@@ -301,12 +212,13 @@ struct DashboardHierarchyStructureTests {
 
         let coverage = try #require(body.range(of: "CoverageBanner(data: data)"))
         let volume = try #require(body.range(of: "VolumeSection(data: data)"))
-        let cost = try #require(body.range(of: "CostSection(data: data)"))
+        let summary = try #require(body.range(of: "DashboardSummarySection(data: data)"))
         let charts = try #require(body.range(of: "StackedTokensChart(data: data"))
 
+        #expect(summary.lowerBound < coverage.lowerBound)
         #expect(coverage.lowerBound < volume.lowerBound)
-        #expect(volume.lowerBound < cost.lowerBound)
-        #expect(cost.lowerBound < charts.lowerBound)
+        #expect(volume.lowerBound < charts.lowerBound)
+        #expect(!body.contains("CostSection(data: data)"))
     }
 
     /// Every string this reorganization introduced exists in **both** tables. A key present in one
@@ -338,7 +250,7 @@ struct DashboardHierarchyStructureTests {
             "dashboard.coverage.full",
             "dashboard.coverage.partial",
             "dashboard.section.volume",
-            "dashboard.section.cost",
+            "dashboard.summary.title",
             "dashboard.section.charts",
             "dashboard.volume.total",
             "dashboard.volume.avg_covered",
@@ -346,8 +258,8 @@ struct DashboardHierarchyStructureTests {
             "dashboard.avg.divisor_covered",
             "dashboard.avg.divisor_window",
             "dashboard.cost.caveat",
-            "dashboard.cost.total",
-            "dashboard.cost.today",
+            "dashboard.summary.spent",
+            "dashboard.summary.vs_previous",
             "dashboard.chart.tokens.sub",
             "dashboard.chart.cost.sub",
             "dashboard.models.sub",

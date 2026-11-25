@@ -26,6 +26,14 @@ struct DashboardSpan: Equatable, Hashable, Sendable {
         Swift.max(1, (calendar.dateComponents([.day], from: inicio, to: fim).day ?? 0) + 1)
     }
 
+    /// The stretch of the same length that ends the day before this one starts (EXB-6.4).
+    func anterior(calendar: Calendar = .current) -> DashboardSpan {
+        let dias = self.dias(calendar: calendar)
+        let fim = calendar.date(byAdding: .day, value: -1, to: inicio) ?? inicio
+        let inicioAnterior = calendar.date(byAdding: .day, value: -(dias - 1), to: fim) ?? fim
+        return DashboardSpan(inicio: inicioAnterior, fim: fim, calendar: calendar)
+    }
+
     /// The range to hand to `CostScanner.analytics(in:)`.
     var intervalo: ClosedRange<Date> { self.inicio...self.fim }
 

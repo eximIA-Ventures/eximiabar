@@ -631,7 +631,7 @@ struct DashboardRepresentacoesEstruturaTests {
         let source = try Self.view()
 
         let card = source
-            .components(separatedBy: "private struct MetricCard: View").dropFirst().joined()
+            .components(separatedBy: "struct MetricCard: View").dropFirst().joined()
             .components(separatedBy: "/// Today against every day").first ?? ""
         #expect(card.contains("var distribuicao: DistribuicaoDiaria?"))
         #expect(card.contains("DiaEntreParesStrip(distribuicao: distribuicao)"))
@@ -642,23 +642,26 @@ struct DashboardRepresentacoesEstruturaTests {
         #expect(!tela.contains("DiaEntreParesStrip"))
     }
 
-    /// The two new sections that ARE sections sit where they were placed: the curve under the table it
-    /// reads out of, the calendar beside the other grid.
+    /// EXB-6.4: the Pareto reading is a column of the project table (no chart of its own), and the
+    /// heatmap and the yearly calendar are one block with a granularity toggle.
     @Test
-    func theTwoNewSectionsSitWhereTheyWerePlaced() throws {
+    func paretoIsAColumnAndTheTwoGridsAreOneBlock() throws {
         let source = try Self.view()
         let tela = source
             .components(separatedBy: "private struct LoadedDashboard").dropFirst().joined()
-            .components(separatedBy: "// MARK: - Coverage banner").first ?? ""
-
+            .components(separatedBy: "// MARK: - Summary (EXB-6.4)").first ?? ""
+        #expect(!tela.contains("ProjectParetoChart"))
+        #expect(!tela.contains("ProjectFlowChart"))
+        #expect(!tela.contains("AnnualCalendarChart("))
         let tabela = try #require(tela.range(of: "ProjectBreakdownTable(rows:"))
-        let pareto = try #require(tela.range(of: "ProjectParetoChart(curva:"))
-        let heatmap = try #require(tela.range(of: "ActivityHeatmapChart(data: data)"))
-        let calendario = try #require(tela.range(of: "AnnualCalendarChart("))
+        let grade = try #require(tela.range(of: "ActivityGridSection(data: data)"))
+        #expect(tabela.lowerBound < grade.lowerBound)
 
-        #expect(tabela.lowerBound < pareto.lowerBound)
-        #expect(pareto.lowerBound < heatmap.lowerBound)
-        #expect(heatmap.lowerBound < calendario.lowerBound)
+        let bloco = source
+            .components(separatedBy: "struct ActivityGridSection").dropFirst().joined()
+            .components(separatedBy: "// MARK: - Coverage banner").first ?? ""
+        #expect(bloco.contains("AnnualCalendarChart(grade: CalendarioAnual(entradas: data.diasCobertos, fim: fim))"))
+        #expect(bloco.contains("ActivityHeatmapChart(data: data)"))
     }
 
     /// The calendar's axes are **categorical**. With a numeric axis Swift Charts hands `RectangleMark`
@@ -766,13 +769,6 @@ struct DashboardRepresentacoesEstruturaTests {
         }
 
         let introduzidas: Set<String> = [
-            "dashboard.pareto.title",
-            "dashboard.pareto.sub",
-            "dashboard.pareto.crossing",
-            "dashboard.pareto.threshold",
-            "dashboard.pareto.axis.rank",
-            "dashboard.pareto.axis.share",
-            "dashboard.pareto.empty",
             "dashboard.models_by_day.mode.absolute",
             "dashboard.models_by_day.mode.share",
             "dashboard.models_by_day.sub.share",
@@ -803,7 +799,6 @@ struct DashboardRepresentacoesEstruturaTests {
     @Test
     func thePlaceholderCarryingSentencesKeepTheirArguments() throws {
         let esperado: [String: [String]] = [
-            "dashboard.pareto.crossing": ["%1$d", "%2$d", "%3$d"],
             "dashboard.calendar.painted": ["%1$d", "%2$d"],
             "dashboard.calendar.legend.scale": ["%d"],
             "dashboard.today.distribution.with_today": ["%1$@", "%2$d", "%3$d"],

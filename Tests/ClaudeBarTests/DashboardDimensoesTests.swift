@@ -557,122 +557,6 @@ struct CascataMensalTests {
     }
 }
 
-// MARK: - V3 · Project composition flow
-
-/// EXB-6.1 V3 — "which project **rose**", which is not "which project is big".
-struct FluxoDeProjetosTests {
-    private let outros = "Outros"
-    private let rankeados = ["alfa", "beta", "gama"]
-
-    private func fluxo(_ linhas: [DayProjectEntry], agregados: Int = 0, eixo: [Date] = []) -> FluxoDeProjetos {
-        FluxoDeProjetos(
-            porDiaProjeto: linhas, rankeados: rankeados,
-            projetosAgregados: agregados, rotuloDoAgregado: outros, eixo: eixo)
-    }
-
-    /// **The gate.** The colour a band gets is its position in the archive-wide ranking, and it does
-    /// not move when the slice drops the band above it. Recomputing a top-N over the slice is what
-    /// makes the same colour a different project halfway through a drag — the band appears to grow
-    /// when it has merely changed owner, which is a lie told in the exact channel the chart uses to
-    /// answer its question.
-    @Test
-    func aBandKeepsItsGlobalRankWhenTheSliceDropsTheBandAboveIt() {
-        let comAlfa = fluxo([
-            Base.linha(Base.dia(2026, 8, 1), "alfa", 900),
-            Base.linha(Base.dia(2026, 8, 1), "beta", 300),
-            Base.linha(Base.dia(2026, 8, 2), "alfa", 800),
-            Base.linha(Base.dia(2026, 8, 2), "beta", 400),
-        ])
-        // The same window, dragged so that "alfa" has no volume in it at all.
-        let semAlfa = fluxo([
-            Base.linha(Base.dia(2026, 8, 3), "beta", 300),
-            Base.linha(Base.dia(2026, 8, 4), "beta", 400),
-        ])
-
-        let betaCom = try! #require(comAlfa.bandas.first { $0.nome == "beta" })
-        let betaSem = try! #require(semAlfa.bandas.first { $0.nome == "beta" })
-        #expect(betaCom.ordemGlobal == 1)
-        #expect(betaSem.ordemGlobal == 1)        // NOT 0 — the array shortened, the rank did not
-        #expect(semAlfa.bandas.count == 1)       // the array really did shorten
-        #expect(comAlfa.bandas.count == 2)
-        // And the ranking's own order is preserved, never re-sorted by the slice's volumes.
-        #expect(comAlfa.bandas.map(\.nome) == ["alfa", "beta"])
-    }
-
-    /// Every day's bands add up to that day's real total, aggregate included. The aggregate is a
-    /// **sum**, so the stack height is comparable with every other total on the panel; discarding the
-    /// tail instead would make this chart quietly smaller than the rest of the screen.
-    @Test
-    func theBandsOfADayAddUpToTheDaysRealTotal() {
-        let dia = Base.dia(2026, 8, 1)
-        let linhas = [
-            Base.linha(dia, "alfa", 500),
-            Base.linha(dia, "beta", 300),
-            Base.linha(dia, "", 220, agregado: true),
-            // A project outside the ranking: the fold should never emit one, and if it does the row
-            // is summed into the aggregate rather than dropped.
-            Base.linha(dia, "forasteiro", 80),
-        ]
-        let f = fluxo(linhas, agregados: 4)
-
-        #expect(f.total(em: dia) == 1_100)
-        let agregado = try! #require(f.pontos.first { $0.banda == outros && $0.dia == dia })
-        #expect(agregado.tokens == 300)          // 220 + 80, summed rather than discarded
-        #expect(f.truncado)
-        #expect(f.projetosAgregados == 4)
-    }
-
-    /// The distortion this chart cannot design away, and the mitigation that answers it: a band that
-    /// did not move reads as **zero** change in the tooltip even while the band beneath it doubles and
-    /// visibly lifts it up the plot.
-    @Test
-    func aFlatBandReportsZeroChangeEvenWhenTheBandBelowItDoubles() {
-        let d1 = Base.dia(2026, 8, 1), d2 = Base.dia(2026, 8, 2)
-        let f = fluxo([
-            Base.linha(d1, "alfa", 1_000), Base.linha(d1, "beta", 500),
-            Base.linha(d2, "alfa", 2_000), Base.linha(d2, "beta", 500),
-        ])
-
-        let linhasDoDia2 = f.linhas(em: d2)
-        let beta = try! #require(linhasDoDia2.first { $0.banda == "beta" })
-        let alfa = try! #require(linhasDoDia2.first { $0.banda == "alfa" })
-        #expect(beta.variacao == 0)              // flat, and said to be flat
-        #expect(alfa.variacao == 1_000)
-        #expect(beta.tokens == 500)
-        // On the first day of the axis there is no previous day, and the tooltip says so rather than
-        // reporting a change of zero — which would assert a stability nobody measured.
-        #expect(f.linhas(em: d1).allSatisfy { $0.variacao == nil })
-    }
-
-    /// A covered day with no activity is drawn as a real zero, not left off the axis. Omitting it
-    /// would let the stacked area interpolate straight across the gap — a smooth ramp over a day that
-    /// measured nothing.
-    @Test
-    func aCoveredDayWithNoRowsIsAZeroOnTheAxisNotAHole() {
-        let d1 = Base.dia(2026, 8, 1), d2 = Base.dia(2026, 8, 2), d3 = Base.dia(2026, 8, 3)
-        let f = fluxo(
-            [Base.linha(d1, "alfa", 1_000), Base.linha(d3, "alfa", 1_000)],
-            eixo: [d1, d2, d3])
-
-        #expect(f.dias == [d1, d2, d3])
-        #expect(f.total(em: d2) == 0)
-        #expect(f.pontos.filter { $0.dia == d2 }.count == f.bandas.count)
-        // Without an axis the middle day would simply not exist — which is the defect, stated.
-        let semEixo = fluxo([Base.linha(d1, "alfa", 1_000), Base.linha(d3, "alfa", 1_000)])
-        #expect(semEixo.dias == [d1, d3])
-    }
-
-    /// Nothing to draw is nothing to draw: one day is not a flow, and an all-zero slice is not one
-    /// either.
-    @Test
-    func aSingleDayOrAnAllZeroSliceDoesNotDraw() {
-        let d1 = Base.dia(2026, 8, 1), d2 = Base.dia(2026, 8, 2)
-        #expect(fluxo([Base.linha(d1, "alfa", 1_000)]).vaiDesenhar == false)
-        #expect(fluxo([Base.linha(d1, "alfa", 0), Base.linha(d2, "alfa", 0)]).vaiDesenhar == false)
-        #expect(fluxo([Base.linha(d1, "alfa", 1), Base.linha(d2, "alfa", 2)]).vaiDesenhar)
-    }
-}
-
 // MARK: - The view model actually carries the grain
 
 /// The three charts above are pure functions of fields `DashboardData` did not use to have. This is
@@ -777,9 +661,6 @@ struct RotulosDasDimensoesTests {
         "dashboard.cascade.clip.both", "dashboard.cascade.refuse.pair",
         "dashboard.cascade.refuse.thin", "dashboard.cascade.others.count",
         "dashboard.cascade.others.aggregate",
-        "dashboard.flow.title", "dashboard.flow.sub", "dashboard.flow.axis", "dashboard.flow.others",
-        "dashboard.flow.truncated", "dashboard.flow.tooltip.total",
-        "dashboard.flow.tooltip.first_day", "dashboard.flow.empty",
     ]
 
     /// "1 sessions · median 139.6K" is what the first render actually produced, and the thin case is

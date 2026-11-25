@@ -208,10 +208,9 @@ struct DashboardVizRenderer {
     func renderizaAsQuatroRepresentacoes() throws {
         var escritos: [String: NSSize] = [:]
 
-        // G1 — the curve over the real 101-project tail.
-        let curva = ParetoCurva(projetos: Self.projetosReais())
+        // G1 — the Pareto reading now lives in the project table's cumulative column (EXB-6.4).
         escritos["g1-pareto"] = try Self.escrever(
-            ProjectParetoChart(curva: curva), largura: Self.larguraUtil, nome: "g1-pareto")
+            ProjectBreakdownTable(rows: Self.projetosReais()), largura: Self.larguraUtil, nome: "g1-pareto")
 
         // G2 — the same chart in both states of its own toggle, so the alternation is comparable.
         let dados30 = Self.dados(dias: 30)

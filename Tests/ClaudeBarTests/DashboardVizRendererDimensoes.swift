@@ -213,30 +213,17 @@ struct DashboardVizRendererDimensoes {
             largura: DashboardVizRenderer.larguraUtil,
             nome: "v2-cascata-recusa")
 
-        // V3 — ninety days of drifting composition, nine bands, at 720pt.
-        let fluxo = FluxoDeProjetos(
-            porDiaProjeto: Self.noventaDiasPorProjeto(),
-            rankeados: Self.projetos,
-            projetosAgregados: 93,
-            rotuloDoAgregado: L("dashboard.flow.others"))
-        escritos["v3-fluxo"] = try DashboardVizRenderer.escrever(
-            ProjectFlowChart(fluxo: fluxo),
-            largura: DashboardVizRenderer.larguraUtil,
-            nome: "v3-fluxo-projetos")
-
         for (nome, tamanho) in escritos.sorted(by: { $0.key < $1.key }) {
             print("VIZ \(nome): \(Int(tamanho.width))×\(Int(tamanho.height))px")
             #expect(tamanho.width > 0 && tamanho.height > 0, "\(nome) rendered empty")
         }
-        #expect(escritos.count == 6)
+        #expect(escritos.count == 5)
 
         // The fixtures have to contain what the renders claim to show, or the pictures are of
         // something else. Checked here rather than trusted, because a fixture that quietly lost its
         // shape produces a perfectly pretty chart of nothing in particular.
         #expect(cascata.vaiDesenhar)
         #expect(recusada.recusa != nil)
-        #expect(fluxo.bandas.count == 9)          // eight ranked plus the aggregate
-        #expect(fluxo.dias.count == 90)
         #expect(Self.histograma(sessoes).totalDeSessoes == 208)
         // The band the tooltip was opened on has names to show — otherwise that PNG is a picture of
         // an empty box presented as evidence of a feature.

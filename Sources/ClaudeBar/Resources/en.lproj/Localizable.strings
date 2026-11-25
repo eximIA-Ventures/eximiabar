@@ -107,15 +107,6 @@
 "dashboard.export.csv"             = "Export CSV";
 
 // EXB-6.8 — the export button offers three formats, chosen in the save panel's accessory
-"dashboard.export"                 = "Export…";
-"dashboard.export.format"          = "Format:";
-"dashboard.export.format.csv"      = "CSV";
-"dashboard.export.format.xlsx"     = "Spreadsheet";
-"dashboard.export.format.pack"     = "Package";
-"dashboard.export.hint.csv"        = "Raw daily data, one row per day.";
-"dashboard.export.hint.xlsx"       = "Excel workbook: sheets, charts and the caveats inside the file.";
-"dashboard.export.hint.pack"       = "Interactive panel + workbook + tidy CSVs + Power BI connection file.";
-"dashboard.export.period"          = "Exporting: %@";
 "dashboard.export.failed"          = "The export could not be written.";
 
 "dashboard.summary.avg_daily"      = "Daily average";
@@ -402,7 +393,6 @@
 
 // Named sections: which quantity is the principal one, and which is an estimate.
 "dashboard.section.volume"         = "Volume, the principal quantity";
-"dashboard.section.cost"           = "Estimated cost, secondary";
 "dashboard.section.charts"         = "Charts";
 
 // Volume.
@@ -414,8 +404,6 @@
 
 // Cost: the caveat travels with the numbers, not in a footnote.
 "dashboard.cost.caveat"            = "An estimate of value consumed. The plan is a subscription, this is not a bill, and the cost does not price cache tokens.";
-"dashboard.cost.total"             = "Estimated cost for the period";
-"dashboard.cost.today"             = "Estimated cost today";
 
 // One sentence per chart, saying what it draws and where its axis starts.
 "dashboard.chart.tokens.sub"       = "Input, output and cache stacked. The axis starts at the first day with data.";
@@ -428,13 +416,6 @@
 /* MARK: - Dashboard: four representations over data that already existed (EXB-5.10) */
 
 // G1 — project concentration curve (Pareto).
-"dashboard.pareto.title"           = "Project concentration";
-"dashboard.pareto.sub"             = "Projects ordered largest to smallest, with the running share of volume. The reading is decisive both ways: a few projects mean attention has an address, many mean there is no lever at the project level.";
-"dashboard.pareto.crossing"        = "%1$d of %2$d projects account for %3$d%% of the volume";
-"dashboard.pareto.threshold"       = "%d%%";
-"dashboard.pareto.axis.rank"       = "Projects, largest to smallest";
-"dashboard.pareto.axis.share"      = "Cumulative volume";
-"dashboard.pareto.empty"           = "No project has volume in this window.";
 
 // G2 — composition normalized to 100%: a toggle on the same chart, not a new section.
 "dashboard.models_by_day.mode.absolute" = "Absolute";
@@ -494,14 +475,6 @@
 "dashboard.cascade.others.aggregate" = "\"Others\" also carries the archive's own aggregate, which already holds the projects outside the eight bands.";
 
 // V3 — project composition flow.
-"dashboard.flow.title"             = "Project flow";
-"dashboard.flow.sub"               = "A stacked area with its baseline pinned at zero, one band per project. The ranking comes from the whole archive, so dragging the period never changes a colour's owner. Each band's base rides on the one below: for a project's own value and its own change, see the hover tooltip.";
-"dashboard.flow.axis"              = "Tokens in the day";
-"dashboard.flow.others"            = "Others";
-"dashboard.flow.truncated"         = "Eight bands by project; the other %d projects in this window are summed into \"Others\".";
-"dashboard.flow.tooltip.total"     = "Total %@";
-"dashboard.flow.tooltip.first_day" = "First day of the axis: there is no previous day to compare with.";
-"dashboard.flow.empty"             = "No project has volume in this window.";
 
 /* EXB-6.3 — what ate the week */
 "dashboard.period.since_reset" = "Since reset";
@@ -518,3 +491,21 @@
 "dashboard.week.agent.main" = "main session";
 "dashboard.week.agent.unnamed" = "sub-agent (unnamed)";
 "dashboard.week.subagents_total" = "Sub-agents together: %d%%";
+
+/* EXB-6.4 — summary, single-metric breakdown, activity grid */
+"dashboard.summary.title" = "Summary";
+"dashboard.summary.spent" = "Spent in the period";
+"dashboard.summary.vs_previous" = "vs previous period";
+"dashboard.summary.vs_previous.note" = "against the %d days before";
+"dashboard.summary.vs_previous.no_base" = "no full previous period";
+"dashboard.summary.vs_previous.up" = "%d%% more";
+"dashboard.summary.vs_previous.down" = "%d%% less";
+"dashboard.summary.vs_previous.flat" = "same as before";
+"dashboard.activity.week" = "Hour × weekday";
+"dashboard.activity.year" = "Year";
+"dashboard.models.metric.tokens" = "Tokens";
+"dashboard.models.metric.cost" = "Cost";
+"dashboard.models.col.cost_share" = "% cost";
+"dashboard.projects.col.share" = "%";
+"dashboard.projects.col.cumulative" = "Cum. %";
+"dashboard.models.sub.cost" = "Ordered by estimated cost. The donut and the table share the same order.";

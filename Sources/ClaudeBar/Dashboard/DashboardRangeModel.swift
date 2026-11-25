@@ -19,9 +19,14 @@ protocol DashboardSource: Sendable {
     /// EXB-6.3: the week's split by project/agent since `desde`. **Reads the disk** — a third door,
     /// called only for `.sinceReset`, and cached per start instant by the range model.
     func atribuirSemana(desde: Date) async -> WeeklyAttribution
+    /// EXB-6.4: the cost of the stretch of equal length just before the one on screen, for the
+    /// summary's variation. In-memory like `fatiar`; `nil` when the source cannot say.
+    func periodoAnterior(_ intervalo: ClosedRange<Date>, now: Date) async -> PeriodoAnterior?
 }
 
 extension DashboardSource {
+    func periodoAnterior(_ intervalo: ClosedRange<Date>, now: Date) async -> PeriodoAnterior? { nil }
+
     /// Sources that cannot attribute (test doubles) answer with an empty week.
     func atribuirSemana(desde: Date) async -> WeeklyAttribution {
         WeeklyAttribution(since: desde, byProject: [], byAgent: [], totalWeight: 0)
@@ -59,6 +64,11 @@ struct CostScannerSource: DashboardSource {
 
     func fatiar(_ intervalo: ClosedRange<Date>, now: Date) async -> UsageAnalytics {
         await scanner.analytics(in: intervalo, now: now)
+    }
+
+    func periodoAnterior(_ intervalo: ClosedRange<Date>, now: Date) async -> PeriodoAnterior? {
+        let analytics = await scanner.analytics(in: intervalo, now: now)
+        return PeriodoAnterior.de(analytics, intervalo: intervalo)
     }
 }
 
@@ -206,6 +216,8 @@ final class DashboardRangeModel {
         let analytics = await source.fatiar(span.intervalo, now: now)
         guard !Task.isCancelled, span == self.span else { return }
         var novos = DashboardData.build(from: analytics, span: span, atalho: atalho, now: now)
+        novos.anterior = await source.periodoAnterior(span.anterior().intervalo, now: now)
+        guard !Task.isCancelled, span == self.span else { return }
         if atalho == .sinceReset {
             let info = semana()
             let desde = info?.inicio ?? span.inicio
